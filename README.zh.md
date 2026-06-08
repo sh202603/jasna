@@ -6,12 +6,20 @@ Jasna 是一个 JAV 马赛克修复工具，提供简洁 GUI、CLI、纯 GPU 处
 
 Jasna 是免费的。支持者会获得一个密钥，用于解锁为本项目训练的额外模型: **unet-4x** 二级放大模型，以及实验性的 **SD 1.5 图像修复**模型。详情见[支持本项目](#支持本项目)。
 
-<img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
+> ### ⚙️ 这是 Jasna 的 `+modi` 分支
+>
+> 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) 的改版构建，新增**帧生成**（`--frame-gen` 2x/4x）和**灵活输出**（HEVC/AV1、8/10-bit、BT.601/709/2020 色彩空间）等改进。
+>
+> - **源码（本分支）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
+> - **与上游的完整变更:** [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)
+> - **范围 — 仅公开（免费）功能。** 支持者模型（**unet-4x** 和 **SD 1.5 图像修复**）以加密检查点形式提供，需用支持者密钥解锁，而解密代码位于**不属于本公开分支**的私有子模块中 —— 因此这些模型**无法在此下载、解密或运行**。它们的上游代码随附但保持 inert（不激活）。如需支持者模型，请使用上游 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) 并成为支持者。其他一切（检测、视频修复、RTX/TVAI 二级修复、导出后操作、AV1、帧生成）均正常工作。
 
+<img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
 
 ## 目录
 
 - [Jasna 能做什么](#jasna-能做什么)
+- [`+modi` 新增功能](#modi-新增功能)
 - [社区](#社区)
 - [要求](#要求)
 - [快速开始](#快速开始)
@@ -34,6 +42,32 @@ Jasna 是免费的。支持者会获得一个密钥，用于解锁为本项目�
 - 可使用可选的[二级修复模型](docs/zh/models.md) — **unet-4x**、**RTX Super Resolution** 或 **Topaz Video AI** — 进一步提升质量，让修复区域更清晰，尤其是大面积马赛克、特写和 4K 视频。
 - 内置原生 GUI 视频播放器，无需生成输出文件即可全屏播放和跳转修复画面。
 - 可将修复后的视频串流到内置浏览器播放器，或支持的 Stash 分支。
+- **`+modi`:** 可输出 HEVC 或 AV1、8/10-bit，并保留 BT.601/709/2020 色彩空间。
+- **`+modi`:** 通过 AI 帧生成（RIFE）实现 2x/4x 帧率提升。
+
+## `+modi` 新增功能
+
+这些功能为 `+modi` 分支专有。完整变更列表见 [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)。
+
+### 灵活输出（编码器 / 位深 / 色彩空间）
+
+此前固定为 HEVC / 10-bit (P010) / BT.709 的输出阶段，现已支持 **AV1**、**8-bit (NV12)** 或 **10-bit**，并保留源的 **BT.601 / BT.709 / BT.2020** 色彩空间。流水线在 GPU 上端到端保持零拷贝。
+
+```bash
+jasna --input input.mp4 --output output.mkv --codec av1 --bit-depth 10
+```
+
+`--codec {hevc,av1}`、`--bit-depth {auto,8,10}`。详情: [docs/CODECS_AND_COLORSPACE_en.md](docs/CODECS_AND_COLORSPACE_en.md)。
+
+### 帧生成（帧率提升）
+
+`--frame-gen {2x,4x}` 通过在源帧之间插入 AI 插值帧（RIFE）来提升输出帧率。仅文件输出（不支持 `--stream`）；音频时间码保持不变，因此时长与同步得以保留。默认以 fp16 运行 —— 实测比 fp32 快约 1.9 倍（1080p 2x, RTX 5060 Ti），视觉效果一致。
+
+```bash
+jasna --input input.mp4 --output output.mkv --frame-gen 2x
+```
+
+后端通过 `--frame-gen-backend {rife,rtx}` 选择（`rife` 为默认且当前可用；`rtx` 等待 NVIDIA 的 `nvidia-vfx` 发布）。详情: [docs/FRAME_GENERATION_en.md](docs/FRAME_GENERATION_en.md)。
 
 ## 社区
 
@@ -94,6 +128,10 @@ jasna --input input_folder --output output_folder
 - **[流媒体](docs/zh/streaming.md)** — 在浏览器中或通过 Stash 实时观看修复后的视频。
 - **[CLI 参考](docs/zh/cli.md)** — 所有命令行选项，包括 `--cq`、输出模板、各编解码器的编码器设置和导出后操作。
 - **[从源代码运行](docs/en/development.md)** — 开发者环境搭建和构建说明。
+
+> **`+modi` 构建指南:** 本分支构建原生 GPU 库并**从源码运行** Jasna。没有公开的打包/冻结二进制 —— 打包工具位于私有的 `jasna/protection` 子模块中（与上游相同）。涵盖 CUDA 13.0 工具链、原生库、ffmpeg 8 / mkvmerge 和 TensorRT 引擎设置的分步指南:
+> - Linux: [docs/BUILDING_LINUX_en.md](docs/BUILDING_LINUX_en.md)（[日本語](docs/BUILDING_LINUX_ja.md)）
+> - Windows: [docs/BUILDING_WINDOWS_en.md](docs/BUILDING_WINDOWS_en.md)（[日本語](docs/BUILDING_WINDOWS_ja.md)）
 
 ## 基准测试
 
