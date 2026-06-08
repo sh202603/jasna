@@ -11,10 +11,12 @@ from jasna.framegen.frame_gen_writer import FrameGenWriter
 class FakeWriter:
     def __init__(self):
         self.written: list[tuple[object, int]] = []
+        self.luts: list[bool] = []
         self.closed = False
 
-    def write(self, frame, pts):
+    def write(self, frame, pts, *, apply_lut=True):
         self.written.append((frame, pts))
+        self.luts.append(apply_lut)
 
     def after_write(self, frames_written):
         pass
@@ -140,3 +142,14 @@ def test_close_closes_writer_but_not_borrowed_generator():
     fgw.close()
     assert not gen.closed
     assert writer.closed
+
+
+def test_apply_lut_follows_source_frames():
+    writer = FakeWriter()
+    fg = FrameGenWriter(writer, FakeGenerator(), 2)
+    fg.write("a", 0, apply_lut=True)
+    fg.write("b", 10, apply_lut=False)
+    fg.write("c", 20, apply_lut=False)
+    fg.close()
+    # a, a|b, b, b|c, c: an intermediate gets the LUT only when both neighbours do.
+    assert writer.luts == [True, False, False, False, False]
