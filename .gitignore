@@ -67,6 +67,7 @@ CLAUDE.md
 *.pt
 *.pth
 model_weights/
+model_weights.bak/
 dist_windows/
 dist_windows_amd/
 
