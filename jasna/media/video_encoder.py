@@ -5,9 +5,9 @@ import logging
 
 import PyNvVideoCodec as nvc
 from pathlib import Path
-from jasna.media import VideoMetadata
+from jasna.media import VideoMetadata, Colorspace, UnsupportedColorspaceError
 from jasna.media.lut import GpuLutApplier, parse_cube_file
-from jasna.media.rgb_to_p010 import chw_rgb_to_p010_bt709_limited, chw_rgb_to_p010_bt601_limited
+from jasna.media.rgb_to_p010 import chw_rgb_to_surface
 from jasna.os_utils import subprocess_no_window_kwargs
 from jasna.media.audio_utils import audio_codec_args
 import av
@@ -84,7 +84,12 @@ def _extract_hevc_extradata(data: bytes) -> bytes:
     return b''.join(extradata_parts)
 
 
-def mux_hevc_to_mkv(hevc_path: Path, output_path: Path, pts_list, time_base):
+def mux_elementary_to_mkv(raw_path: Path, output_path: Path, pts_list, time_base):
+    """Mux a raw elementary video stream (HEVC/AV1) into MKV with explicit timecodes.
+
+    Codec-agnostic: mkvmerge auto-detects the codec from the elementary stream.
+    """
+    hevc_path = raw_path
     timecodes_path = output_path.with_suffix('.txt')
     with open(timecodes_path, 'w') as f:
         f.write("# timestamp format v4\n")
@@ -109,34 +114,34 @@ def mux_hevc_to_mkv(hevc_path: Path, output_path: Path, pts_list, time_base):
     timecodes_path.unlink()
 
 
-def remux_with_audio_and_metadata(video_input: Path, output_path: Path, metadata: VideoMetadata):
+# Backward-compatible alias (codec-agnostic implementation).
+mux_hevc_to_mkv = mux_elementary_to_mkv
+
+
+def remux_with_audio_and_metadata(video_input: Path, output_path: Path, metadata: VideoMetadata, video_codec: str = "hevc"):
+    # Map the YUV matrix family to ffmpeg color tags: (matrix, primaries, transfer).
+    # HDR transfer (PQ/HLG) is out of scope; for BT.2020 we tag the SDR-wide
+    # transfer bt2020-10 (a valid color_trc) — the matrix name (bt2020nc) is NOT
+    # a valid color_trc value, so matrix and transfer must be kept distinct.
     colorspace_map = {
-        AvColorspace.ITU709: 'bt709',
-        AvColorspace.ITU601: 'smpte170m',
+        Colorspace.BT709: ('bt709', 'bt709', 'bt709'),
+        Colorspace.BT601: ('smpte170m', 'smpte170m', 'smpte170m'),
+        Colorspace.BT2020: ('bt2020nc', 'bt2020', 'bt2020-10'),
     }
     color_range_map = {
         AvColorRange.MPEG: 'tv',
         AvColorRange.JPEG: 'pc',
     }
-    # ITU-T H.273 / ISO 23091-2 code points for the HEVC VUI.
+    # ITU-T H.273 / ISO 23091-2 code points (colour_primaries, transfer, matrix).
     vui_code_map = {
-        AvColorspace.ITU709: 1,
-        AvColorspace.ITU601: 6,  # SMPTE 170M
+        Colorspace.BT709: (1, 1, 1),
+        Colorspace.BT601: (6, 6, 6),    # SMPTE 170M
+        Colorspace.BT2020: (9, 14, 9),  # BT.2020 primaries/matrix, BT.2020-10 transfer
     }
-    ffmpeg_colorspace = colorspace_map.get(metadata.color_space, 'bt709')
+    ffmpeg_matrix, ffmpeg_primaries, ffmpeg_trc = colorspace_map.get(metadata.yuv_colorspace, ('bt709', 'bt709', 'bt709'))
     ffmpeg_color_range = color_range_map.get(metadata.color_range, 'tv')
-    vui_code = vui_code_map.get(metadata.color_space, 1)
+    prim_code, trc_code, mat_code = vui_code_map.get(metadata.yuv_colorspace, (1, 1, 1))
     full_range_flag = 1 if metadata.color_range == AvColorRange.JPEG else 0
-
-    # NVENC bakes a BT.709 description into the HEVC bitstream VUI regardless of
-    # the source. Rewrite the VUI in-place (no re-encode) so the bitstream agrees
-    # with the container color tags set below.
-    hevc_metadata_bsf = (
-        f"hevc_metadata=colour_primaries={vui_code}"
-        f":transfer_characteristics={vui_code}"
-        f":matrix_coefficients={vui_code}"
-        f":video_full_range_flag={full_range_flag}"
-    )
 
     cmd = [
         resolve_executable("ffmpeg"),
@@ -153,16 +158,30 @@ def remux_with_audio_and_metadata(video_input: Path, output_path: Path, metadata
         "1",
         "-c:v",
         "copy",
-        "-bsf:v",
-        hevc_metadata_bsf,
+    ]
+    # NVENC bakes a BT.709 description into the HEVC bitstream VUI regardless of
+    # the source. Rewrite the VUI in-place (no re-encode) so the bitstream agrees
+    # with the container color tags set below. HEVC-only: the hevc_metadata BSF
+    # does not apply to AV1 streams.
+    if str(video_codec).lower() == "hevc":
+        cmd += [
+            "-bsf:v",
+            (
+                f"hevc_metadata=colour_primaries={prim_code}"
+                f":transfer_characteristics={trc_code}"
+                f":matrix_coefficients={mat_code}"
+                f":video_full_range_flag={full_range_flag}"
+            ),
+        ]
+    cmd += [
         "-c:a",
         *audio_codec_args(metadata.video_file, output_path),
         "-color_primaries",
-        ffmpeg_colorspace,
+        ffmpeg_primaries,
         "-color_trc",
-        ffmpeg_colorspace,
+        ffmpeg_trc,
         "-colorspace",
-        ffmpeg_colorspace,
+        ffmpeg_matrix,
         "-color_range",
         ffmpeg_color_range,
     ]
@@ -189,30 +208,58 @@ class NvidiaVideoEncoder:
         encoder_settings: dict[str, object],
         stream_mode: bool = False,
         working_directory: Path | None = None,
+        bit_depth: int | None = None,
         lut_path: str | Path | None = None,
+        output_fps_multiplier: int = 1,
     ):
         self.metadata = metadata
         self.device = device
         self.file = file
         self.output_path = Path(file)
         self.stream_mode = stream_mode
+        self.codec = codec.lower()
+        # Frame generation multiplies the output frame rate. Timing itself is
+        # PTS-driven (mkvmerge timecodes), but NVENC needs the true output fps
+        # for correct GOP/rate-control, and the keyframe interval (gop, in
+        # frames) is scaled to keep roughly the same wall-clock spacing.
+        self.output_fps_multiplier = max(1, int(output_fps_multiplier))
 
         self._lut_applier: GpuLutApplier | None = None
         if lut_path:
             lut = parse_cube_file(lut_path)
             self._lut_applier = GpuLutApplier(lut, device)
 
+        # Bit depth defaults to the source: 10-bit sources → P010, otherwise NV12.
+        # (The restoration pipeline is internally 8-bit RGB, so 10-bit output only
+        # re-packs into a wider container — no information is gained.)
+        self.bit_depth = bit_depth if bit_depth is not None else (10 if metadata.is_10bit else 8)
+        if self.bit_depth not in (8, 10):
+            raise ValueError(f"Unsupported bit depth: {self.bit_depth}")
+        self.colorspace = metadata.yuv_colorspace.value
+        nvenc_fmt = "P010" if self.bit_depth == 10 else "NV12"
+
+        if self.codec == "hevc":
+            profile = "main10" if self.bit_depth == 10 else "main"
+        elif self.codec == "av1":
+            profile = "main"
+        else:
+            raise ValueError(f"Unsupported codec: {self.codec}")
+
         temp_dir = Path(working_directory) if working_directory is not None else self.output_path.parent
         if working_directory is not None:
             temp_dir.mkdir(parents=True, exist_ok=True)
-        bf = 1 if stream_mode else 4 # 1 or 2?
+        # AV1 NVENC does not support B-frames; HEVC uses 1 (stream) / 4 (file).
+        if self.codec == "av1":
+            bf = 0
+        else:
+            bf = 1 if stream_mode else 4 # 1 or 2?
 
         #todo for streaming mode enable tuning low latency, disable qpass
         encoder_options = {
-            'codec': codec,
+            'codec': self.codec,
             'preset': 'P5',
             'tuning_info': 'high_quality',
-            'profile': 'main10',
+            'profile': profile,
             'rc': 'vbr',
             "cq": 25,
             "qmin": 17,
@@ -221,8 +268,8 @@ class NvidiaVideoEncoder:
             # 'constqp': 21,
             'nonrefp': 1,
             # 'multipass': 'qres', # lower psnr
-            'gop': 250,
-            'fps': float(metadata.video_fps_exact),
+            'gop': 250 * self.output_fps_multiplier,
+            'fps': float(metadata.video_fps_exact) * self.output_fps_multiplier,
             "maxbitrate": 0,
             # "maxbitrate": 153600,
             "vbvinit": 0,
@@ -234,7 +281,7 @@ class NvidiaVideoEncoder:
             "initqp": 17,
             'bf': bf,
             'tflevel': 0,
-            "bref": 2 if not stream_mode else 0,
+            "bref": 0 if (self.codec == "av1" or stream_mode) else 2,
         }
 
         if encoder_settings:
@@ -247,7 +294,7 @@ class NvidiaVideoEncoder:
             height=metadata.video_height,
             gpu_id=gpu_id,
             cudastream=self.stream.cuda_stream,
-            fmt="P010",
+            fmt=nvenc_fmt,
             usecpuinputbuffer=False,
             **encoder_options
         )
@@ -263,20 +310,18 @@ class NvidiaVideoEncoder:
         self._encode_thread = threading.Thread(target=self._encode_worker, name="NvidiaVideoEncoderWorker", daemon=True)
         self._encode_thread.start()
 
-        if metadata.color_space not in (AvColorspace.ITU709, AvColorspace.ITU601) or metadata.color_range != AvColorRange.MPEG:
-            raise ValueError(f"Unsupported color space or color range: {metadata.color_space} {metadata.color_range}")
-
-        self._to_p010 = (
-            chw_rgb_to_p010_bt601_limited
-            if metadata.color_space == AvColorspace.ITU601
-            else chw_rgb_to_p010_bt709_limited
-        )
+        # The RGB→YUV conversion emits limited (MPEG) range only; full-range
+        # (JPEG) output is not supported. BT.601/709/2020 matrices are all handled.
+        if metadata.color_range == AvColorRange.JPEG:
+            raise UnsupportedColorspaceError(
+                f"Unsupported color range for encoding: {metadata.color_range} (only limited/MPEG range supported)"
+            )
 
         self.temp_video_path = temp_dir / (self.output_path.stem + '_temp_video' + self.output_path.suffix)
 
         if self.stream_mode:
             dst_file = av.open(str(self.temp_video_path), 'w')
-            out_stream = dst_file.add_stream('hevc', rate=metadata.video_fps_exact)
+            out_stream = dst_file.add_stream(self.codec, rate=metadata.video_fps_exact)
             out_stream.width = metadata.video_width
             out_stream.height = metadata.video_height
             out_stream.time_base = metadata.time_base
@@ -292,7 +337,8 @@ class NvidiaVideoEncoder:
             self.out_stream = out_stream
             self.extradata_set = False
         else:
-            self.hevc_path = temp_dir / (self.output_path.stem + '.hevc')
+            raw_ext = '.obu' if self.codec == 'av1' else '.hevc'
+            self.hevc_path = temp_dir / (self.output_path.stem + raw_ext)
             self.raw_hevc = open(self.hevc_path, "wb")
 
     def __enter__(self):
@@ -320,13 +366,13 @@ class NvidiaVideoEncoder:
 
         if self.stream_mode:
             self.dst_file.close()
-            remux_with_audio_and_metadata(self.temp_video_path, self.output_path, self.metadata)
+            remux_with_audio_and_metadata(self.temp_video_path, self.output_path, self.metadata, self.codec)
             self.temp_video_path.unlink()
         else:
             self.raw_hevc.close()
             mux_hevc_to_mkv(self.hevc_path, self.temp_video_path, self.reordered_pts_queue, self.metadata.time_base)
             self.hevc_path.unlink()
-            remux_with_audio_and_metadata(self.temp_video_path, self.output_path, self.metadata)
+            remux_with_audio_and_metadata(self.temp_video_path, self.output_path, self.metadata, self.codec)
             self.temp_video_path.unlink()
 
         del self.encoder
@@ -391,8 +437,8 @@ class NvidiaVideoEncoder:
         with torch.cuda.stream(self.stream):
             if self._lut_applier is not None:
                 frame = self._lut_applier.apply(frame)
-            p010 = self._to_p010(frame)
-            bitstream = self.encoder.Encode(p010)
+            surface = chw_rgb_to_surface(frame, self.colorspace, self.bit_depth)
+            bitstream = self.encoder.Encode(surface)
 
         if len(bitstream) > 0:
             data = bytearray(bitstream)

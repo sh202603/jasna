@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from av.video.reformatter import Colorspace as AvColorspace, ColorRange as AvColorRange
 
-from jasna.media import VideoMetadata
+from jasna.media import VideoMetadata, Colorspace
 from jasna.media.audio_utils import (
     _INCOMPATIBLE_AUDIO,
     audio_codec_args,
@@ -211,7 +211,11 @@ class TestRemuxWithAudioAndMetadata:
         output_path = tmp_path / "output.mkv"
 
         mock_run.return_value = MagicMock(returncode=0)
-        meta = _fake_metadata(color_space=AvColorspace.ITU601, color_range=AvColorRange.JPEG)
+        meta = _fake_metadata(
+            color_space=AvColorspace.ITU601,
+            color_range=AvColorRange.JPEG,
+            yuv_colorspace=Colorspace.BT601,
+        )
 
         remux_with_audio_and_metadata(video_input, output_path, meta)
 
@@ -233,7 +237,11 @@ class TestRemuxWithAudioAndMetadata:
         output_path = tmp_path / "output.mkv"
 
         mock_run.return_value = MagicMock(returncode=0)
-        meta = _fake_metadata(color_space=AvColorspace.ITU601, color_range=AvColorRange.MPEG)
+        meta = _fake_metadata(
+            color_space=AvColorspace.ITU601,
+            color_range=AvColorRange.MPEG,
+            yuv_colorspace=Colorspace.BT601,
+        )
 
         remux_with_audio_and_metadata(video_input, output_path, meta)
 
@@ -244,6 +252,27 @@ class TestRemuxWithAudioAndMetadata:
             "hevc_metadata=colour_primaries=6:transfer_characteristics=6"
             ":matrix_coefficients=6:video_full_range_flag=0"
         )
+
+    @patch("jasna.media.video_encoder.audio_codec_args", return_value=["copy"])
+    @patch("jasna.media.video_encoder.subprocess_no_window_kwargs", return_value={})
+    @patch("jasna.media.video_encoder.resolve_executable", return_value="ffmpeg")
+    @patch("jasna.media.video_encoder.subprocess.run")
+    def test_success_bt2020(self, mock_run, mock_resolve, mock_si, _codec_args, tmp_path):
+        video_input = tmp_path / "temp.mkv"
+        video_input.touch()
+        output_path = tmp_path / "output.mkv"
+
+        mock_run.return_value = MagicMock(returncode=0)
+        meta = _fake_metadata(yuv_colorspace=Colorspace.BT2020)
+
+        remux_with_audio_and_metadata(video_input, output_path, meta)
+
+        cmd = mock_run.call_args[0][0]
+        # matrix=bt2020nc, primaries=bt2020, transfer=bt2020-10 (matrix name is not a
+        # valid color_trc value, so the three must be distinct)
+        assert cmd[cmd.index("-colorspace") + 1] == "bt2020nc"
+        assert cmd[cmd.index("-color_primaries") + 1] == "bt2020"
+        assert cmd[cmd.index("-color_trc") + 1] == "bt2020-10"
 
     @patch("jasna.media.video_encoder.audio_codec_args", return_value=["copy"])
     @patch("jasna.media.video_encoder.subprocess_no_window_kwargs", return_value={})

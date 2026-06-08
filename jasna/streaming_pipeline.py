@@ -64,12 +64,13 @@ def run_streaming(
     segment_duration: float = 4.0,
     hls_server: HlsStreamingServer | None = None,
 ) -> None:
-    from av.video.reformatter import Colorspace as AvColorspace
+    from av.video.reformatter import ColorRange as AvColorRange
     device = pipeline.device
     metadata = get_video_meta_data(str(pipeline.input_video))
-    if metadata.color_space not in (AvColorspace.ITU709, AvColorspace.ITU601):
+    # BT.601/709/2020 are all supported; only full/JPEG range is rejected (limited-range output only).
+    if metadata.color_range == AvColorRange.JPEG:
         raise UnsupportedColorspaceError(
-            f"Unsupported color space: {metadata.color_space!r} in {pipeline.input_video.name}. Only BT.709 and BT.601 are supported."
+            f"Unsupported color range (full/JPEG) in {pipeline.input_video.name}. Only limited (MPEG/TV) range is supported."
         )
 
     own_server = hls_server is None

@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 
 from jasna import __version__
-from jasna.engine_paths import model_weights_dir
 from jasna.media import UnsupportedColorspaceError
 from jasna.os_utils import (
     check_ascii_install_path,
@@ -80,8 +79,9 @@ def build_parser() -> argparse.ArgumentParser:
     restoration.add_argument(
         "--restoration-model-path",
         type=str,
-        default=str(model_weights_dir() / "lada_mosaic_restoration_model_generic_v1.2.pth"),
-        help="Path to restoration model (default: %(default)s)",
+        default="",
+        help='Path to restoration model. If not set, uses "<model_weights>/lada_mosaic_restoration_model_generic_v1.2.pth". '
+             "model_weights/ is searched in: $JASNA_MODEL_WEIGHTS_DIR, next to the executable (frozen build), CWD, then next to the jasna package.",
     )
     restoration.add_argument(
         "--compile-basicvsrpp",
@@ -258,7 +258,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--detection-model-path",
         type=str,
         default="",
-        help='Optional path to detection weights. If not set, uses "model_weights/<detection-model>.onnx" (RF-DETR) or ".pt" (YOLO).',
+        help='Optional path to detection weights. If not set, uses "<model_weights>/<detection-model>.onnx" (RF-DETR) or ".pt" (YOLO). '
+             "model_weights/ is searched in: $JASNA_MODEL_WEIGHTS_DIR, next to the executable (frozen build), CWD, then next to the jasna package.",
     )
     detection.add_argument(
         "--detection-score-threshold",
@@ -296,7 +297,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--codec",
         type=str,
         default="hevc",
-        help='Output video codec (only "hevc" supported for now)',
+        choices=["hevc", "av1"],
+        help='Output video codec: "hevc" (default) or "av1". AV1 is file-output only.',
+    )
+    encoding.add_argument(
+        "--bit-depth",
+        type=str,
+        default="auto",
+        choices=["auto", "8", "10"],
+        help='Output bit depth: "auto" (match source: 10-bit→P010, else 8-bit NV12), "8", or "10".',
     )
     encoding.add_argument(
         "--encoder-settings",
@@ -315,6 +324,27 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default="",
         help="Path to a .cube color LUT (1D or 3D) applied on GPU before encoding.",
+    )
+    encoding.add_argument(
+        "--frame-gen",
+        type=str,
+        default="none",
+        choices=["none", "2x", "4x"],
+        help='Frame-rate up-conversion: insert AI-interpolated frames to 2x/4x the output fps. File-output only (default: %(default)s)',
+    )
+    encoding.add_argument(
+        "--frame-gen-backend",
+        type=str,
+        default="rife",
+        choices=["rife", "rtx"],
+        help='Frame generation backend: "rife" (neural, works now) or "rtx" (NVIDIA RTX Video Frame Generation, '
+             'pending an nvidia-vfx release that ships the effect) (default: %(default)s)',
+    )
+    encoding.add_argument(
+        "--frame-gen-model-path",
+        type=str,
+        default="",
+        help='Optional path to RIFE weights. If not set, uses "<model_weights>/rife.pth".',
     )
 
     post_export = parser.add_argument_group("Post-export action")
@@ -495,13 +525,30 @@ def main() -> None:
         raise FileNotFoundError(str(detection_model_path))
 
     restoration_model_name = str(args.restoration_model_name)
-    restoration_model_path = Path(args.restoration_model_path)
+    restoration_model_path_arg = str(args.restoration_model_path).strip()
+    if restoration_model_path_arg:
+        restoration_model_path = Path(restoration_model_path_arg)
+    else:
+        from jasna.model_weights_resolver import resolve_model_weights_file
+        restoration_model_path = resolve_model_weights_file("lada_mosaic_restoration_model_generic_v1.2.pth")
     if not restoration_model_path.exists():
         raise FileNotFoundError(str(restoration_model_path))
 
     codec = str(args.codec).lower()
-    if codec != "hevc":
-        raise ValueError(f"Unsupported codec: {codec} (only hevc supported)")
+    if codec not in ("hevc", "av1"):
+        raise ValueError(f"Unsupported codec: {codec} (supported: hevc, av1)")
+    if codec == "av1" and is_streaming:
+        raise ValueError("AV1 is not supported in streaming mode (use hevc)")
+
+    from jasna.framegen import MULTIPLIER_CHOICES
+    frame_gen_name = str(args.frame_gen).lower()
+    frame_gen_multiplier = MULTIPLIER_CHOICES[frame_gen_name]
+    frame_gen_backend = str(args.frame_gen_backend).lower()
+    if frame_gen_multiplier > 1 and is_streaming:
+        raise ValueError("Frame generation (--frame-gen) is file-output only and not supported in streaming mode")
+
+    bit_depth_arg = str(args.bit_depth).lower()
+    bit_depth = None if bit_depth_arg == "auto" else int(bit_depth_arg)
 
     encoder_settings = validate_encoder_settings(parse_encoder_settings(str(args.encoder_settings)))
 
@@ -584,6 +631,17 @@ def main() -> None:
         else:
             raise ValueError(f"Unsupported secondary restoration: {secondary_name}")
 
+        frame_generator = None
+        if frame_gen_multiplier > 1:
+            from jasna.framegen import build_frame_generator
+            fg_model_path = str(args.frame_gen_model_path).strip() or None
+            frame_generator = build_frame_generator(
+                frame_gen_backend,
+                device=device,
+                model_path=fg_model_path,
+                fp16=fp16,
+            )
+
         denoise_strength = DenoiseStrength(str(args.denoise).lower())
         denoise_step = DenoiseStep(str(args.denoise_step).lower())
 
@@ -626,6 +684,9 @@ def main() -> None:
                 disable_progress=args.no_progress,
                 working_directory=working_directory,
                 lut_path=lut_path,
+                bit_depth=bit_depth,
+                frame_gen_multiplier=frame_gen_multiplier,
+                frame_generator=frame_generator,
             )
 
         video_inputs = folder_videos if input_is_dir else ([input_video] if input_video is not None else [])
@@ -701,6 +762,8 @@ def main() -> None:
             restoration_pipeline.restorer.close()
             if secondary_restorer is not None and hasattr(secondary_restorer, "close"):
                 secondary_restorer.close()
+            if frame_generator is not None and hasattr(frame_generator, "close"):
+                frame_generator.close()
 
 
 if __name__ == "__main__":

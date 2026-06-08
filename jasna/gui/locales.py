@@ -223,6 +223,11 @@ TRANSLATIONS = {
         
         # Encoding
         "codec": "Codec",
+        "bit_depth": "Bit Depth",
+        "frame_gen": "Frame Gen",
+        "frame_gen_backend": "FrameGen Backend",
+        "tip_frame_gen": "Insert AI-interpolated frames to raise the output frame rate (2x or 4x). File output only; works with the RIFE backend today.\nDefault: Off",
+        "tip_frame_gen_backend": "Frame generation engine.\nRIFE: neural interpolation, available now.\nRTX: NVIDIA RTX Video Frame Generation — pending a future nvidia-vfx release.\nDefault: RIFE",
         "quality_cq": "Quality (CQ)",
         "custom_args": "Custom Args",
         "post_export_action": "Action",
@@ -553,6 +558,11 @@ TRANSLATIONS = {
         
         # Encoding
         "codec": "编解码器",
+        "bit_depth": "位深度",
+        "frame_gen": "补帧",
+        "frame_gen_backend": "补帧后端",
+        "tip_frame_gen": "插入 AI 补间帧以提高输出帧率（2 倍或 4 倍）。仅限文件输出；当前可使用 RIFE 后端。\n默认：关闭",
+        "tip_frame_gen_backend": "补帧引擎。\nRIFE：神经网络补帧，现已可用。\nRTX：NVIDIA RTX Video Frame Generation —— 等待未来 nvidia-vfx 版本。\n默认：RIFE",
         "quality_cq": "质量 (CQ)",
         "custom_args": "自定义参数",
         "post_export_action": "操作",
@@ -883,6 +893,11 @@ TRANSLATIONS = {
 
         # Encoding
         "codec": "コーデック",
+        "bit_depth": "ビット深度",
+        "frame_gen": "フレーム生成",
+        "frame_gen_backend": "生成バックエンド",
+        "tip_frame_gen": "AI補間フレームを挿入して出力フレームレートを2倍/4倍にします。ファイル出力のみ。現在はRIFEバックエンドで利用可能。\n既定: オフ",
+        "tip_frame_gen_backend": "フレーム生成エンジン。\nRIFE: ニューラル補間、現在利用可能。\nRTX: NVIDIA RTX Video Frame Generation — 将来のnvidia-vfxリリース待ち。\n既定: RIFE",
         "quality_cq": "品質 (CQ)",
         "custom_args": "カスタム引数",
         "post_export_action": "アクション",
@@ -1193,6 +1208,11 @@ TRANSLATIONS = {
 
         # Encoding
         "codec": "코덱",
+        "bit_depth": "비트 심도",
+        "frame_gen": "프레임 생성",
+        "frame_gen_backend": "생성 백엔드",
+        "tip_frame_gen": "AI 보간 프레임을 삽입해 출력 프레임 레이트를 2배/4배로 높입니다. 파일 출력 전용이며 현재 RIFE 백엔드로 사용할 수 있습니다.\n기본값: 끔",
+        "tip_frame_gen_backend": "프레임 생성 엔진.\nRIFE: 신경망 보간, 현재 사용 가능.\nRTX: NVIDIA RTX Video Frame Generation — 향후 nvidia-vfx 릴리스 대기 중.\n기본값: RIFE",
         "quality_cq": "품질 (CQ)",
         "custom_args": "사용자 정의 인수",
         "post_export_action": "작업",
@@ -1505,6 +1525,11 @@ TRANSLATIONS = {
 
         # Encoding
         "codec": "ตัวแปลงสัญญาณ",
+        "bit_depth": "ความลึกบิต",
+        "frame_gen": "สร้างเฟรม",
+        "frame_gen_backend": "แบ็กเอนด์สร้างเฟรม",
+        "tip_frame_gen": "แทรกเฟรมที่ AI ประมาณค่าเพื่อเพิ่มอัตราเฟรมของเอาต์พุต (2 เท่า หรือ 4 เท่า) เฉพาะการส่งออกไฟล์ ใช้งานได้กับแบ็กเอนด์ RIFE ในขณะนี้\nค่าเริ่มต้น: ปิด",
+        "tip_frame_gen_backend": "เอนจินสร้างเฟรม\nRIFE: การประมาณค่าด้วยโครงข่ายประสาท ใช้งานได้แล้ว\nRTX: NVIDIA RTX Video Frame Generation — รอการเปิดตัว nvidia-vfx ในอนาคต\nค่าเริ่มต้น: RIFE",
         "quality_cq": "คุณภาพ (CQ)",
         "custom_args": "อาร์กิวเมนต์กำหนดเอง",
         "post_export_action": "การทำงาน",

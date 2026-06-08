@@ -146,38 +146,65 @@ class TestColorValidation:
                 )
 
 
-class TestColorspaceConverterSelection:
-    def _make_encoder_with_metadata(self, tmp_path, metadata):
-        output_path = tmp_path / "output" / "result.mkv"
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with (
-            patch("jasna.media.video_encoder.nvc") as mock_nvc,
-            patch("jasna.media.video_encoder.threading.Thread", _FakeThread),
-            patch("jasna.media.video_encoder.torch.cuda.Stream", _FakeCudaStream),
-        ):
-            mock_nvc.CreateEncoder.return_value = MagicMock(EndEncode=MagicMock(return_value=[]))
-            import torch
-            enc = NvidiaVideoEncoder(
-                file=str(output_path),
-                device=torch.device("cuda:0"),
-                metadata=metadata,
-                codec="hevc",
-                encoder_settings={},
-                stream_mode=False,
-            )
-        return enc
-
-    def test_bt709_selects_bt709_converter(self, tmp_path):
-        from jasna.media.rgb_to_p010 import chw_rgb_to_p010_bt709_limited
-        enc = self._make_encoder_with_metadata(tmp_path, _fake_metadata(color_space=AvColorspace.ITU709))
-        assert enc._to_p010 is chw_rgb_to_p010_bt709_limited
+def _create_kwargs(tmp_path, *, codec="hevc", bit_depth=None, **meta_overrides):
+    """Construct an encoder with mocked nvc and return the CreateEncoder kwargs + raw temp path."""
+    output_path = tmp_path / "output" / "result.mkv"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    working_dir = tmp_path / "work"
+    working_dir.mkdir(exist_ok=True)
+    with (
+        patch("jasna.media.video_encoder.nvc") as mock_nvc,
+        patch("jasna.media.video_encoder.threading.Thread", _FakeThread),
+        patch("jasna.media.video_encoder.torch.cuda.Stream", _FakeCudaStream),
+    ):
+        mock_nvc.CreateEncoder.return_value = MagicMock(EndEncode=MagicMock(return_value=[]))
+        import torch
+        enc = NvidiaVideoEncoder(
+            file=str(output_path),
+            device=torch.device("cuda:0"),
+            metadata=_fake_metadata(**meta_overrides),
+            codec=codec,
+            encoder_settings={},
+            stream_mode=False,
+            working_directory=working_dir,
+            bit_depth=bit_depth,
+        )
+        kwargs = mock_nvc.CreateEncoder.call_args[1]
+        raw_path = Path(enc.hevc_path)
         enc.raw_hevc.close()
+    return kwargs, raw_path
 
-    def test_bt601_selects_bt601_converter(self, tmp_path):
-        from jasna.media.rgb_to_p010 import chw_rgb_to_p010_bt601_limited
-        enc = self._make_encoder_with_metadata(tmp_path, _fake_metadata(color_space=AvColorspace.ITU601))
-        assert enc._to_p010 is chw_rgb_to_p010_bt601_limited
-        enc.raw_hevc.close()
+
+class TestCodecAndBitDepth:
+    def test_hevc_10bit_default(self, tmp_path):
+        kwargs, raw = _create_kwargs(tmp_path, codec="hevc", is_10bit=True)
+        assert kwargs["fmt"] == "P010"
+        assert kwargs["profile"] == "main10"
+        assert kwargs["codec"] == "hevc"
+        assert raw.suffix == ".hevc"
+
+    def test_hevc_8bit_source(self, tmp_path):
+        kwargs, raw = _create_kwargs(tmp_path, codec="hevc", is_10bit=False)
+        assert kwargs["fmt"] == "NV12"
+        assert kwargs["profile"] == "main"
+
+    def test_bit_depth_override_to_8(self, tmp_path):
+        kwargs, _ = _create_kwargs(tmp_path, codec="hevc", bit_depth=8, is_10bit=True)
+        assert kwargs["fmt"] == "NV12"
+        assert kwargs["profile"] == "main"
+
+    def test_av1_profile_no_bframes_and_obu_ext(self, tmp_path):
+        kwargs, raw = _create_kwargs(tmp_path, codec="av1", is_10bit=True)
+        assert kwargs["codec"] == "av1"
+        assert kwargs["profile"] == "main"
+        assert kwargs["fmt"] == "P010"
+        assert kwargs["bf"] == 0
+        assert kwargs["bref"] == 0
+        assert raw.suffix == ".obu"
+
+    def test_bad_bit_depth_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="bit depth"):
+            _create_kwargs(tmp_path, codec="hevc", bit_depth=12)
 
 
 class TestEncode:

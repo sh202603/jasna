@@ -13,6 +13,7 @@ from jasna.media import (
     is_stream_10bit,
     get_video_meta_data,
     VideoMetadata,
+    Colorspace,
 )
 
 
@@ -178,6 +179,32 @@ class TestGetVideoMetaData:
         assert meta.is_10bit is False
         assert meta.color_range == AvColorRange.MPEG
         assert meta.color_space == AvColorspace.ITU709
+        assert meta.yuv_colorspace == Colorspace.BT709
+
+    @patch("jasna.media.resolve_executable", return_value="ffprobe")
+    @patch("jasna.media.subprocess.Popen")
+    def test_bt601_colorspace(self, mock_popen, mock_resolve):
+        proc = MagicMock()
+        proc.communicate.return_value = (self._make_ffprobe_output(color_space="smpte170m"), b"")
+        proc.returncode = 0
+        mock_popen.return_value = proc
+
+        meta = get_video_meta_data("test.mp4")
+        assert meta.yuv_colorspace == Colorspace.BT601
+        assert meta.color_space == AvColorspace.ITU601
+
+    @patch("jasna.media.resolve_executable", return_value="ffprobe")
+    @patch("jasna.media.subprocess.Popen")
+    def test_bt2020_colorspace(self, mock_popen, mock_resolve):
+        proc = MagicMock()
+        proc.communicate.return_value = (self._make_ffprobe_output(color_space="bt2020nc"), b"")
+        proc.returncode = 0
+        mock_popen.return_value = proc
+
+        meta = get_video_meta_data("test.mp4")
+        assert meta.yuv_colorspace == Colorspace.BT2020
+        # av's Colorspace has no BT.2020 member; ITU709 is the fallback
+        assert meta.color_space == AvColorspace.ITU709
 
     @patch("jasna.media.resolve_executable", return_value="ffprobe")
     @patch("jasna.media.subprocess.Popen")
@@ -281,6 +308,22 @@ class TestGetVideoMetaData:
         proc = MagicMock()
         proc.communicate.return_value = (
             self._make_ffprobe_output(color_range="jpeg"),
+            b"",
+        )
+        proc.returncode = 0
+        mock_popen.return_value = proc
+
+        meta = get_video_meta_data("test.mp4")
+        assert meta.color_range == AvColorRange.JPEG
+
+    @patch("jasna.media.resolve_executable", return_value="ffprobe")
+    @patch("jasna.media.subprocess.Popen")
+    def test_color_range_pc(self, mock_popen, mock_resolve):
+        # ffprobe reports full range as 'pc' (not 'jpeg'); it must map to JPEG so
+        # the pipeline's full-range guard fires.
+        proc = MagicMock()
+        proc.communicate.return_value = (
+            self._make_ffprobe_output(color_range="pc"),
             b"",
         )
         proc.returncode = 0

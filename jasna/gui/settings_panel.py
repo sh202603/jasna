@@ -954,14 +954,54 @@ class SettingsPanel(ctk.CTkFrame):
         codec_tip.pack(side="left", padx=4)
         Tooltip(codec_tip, get_tooltip("codec"))
         self._widgets["codec"] = ctk.CTkOptionMenu(
-            row1, values=["HEVC"],
+            row1, values=["HEVC", "AV1"],
             fg_color=Colors.BG_CARD, button_color=Colors.BG_CARD,
             button_hover_color=Colors.BORDER_LIGHT, dropdown_fg_color=Colors.BG_CARD,
             text_color=Colors.TEXT_PRIMARY, width=100
         )
         self._widgets["codec"].pack(side="right")
         self._widgets["codec"].set("HEVC")
-        
+
+        bit_depth_label = ctk.CTkLabel(row1, text=t("bit_depth"), text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_NORMAL))
+        bit_depth_label.pack(side="left", padx=(Sizing.PADDING_SMALL, 0))
+        self._widgets["bit_depth"] = ctk.CTkOptionMenu(
+            row1, values=["Auto", "8", "10"],
+            fg_color=Colors.BG_CARD, button_color=Colors.BG_CARD,
+            button_hover_color=Colors.BORDER_LIGHT, dropdown_fg_color=Colors.BG_CARD,
+            text_color=Colors.TEXT_PRIMARY, width=80
+        )
+        self._widgets["bit_depth"].pack(side="right", padx=(0, 8))
+        self._widgets["bit_depth"].set("Auto")
+
+        # Frame generation (frame-rate up-conversion; file-output only)
+        row_fg = ctk.CTkFrame(inner, fg_color="transparent")
+        row_fg.pack(fill="x", pady=(0, Sizing.PADDING_SMALL))
+
+        fg_label = ctk.CTkLabel(row_fg, text=t("frame_gen"), text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_NORMAL))
+        fg_label.pack(side="left")
+        fg_tip = ctk.CTkLabel(row_fg, text="ⓘ", text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_TINY), cursor="hand2")
+        fg_tip.pack(side="left", padx=4)
+        Tooltip(fg_tip, get_tooltip("frame_gen"))
+        self._widgets["frame_gen"] = ctk.CTkOptionMenu(
+            row_fg, values=["Off", "2x", "4x"],
+            fg_color=Colors.BG_CARD, button_color=Colors.BG_CARD,
+            button_hover_color=Colors.BORDER_LIGHT, dropdown_fg_color=Colors.BG_CARD,
+            text_color=Colors.TEXT_PRIMARY, width=80
+        )
+        self._widgets["frame_gen"].pack(side="right")
+        self._widgets["frame_gen"].set("Off")
+
+        fg_backend_label = ctk.CTkLabel(row_fg, text=t("frame_gen_backend"), text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_NORMAL))
+        fg_backend_label.pack(side="left", padx=(Sizing.PADDING_SMALL, 0))
+        self._widgets["frame_gen_backend"] = ctk.CTkOptionMenu(
+            row_fg, values=["RIFE", "RTX"],
+            fg_color=Colors.BG_CARD, button_color=Colors.BG_CARD,
+            button_hover_color=Colors.BORDER_LIGHT, dropdown_fg_color=Colors.BG_CARD,
+            text_color=Colors.TEXT_PRIMARY, width=80
+        )
+        self._widgets["frame_gen_backend"].pack(side="right", padx=(0, 8))
+        self._widgets["frame_gen_backend"].set("RIFE")
+
         # Quality/CQ
         row2 = ctk.CTkFrame(inner, fg_color="transparent")
         row2.pack(fill="x", pady=(0, Sizing.PADDING_SMALL))
@@ -1219,6 +1259,10 @@ class SettingsPanel(ctk.CTkFrame):
             self._widgets["image_restore_freeu"].deselect()
 
         self._widgets["codec"].set(preset.codec.upper())
+        self._widgets["bit_depth"].set(getattr(preset, "bit_depth", "auto").capitalize())
+        _fg = getattr(preset, "frame_gen", "none").lower()
+        self._widgets["frame_gen"].set("Off" if _fg == "none" else _fg)
+        self._widgets["frame_gen_backend"].set(getattr(preset, "frame_gen_backend", "rife").upper())
         self._widgets["encoder_cq"].set(preset.encoder_cq)
         self._widgets["encoder_cq_val"].configure(text=str(preset.encoder_cq))
         self._widgets["encoder_custom_args"].delete(0, "end")
@@ -1399,6 +1443,9 @@ class SettingsPanel(ctk.CTkFrame):
             detection_score_threshold=float(self._widgets["detection_score_threshold"].get()),
             compile_basicvsrpp=self._widgets["compile_basicvsrpp"].get() == 1,
             codec=self._widgets["codec"].get().lower(),
+            bit_depth=self._widgets["bit_depth"].get().lower(),
+            frame_gen=("none" if self._widgets["frame_gen"].get() == "Off" else self._widgets["frame_gen"].get().lower()),
+            frame_gen_backend=self._widgets["frame_gen_backend"].get().lower(),
             encoder_cq=int(self._widgets["encoder_cq"].get()),
             encoder_custom_args=self._widgets["encoder_custom_args"].get(),
             file_conflict=file_conflict,

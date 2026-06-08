@@ -76,11 +76,17 @@ class Pipeline:
         progress_callback: callable | None = None,
         working_directory: Path | None = None,
         lut_path: str | Path | None = None,
+        bit_depth: int | None = None,
+        frame_gen_multiplier: int = 1,
+        frame_generator=None,
     ) -> None:
         self.input_video = input_video
         self.output_video = output_video
         self.codec = str(codec)
         self.encoder_settings = dict(encoder_settings)
+        self.bit_depth = bit_depth
+        self.frame_gen_multiplier = max(1, int(frame_gen_multiplier))
+        self.frame_generator = frame_generator
         self.batch_size = int(batch_size)
         self.device = device
         self.max_clip_size = int(max_clip_size)
@@ -266,12 +272,14 @@ class Pipeline:
         )
 
     def run(self) -> None:
-        from av.video.reformatter import Colorspace as AvColorspace
+        from av.video.reformatter import ColorRange as AvColorRange
         device = self.device
         metadata = get_video_meta_data(str(self.input_video))
-        if metadata.color_space not in (AvColorspace.ITU709, AvColorspace.ITU601):
+        # BT.601/709/2020 are all supported (matrix selected from metadata.yuv_colorspace).
+        # Only full/JPEG range is unsupported: the RGB→YUV conversion emits limited range.
+        if metadata.color_range == AvColorRange.JPEG:
             raise UnsupportedColorspaceError(
-                f"Unsupported color space: {metadata.color_space!r} in {self.input_video.name}. Only BT.709 and BT.601 are supported."
+                f"Unsupported color range (full/JPEG) in {self.input_video.name}. Only limited (MPEG/TV) range is supported."
             )
         secondary_workers = max(1, int(self.restoration_pipeline.secondary_num_workers))
 
@@ -321,8 +329,14 @@ class Pipeline:
             stream_mode=False,
             working_directory=self.working_directory,
             lut_path=self.lut_path,
+            bit_depth=self.bit_depth,
+            output_fps_multiplier=self.frame_gen_multiplier,
         )
         frame_writer = _OfflineFrameWriter(encoder_ctx, encode_heartbeat)
+        if self.frame_gen_multiplier > 1 and self.frame_generator is not None:
+            from jasna.framegen import FrameGenWriter
+            frame_writer = FrameGenWriter(frame_writer, self.frame_generator, self.frame_gen_multiplier)
+            log.info("Frame generation enabled: %dx (%s)", self.frame_gen_multiplier, self.frame_generator.name)
 
         starvation_stats = SecondaryLoopStats()
 

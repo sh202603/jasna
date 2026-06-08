@@ -99,15 +99,18 @@ class AppSettings:
     image_restore_variants: int = 1
 
     # Encoding
-    codec: str = "hevc"
+    codec: str = "hevc"  # hevc, av1 (av1 is file-output only)
+    bit_depth: str = "auto"  # auto (match source), 8, 10
     encoder_cq: int = 22
     encoder_custom_args: str = ""
     lut_path: str = ""
+    frame_gen: str = "none"  # none, 2x, 4x (frame-rate up-conversion, file-output only)
+    frame_gen_backend: str = "rife"  # rife, rtx (rtx pending nvidia-vfx release)
 
     # Post-export action
     post_export_action: str = "none"  # none, shutdown, command
     post_export_command: str = ""
-    
+
     # Output
     output_same_as_input: bool = True
     output_folder: str = ""

@@ -4,6 +4,7 @@ import json
 import logging
 import subprocess
 from dataclasses import dataclass
+from enum import Enum
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
@@ -93,8 +94,20 @@ def validate_encoder_settings(settings: dict[str, object]) -> dict[str, object]:
     return settings
 
 
-class UnsupportedColorspaceError(Exception):
+class UnsupportedColorspaceError(ValueError):
     pass
+
+
+class Colorspace(str, Enum):
+    """YUV matrix family used for RGB↔YUV conversion and color-metadata muxing.
+
+    Distinct from av's ``Colorspace`` enum, which has no BT.2020 member in the
+    bundled PyAV. Values double as the colorspace tokens consumed by
+    ``rgb_to_surface`` and as keys for ffmpeg color-arg mapping.
+    """
+    BT601 = "bt601"
+    BT709 = "bt709"
+    BT2020 = "bt2020"
 
 
 @dataclass
@@ -113,6 +126,9 @@ class VideoMetadata:
     color_space: AvColorspace
     num_frames: int
     is_10bit: bool
+    # YUV matrix family driving encode conversion + remux color args. Carries
+    # BT.2020 which av's color_space field cannot represent.
+    yuv_colorspace: Colorspace = Colorspace.BT709
 
 def _get_frame_count_by_counting(path: str) -> int:
     import cv2
@@ -189,9 +205,23 @@ def get_video_meta_data(path: str) -> VideoMetadata:
     time_base = Fraction(value[0], value[1])
 
     start_pts = json_video_stream.get('start_pts')
-    color_range = AvColorRange.MPEG if 'color_range' not in json_video_stream or json_video_stream['color_range'] == 'tv' else AvColorRange.JPEG if json_video_stream['color_range'] == 'jpeg' else AvColorRange.MPEG
+    # ffprobe reports full range as 'pc' (and 'tv' for limited); the 'jpeg' token
+    # is accepted too for safety. Anything else (absent / 'unknown') is treated as
+    # limited (MPEG), which is what the RGB->YUV conversion emits.
+    color_range = AvColorRange.JPEG if json_video_stream.get('color_range') in ('pc', 'jpeg') else AvColorRange.MPEG
     _cs = json_video_stream.get('color_space', '')
-    color_space = AvColorspace.ITU601 if _cs in ('bt601', 'bt470bg', 'smpte170m') else AvColorspace.ITU709
+    if _cs in ('bt2020nc', 'bt2020c', 'bt2020_ncl', 'bt2020_cl'):
+        yuv_colorspace = Colorspace.BT2020
+        # av's Colorspace has no BT.2020 member; ITU709 is the closest fallback
+        # for the (best-effort) streaming PyAV path. File-mode color args come
+        # from yuv_colorspace.
+        color_space = AvColorspace.ITU709
+    elif _cs in ('bt601', 'bt470bg', 'smpte170m'):
+        yuv_colorspace = Colorspace.BT601
+        color_space = AvColorspace.ITU601
+    else:
+        yuv_colorspace = Colorspace.BT709
+        color_space = AvColorspace.ITU709
 
 
     num_frames = int(json_video_stream.get('nb_frames', 0))
@@ -214,5 +244,6 @@ def get_video_meta_data(path: str) -> VideoMetadata:
         color_space=color_space,
         num_frames=num_frames,
         is_10bit=is_10bit,
+        yuv_colorspace=yuv_colorspace,
     )
     return metadata

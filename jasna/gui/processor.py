@@ -382,6 +382,17 @@ class Processor:
                 total_frames=total,
             ))
 
+        from jasna.framegen import MULTIPLIER_CHOICES
+        frame_gen_multiplier = MULTIPLIER_CHOICES.get(str(settings.frame_gen).lower(), 1)
+        frame_generator = None
+        if frame_gen_multiplier > 1:
+            from jasna.framegen import build_frame_generator
+            frame_generator = build_frame_generator(
+                str(settings.frame_gen_backend).lower(),
+                device=s["device"],
+                fp16=settings.fp16_mode,
+            )
+
         pipeline = None
         try:
             pipeline = Pipeline(
@@ -403,11 +414,16 @@ class Processor:
                 progress_callback=progress_callback,
                 working_directory=s["working_directory"],
                 lut_path=s["lut_path"],
+                bit_depth=(None if str(settings.bit_depth).lower() == "auto" else int(settings.bit_depth)),
+                frame_gen_multiplier=frame_gen_multiplier,
+                frame_generator=frame_generator,
             )
             pipeline.run()
         finally:
             if pipeline is not None:
                 pipeline.close()
+            if frame_generator is not None and hasattr(frame_generator, "close"):
+                frame_generator.close()
             from jasna.tracking.blending import _KERNEL_CACHE
             _KERNEL_CACHE.clear()
             from jasna.media.rgb_to_p010 import _cache as _p010_cache

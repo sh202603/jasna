@@ -43,8 +43,20 @@ def _run_main_with_args(tmp_path, extra_args, *, create_input=True, create_detec
 
 class TestMainValidation:
     def test_bad_codec_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="Unsupported codec"):
+        # argparse rejects unknown codec choices before reaching runtime validation
+        with pytest.raises(SystemExit):
             _run_main_with_args(tmp_path, ["--codec", "h264"])
+
+    def test_av1_streaming_rejected(self, tmp_path):
+        # Reaching the streaming guard (not "Unsupported codec") proves av1 is an
+        # accepted codec; AV1 + streaming is intentionally unsupported.
+        with pytest.raises(ValueError, match="streaming"):
+            _run_main_with_args(tmp_path, ["--codec", "av1", "--stream"])
+
+    def test_frame_gen_streaming_rejected(self, tmp_path):
+        # Frame generation is file-output only; combining it with --stream errors.
+        with pytest.raises(ValueError, match="[Ff]rame generation"):
+            _run_main_with_args(tmp_path, ["--frame-gen", "2x", "--stream"])
 
     def test_batch_size_zero_raises(self, tmp_path):
         with pytest.raises(ValueError, match="batch-size must be > 0"):
