@@ -2,7 +2,7 @@
 
 How to set up the Jasna build dependencies on Linux and run jasna **from source**.
 
-> **This guide covers the `v0.7.1+modi` branch.** It builds jasna against the GPU stack — **torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11** — already pinned in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0`; TensorRT 11 is not yet supported by torch-tensorrt.
+> **This guide covers the `v0.7.2+modi` branch.** It builds jasna against the GPU stack — **torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11** — already pinned in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0`; TensorRT 11 is not yet supported by torch-tensorrt.
 >
 > **New on this branch:** AV1 output, 8-bit (NV12) output, and BT.601/BT.2020 colorspace preservation (see [CODECS_AND_COLORSPACE_en.md](CODECS_AND_COLORSPACE_en.md)); and 2x/4x frame generation via RIFE (see [FRAME_GENERATION_en.md](FRAME_GENERATION_en.md)).
 
@@ -253,7 +253,7 @@ When running from source, ultralytics auto-downloads these on first export if th
 Smoke test:
 
 ```bash
-python -m jasna --version     # -> 0.7.1+modi
+python -m jasna --version     # -> 0.7.2+modi
 python -m jasna --help
 ```
 
@@ -320,7 +320,7 @@ With Sections 1–9 complete, run jasna directly from the source checkout in the
 
 ```bash
 cd "$WORKSPACE/jasna"
-jasna --version              # -> 0.7.1+modi
+jasna --version              # -> 0.7.2+modi
 jasna --help
 jasna --input assets/test_clip1_1080p.mp4 --output /tmp/out.mp4   # process a short clip
 jasna                        # launches the GUI (no args)
