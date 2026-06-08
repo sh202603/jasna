@@ -30,15 +30,22 @@ def _preload_tensorrt_runtime() -> None:
     scope first makes torch_tensorrt bind to the matching runtime; nvvfx then
     happily reuses it.
     """
-    import tensorrt_libs
+    # modi: the TensorRT-RTX flavour has no ``tensorrt_libs``, and nvidia-vfx 0.2.0.0 no longer
+    # ships a TensorRT of its own, so a missing package or library is not an error here.
+    import importlib.util
 
-    libs_dir = os.path.dirname(tensorrt_libs.__file__)
+    spec = importlib.util.find_spec("tensorrt_libs")
+    if spec is None or not spec.submodule_search_locations:
+        return
+    libs_dir = list(spec.submodule_search_locations)[0]
     if sys.platform == "win32":
-        for name in ("nvinfer_10.dll", "nvinfer_plugin_10.dll"):
-            ctypes.WinDLL(os.path.join(libs_dir, name))
+        names, load = ("nvinfer_10.dll", "nvinfer_plugin_10.dll"), ctypes.WinDLL
     else:
-        for name in ("libnvinfer.so.10", "libnvinfer_plugin.so.10"):
-            ctypes.CDLL(os.path.join(libs_dir, name), mode=ctypes.RTLD_GLOBAL)
+        names, load = ("libnvinfer.so.10", "libnvinfer_plugin.so.10"), functools.partial(ctypes.CDLL, mode=ctypes.RTLD_GLOBAL)
+    for name in names:
+        path = os.path.join(libs_dir, name)
+        if os.path.exists(path):
+            load(path)
 
 
 def import_nvvfx() -> ModuleType:

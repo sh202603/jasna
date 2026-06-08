@@ -27,10 +27,16 @@ def test_model_weights_dir_in_dev_is_cwd_relative(monkeypatch) -> None:
 
 
 def test_model_weights_dir_when_frozen_is_next_to_executable(frozen_executable, tmp_path: Path) -> None:
+    # The resolver returns the first *existing* candidate, so the frozen
+    # exe-adjacent dir must exist for it to win over the CWD fallback.
+    (tmp_path / "model_weights").mkdir()
     assert model_weights_dir() == tmp_path / "model_weights"
 
 
 def test_detection_model_weights_path_uses_helper(frozen_executable, tmp_path: Path) -> None:
+    # The resolver returns the first *existing* candidate, so the frozen
+    # exe-adjacent dir must exist for it to win over the CWD fallback.
+    (tmp_path / "model_weights").mkdir()
     p = detection_registry.detection_model_weights_path("rfdetr-v5")
     assert p == tmp_path / "model_weights" / "rfdetr-v5.onnx"
 
