@@ -139,6 +139,8 @@ def build_pipeline(
     progress_callback: Callable | None = None,
     segments: "tuple[SegmentRange, ...] | None" = None,
     splice_plan: "SplicePlan | None" = None,
+    frame_gen_multiplier: int = 1,
+    frame_generator=None,
 ) -> "Pipeline":
     from jasna.pipeline import Pipeline
 
@@ -167,4 +169,6 @@ def build_pipeline(
         segments=segments,
         splice_plan=splice_plan,
         working_dir=config.working_dir,
+        frame_gen_multiplier=frame_gen_multiplier,
+        frame_generator=frame_generator,
     )

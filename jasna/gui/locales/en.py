@@ -285,6 +285,10 @@ EN = {
         
         # Encoding
         "codec": "Codec",
+        "frame_gen": "Frame Gen",
+        "frame_gen_backend": "FrameGen Backend",
+        "tip_frame_gen": "Insert AI-interpolated frames to raise the output frame rate (2x or 4x). File output only; works with the RIFE backend today.\nDefault: Off",
+        "tip_frame_gen_backend": "Frame generation engine.\nRIFE: neural interpolation, available now.\nRTX: NVIDIA RTX Video Frame Generation — pending a future nvidia-vfx release.\nDefault: RIFE",
         "quality_cq": "Quality (CQ)",
         "custom_args": "Custom Args",
         "post_export_action": "Action",
