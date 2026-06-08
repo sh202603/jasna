@@ -2,7 +2,7 @@
 
 Linux で Jasna のビルド依存をセットアップし、**ソースから実行**する手順です。
 
-> **本ガイドは `v0.7.1+modi` ブランチの手順です。** GPU スタック — **torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11** で、これらの依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が **10.16** 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
+> **本ガイドは `v0.7.2+modi` ブランチの手順です。** GPU スタック — **torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11** で、これらの依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が **10.16** 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
 >
 > **このブランチの新機能:** AV1 出力 / 8bit(NV12) 出力 / BT.601・BT.2020 色空間保持（[CODECS_AND_COLORSPACE_ja.md](CODECS_AND_COLORSPACE_ja.md) 参照）、および RIFE による 2x/4x フレーム生成（[FRAME_GENERATION_ja.md](FRAME_GENERATION_ja.md) 参照）。
 
@@ -253,7 +253,7 @@ uv pip install onnx onnxslim onnxruntime
 スモークテスト:
 
 ```bash
-python -m jasna --version     # -> 0.7.1+modi
+python -m jasna --version     # -> 0.7.2+modi
 python -m jasna --help
 ```
 
@@ -320,7 +320,7 @@ grep -n "weights_only=False" .venv/lib/python3.13/site-packages/mmengine/runner/
 
 ```bash
 cd "$WORKSPACE/jasna"
-jasna --version              # -> 0.7.1+modi
+jasna --version              # -> 0.7.2+modi
 jasna --help
 jasna --input assets/test_clip1_1080p.mp4 --output /tmp/out.mp4   # 短いクリップを処理
 jasna                        # GUI を起動（引数なし）
