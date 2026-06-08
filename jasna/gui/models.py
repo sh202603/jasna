@@ -183,7 +183,7 @@ class AppSettings:
     image_restore_variants: int = SD15_DEFAULT_VARIANTS
 
     # Encoding
-    codec: str = DEFAULT_CODEC
+    codec: str = DEFAULT_CODEC  # hevc, av1 (av1 is file-output only)
     encoder_cq: int | None = None
     encoder_custom_args: str = ""
     sharpen_strength: float = 0.0
@@ -191,12 +191,14 @@ class AppSettings:
     retarget_high_fps: bool = False
     frame_generation: str = "none"  # none, 2x
     fmp4: bool = False
+    frame_gen: str = "none"  # none, 2x, 4x (frame-rate up-conversion, file-output only)
+    frame_gen_backend: str = "rife"  # rife, rtx (rtx pending nvidia-vfx release)
 
     # Post-export action
     post_export_action: str = "none"  # none, shutdown, command
     post_export_command: str = ""
     post_export_video_command: str = ""
-    
+
     # Output
     output_folder: str = ""
     output_pattern: str = DEFAULT_OUTPUT_PATTERN

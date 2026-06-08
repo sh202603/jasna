@@ -471,10 +471,28 @@ class Processor:
         if segment_job is not None and segment_job.reencodes_whole_video:
             self._progress(ProgressUpdate(job_id=job_id, status=JobStatus.PROCESSING, resumable=False))
 
+        from jasna.framegen import MULTIPLIER_CHOICES
+        frame_gen_multiplier = MULTIPLIER_CHOICES.get(str(settings.frame_gen).lower(), 1)
+        frame_generator = None
+        if frame_gen_multiplier > 1:
+            from jasna.framegen import build_frame_generator
+            frame_generator = build_frame_generator(
+                str(settings.frame_gen_backend).lower(),
+                device=s.device,
+                fp16=settings.fp16_mode,
+            )
+
         pipeline = None
         try:
             pipeline = build_job_pipeline(
-                config, s, input_path, output_path, segment_job, progress_callback=progress_callback
+                config,
+                s,
+                input_path,
+                output_path,
+                segment_job,
+                progress_callback=progress_callback,
+                frame_gen_multiplier=frame_gen_multiplier,
+                frame_generator=frame_generator,
             )
             self._current_pipeline = pipeline
             if self._stop_event.is_set():
@@ -484,6 +502,8 @@ class Processor:
                 raise ProcessingStopped("Processing stopped")
         finally:
             self._current_pipeline = None
+            if frame_generator is not None and hasattr(frame_generator, "close"):
+                frame_generator.close()
 
     def _prepare_job_detector(
         self,
