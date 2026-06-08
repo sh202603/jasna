@@ -98,7 +98,13 @@ class RestorationPipeline:
         crossfade_weights: dict[int, float] | None,
     ) -> PrimaryRestoreResult:
         resized_crops, enlarged_bboxes, crop_shapes, pad_offsets, resize_shapes = self._prepare_from_raw_crops(raw_crops)
-        primary_raw = self.restorer.raw_process(resized_crops)
+        # raw_process may return a view into the TRT runner's persistent output buffer,
+        # which the next clip's inference overwrites. The copy-out to durable uint8 storage
+        # happens later in the secondary stage (a different thread), so without this clone
+        # the secondary stage can read the *next* clip's data — corrupting the restored
+        # region (the Linux / HAGS-on "chunk movement" race). Clone here on the primary
+        # stream so the read is ordered before the next inference reuses the buffer.
+        primary_raw = self.restorer.raw_process(resized_crops).clone()
         if self._denoise_step is DenoiseStep.AFTER_PRIMARY:
             primary_raw = self._apply_denoise(primary_raw)
 
