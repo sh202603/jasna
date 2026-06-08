@@ -14,28 +14,32 @@ logger = logging.getLogger(__name__)
 def _preload_tensorrt_runtime() -> None:
     """Pin the pip ``tensorrt`` runtime before nvvfx loads its bundled copy.
 
-    nvvfx (NVIDIA Maxine) ships its own TensorRT and loads ``libnvinfer.so.10``
-    with ``RTLD_GLOBAL``. Our BasicVSR++ engines are serialized against the pip
-    ``tensorrt`` (a different version), and TRT engines are version-locked. If
-    nvvfx loads first, its TensorRT symbols win global symbol resolution,
-    torch_tensorrt binds to them, and BasicVSR++ engine deserialization fails
-    with a serialization-version mismatch. Loading the pip libs into the global
-    scope first makes torch_tensorrt bind to the matching runtime; nvvfx then
-    happily reuses it.
+    nvvfx bundles an older TensorRT (libnvinfer.so.10 == 10.9) and loads it with
+    ``RTLD_GLOBAL`` (see nvvfx/_lib_loader.py). Because both share the soname
+    ``libnvinfer.so.10``, ELF symbol resolution uses whichever entered the global
+    scope first. If nvvfx wins, torch-tensorrt binds to 10.9 and fails to
+    deserialize jasna's 10.16-built engines ("Serialized Engine Version" mismatch).
+    Loading tensorrt_libs' 10.16 RTLD_GLOBAL first makes its symbols win. The
+    Windows build does the equivalent via DLL load ordering; this is the Linux
+    counterpart.
     """
-    import tensorrt_libs
-
-    libs_dir = os.path.dirname(tensorrt_libs.__file__)
     if sys.platform == "win32":
-        names = ["nvinfer_10.dll", "nvinfer_plugin_10.dll"]
-        for name in names:
-            ctypes.WinDLL(os.path.join(libs_dir, name))
-    else:
-        names = ["libnvinfer.so.10", "libnvinfer_plugin.so.10"]
-        for name in names:
-            ctypes.CDLL(os.path.join(libs_dir, name), mode=ctypes.RTLD_GLOBAL)
+        return  # Windows handles ordering via windows_dll_paths / tensorrt_libs import
+    import importlib.util
+    try:
+        spec = importlib.util.find_spec("tensorrt_libs")
+        if spec is None or not spec.submodule_search_locations:
+            return
+        libdir = list(spec.submodule_search_locations)[0]
+        for name in ("libnvinfer.so.10", "libnvinfer_plugin.so.10"):
+            path = os.path.join(libdir, name)
+            if os.path.exists(path):
+                ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+    except Exception:
+        logger.debug("Could not pre-load tensorrt_libs before nvvfx", exc_info=True)
 
 
+# Must run before nvvfx is imported anywhere in this module.
 _preload_tensorrt_runtime()
 
 RTX_SUPERRES_INPUT_SIZE = 256
