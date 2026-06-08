@@ -58,14 +58,16 @@ class FirstRunWizard(ctk.CTkToplevel):
         self.configure(fg_color=Colors.BG_MAIN)
 
         self.transient(master)
-        self.wait_visibility()  # X11: window must be viewable before grab_set, else TclError
-        self.grab_set()
         self.protocol("WM_DELETE_WINDOW", lambda: None)
-        self.lift()
-        self.focus_force()
-        
+
         # Build UI immediately with loading state
         self._build_ui_loading()
+
+        # Defer grab_set()/lift()/focus so the widgets are painted first; on
+        # Linux/X11 an early grab_set() can leave a CTkToplevel rendered blank.
+        self.after(200, self.lift)
+        self.after(250, self.grab_set)
+        self.after(260, self.focus_force)
 
         # Let geometry settle, then size to content and center on parent
         self.update_idletasks()

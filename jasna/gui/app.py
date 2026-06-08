@@ -591,13 +591,13 @@ class JasnaApp(ctk.CTk, TkinterDnD.DnDWrapper):
         dialog.transient(self)
         dialog.wait_visibility()  # X11: window must be viewable before grab_set, else TclError
         dialog.grab_set()
-        
+
         # Center on parent
         dialog.update_idletasks()
         x = self.winfo_x() + (self.winfo_width() - 400) // 2
         y = self.winfo_y() + (self.winfo_height() - 250) // 2
         dialog.geometry(f"+{x}+{y}")
-        
+
         ctk.CTkLabel(
             dialog,
             text="Jasna",
@@ -634,6 +634,17 @@ class JasnaApp(ctk.CTk, TkinterDnD.DnDWrapper):
             text_color=Colors.TEXT_PRIMARY,
             command=dialog.destroy,
         ).pack(pady=30)
+
+        # Center on parent, then show/grab after the content is painted.
+        # On Linux/X11 a CTkToplevel can render blank if grab_set() runs before
+        # its child widgets are drawn, so defer lift()/grab_set() to a later tick.
+        dialog.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - 400) // 2
+        y = self.winfo_y() + (self.winfo_height() - 250) // 2
+        dialog.geometry(f"+{x}+{y}")
+        dialog.transient(self)
+        dialog.after(200, dialog.lift)
+        dialog.after(250, dialog.grab_set)
 
 
 class GUILogHandler(logging.Handler):

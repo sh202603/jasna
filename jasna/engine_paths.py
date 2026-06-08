@@ -2,22 +2,22 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 from jasna._frozen import is_frozen
+from jasna.model_weights_resolver import resolve_model_weights_dir
 
 
 def model_weights_dir() -> Path:
     """Resolve the ``model_weights`` directory.
 
-    When running as a frozen executable, models are bundled next to the executable.
-    In a dev / source checkout we fall back to a CWD-relative path so existing dev
-    workflows keep working.
+    Delegates to :func:`jasna.model_weights_resolver.resolve_model_weights_dir`,
+    which searches ``$JASNA_MODEL_WEIGHTS_DIR``, the directory next to a frozen
+    executable (PyInstaller/Nuitka), the CWD, and the package parent (editable / dev
+    installs) in order. Kept as a thin wrapper so existing callers of this name
+    keep working while the resolution logic lives in one place.
     """
-    if is_frozen():
-        return Path(sys.executable).parent / "model_weights"
-    return Path("model_weights")
+    return resolve_model_weights_dir()
 
 
 def engine_system_suffix() -> str:

@@ -1,5 +1,19 @@
 import ctypes
+import importlib.util
+import os
 import sys
+from pathlib import Path
+
+if sys.platform == "win32":
+    _vali_spec = importlib.util.find_spec("python_vali")
+    if _vali_spec and _vali_spec.origin:
+        os.add_dll_directory(str(Path(_vali_spec.origin).parent))
+    _cuda_path = os.environ.get("CUDA_PATH")
+    if _cuda_path:
+        _cuda_bin = os.path.join(_cuda_path, "bin")
+        if os.path.isdir(_cuda_bin):
+            os.add_dll_directory(_cuda_bin)
+
 import torch
 import python_vali as vali
 from jasna.media import VideoMetadata
