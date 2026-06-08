@@ -87,12 +87,16 @@ class Pipeline:
         progress_callback: ProgressCallback | None,
         segments: tuple[SegmentRange, ...] | None,
         splice_plan: SplicePlan | None,
+        frame_gen_multiplier: int = 1,
+        frame_generator=None,
     ) -> None:
         self.input_video = input_video
         self.output_video = output_video
         self.working_dir = config.working_dir
         self.codec = config.codec
         self.encoder_settings = dict(config.encoder_settings)
+        self.frame_gen_multiplier = max(1, int(frame_gen_multiplier))
+        self.frame_generator = frame_generator
         self.batch_size = config.batch_size
         self.device = session.device
         self.max_clip_size = config.max_clip_size
@@ -176,6 +180,10 @@ class Pipeline:
 
         encode_heartbeat: list[float] = [time.monotonic()]
         frame_writer = _OfflineFrameWriter(encoder_ctx, encode_heartbeat)
+        if self.frame_gen_multiplier > 1 and self.frame_generator is not None:
+            from jasna.framegen import FrameGenWriter
+            frame_writer = FrameGenWriter(frame_writer, self.frame_generator, self.frame_gen_multiplier)
+            log.info("Frame generation enabled: %dx (%s)", self.frame_gen_multiplier, self.frame_generator.name)
         try:
             error = run_restoration_pass(
                 self,
@@ -261,7 +269,7 @@ class Pipeline:
             encoder_settings=self.encoder_settings,
             lut_path=self.lut_path,
             sharpen_strength=self.sharpen_strength,
-            output_fps=frame_rate.output_fps,
+            output_fps=frame_rate.output_fps * self.frame_gen_multiplier,
             fmp4=self.fmp4,
         )
 

@@ -468,7 +468,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--detection-model-path",
         type=str,
         default="",
-        help='Optional path to detection weights. If not set, uses "model_weights/<detection-model>.onnx" (RF-DETR) or ".pt" (YOLO).',
+        help='Optional path to detection weights. If not set, uses "<model_weights>/<detection-model>.onnx" (RF-DETR) or ".pt" (YOLO). '
+             "model_weights/ is searched in: $JASNA_MODEL_WEIGHTS_DIR, next to the executable (frozen build), CWD, then next to the jasna package.",
     )
     detection.add_argument(
         "--detection-score-threshold",
@@ -588,6 +589,27 @@ def build_parser() -> argparse.ArgumentParser:
             "Restore only selected ranges and smart-render the rest, for example "
             "10-25,01:10-01:30. Output codec must match the H.264, HEVC, or AV1 input."
         ),
+    )
+    encoding.add_argument(
+        "--frame-gen",
+        type=str,
+        default="none",
+        choices=["none", "2x", "4x"],
+        help='Frame-rate up-conversion: insert AI-interpolated frames to 2x/4x the output fps. File-output only (default: %(default)s)',
+    )
+    encoding.add_argument(
+        "--frame-gen-backend",
+        type=str,
+        default="rife",
+        choices=["rife", "rtx"],
+        help='Frame generation backend: "rife" (neural, works now) or "rtx" (NVIDIA RTX Video Frame Generation, '
+             'pending an nvidia-vfx release that ships the effect) (default: %(default)s)',
+    )
+    encoding.add_argument(
+        "--frame-gen-model-path",
+        type=str,
+        default="",
+        help='Optional path to RIFE weights. If not set, uses "<model_weights>/rife.pth".',
     )
 
     post_export = parser.add_argument_group("Post-export action")
@@ -1002,6 +1024,15 @@ def main() -> None:
     _configure_runtime(args)
 
     folder_images: list[Path] = []
+    from jasna.framegen import MULTIPLIER_CHOICES
+    frame_gen_name = str(args.frame_gen).lower()
+    frame_gen_multiplier = MULTIPLIER_CHOICES[frame_gen_name]
+    frame_gen_backend = str(args.frame_gen_backend).lower()
+    if frame_gen_multiplier > 1 and is_streaming:
+        raise ValueError("Frame generation (--frame-gen) is file-output only and not supported in streaming mode")
+    if frame_gen_multiplier > 1 and segments_spec:
+        raise ValueError("Frame generation (--frame-gen) cannot be combined with --segments smart rendering")
+
     folder_videos: list[Path] = []
     folder_output_dir: Path | None = None
     if input_is_dir:
@@ -1082,10 +1113,30 @@ def main() -> None:
     with device_context(config.device):
         session = build_restoration_session(config, log_callback=None)
 
+        frame_generator = None
+        if frame_gen_multiplier > 1:
+            from jasna.framegen import build_frame_generator
+            fg_model_path = str(args.frame_gen_model_path).strip() or None
+            frame_generator = build_frame_generator(
+                frame_gen_backend,
+                device=session.device,
+                model_path=fg_model_path,
+                fp16=bool(args.fp16),
+            )
+
         def make_pipeline(vid_input: Path, out_path: Path):
             split = None if segments else ltx_auto_split(config, session, vid_input, out_path, progress_callback=None)
             if split is None:
-                return build_pipeline(config, session, vid_input, out_path, segments=segments, splice_plan=splice_plan)
+                return build_pipeline(
+                    config,
+                    session,
+                    vid_input,
+                    out_path,
+                    segments=segments,
+                    splice_plan=splice_plan,
+                    frame_gen_multiplier=frame_gen_multiplier,
+                    frame_generator=frame_generator,
+                )
             split_config = replace(
                 config,
                 codec=split.codec,
@@ -1094,7 +1145,14 @@ def main() -> None:
                 ),
             )
             return build_pipeline(
-                split_config, session, vid_input, out_path, segments=split.segments, splice_plan=split.splice_plan
+                split_config,
+                session,
+                vid_input,
+                out_path,
+                segments=split.segments,
+                splice_plan=split.splice_plan,
+                frame_gen_multiplier=frame_gen_multiplier,
+                frame_generator=frame_generator,
             )
 
         def output_path_for(vid: Path) -> Path:
@@ -1123,6 +1181,8 @@ def main() -> None:
             sys.exit(1)
         finally:
             session.close()
+            if frame_generator is not None and hasattr(frame_generator, "close"):
+                frame_generator.close()
 
 
 if __name__ == "__main__":
