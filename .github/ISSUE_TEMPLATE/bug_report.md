@@ -7,9 +7,15 @@ assignees: ''
 
 ---
 
-! ! ! DO NOT POST NSFW VIDEOS or SCREENSHOTS ! ! !
+! ! ! DO NOT POST NSFW MEDIA OR LINKS ! ! !
+Do not attach, embed, or link to NSFW videos, screenshots, or external
+sites in this issue. GitHub's automated systems may flag and suspend the
+maintainer's account over such content, even when posted in good faith.
+To point at a sample, use a JAV code + timestamp (see "To Reproduce" below)
+instead of a link or an upload.
 Failing to fill this form will result in closing the issue immediately!
-Remove this section
+Remove this section.
+
 
 **Describe the bug**
 A clear and concise description of what the bug is.

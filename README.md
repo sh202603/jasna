@@ -8,11 +8,20 @@ It is inspired by, and in some places based on, [Lada](https://codeberg.org/lada
 
 Jasna is free. Supporters get a key that unlocks the extra models trained for this project: the **unet-4x** secondary upscaler and the experimental **SD 1.5 image restoration** model. See [Supporting the project](#supporting-the-project).
 
+> ### ⚙️ This is the `+modi` fork of Jasna
+>
+> A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna), adding **frame generation** (`--frame-gen` 2x/4x) and **flexible output** (HEVC/AV1, 8/10-bit, BT.601/709/2020 colorspace), among other improvements.
+>
+> - **Source (this fork/branch):** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
+> - **Full list of changes vs upstream:** [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)
+> - **Scope — public (free) features only.** The supporter models (**unet-4x** and **SD 1.5 image restoration**) ship as encrypted checkpoints unlocked by a supporter key, and the decryption code lives in a private submodule that is **not part of this public fork** — so those models **cannot be downloaded, decrypted, or run here**. The upstream code for them rides along but stays inert. If you want the supporter models, use upstream [**Kruk2/jasna**](https://github.com/Kruk2/jasna) and become a supporter. Everything else (detection, video restoration, RTX/TVAI secondary, post-export actions, AV1, frame generation) works normally.
+
 ![Jasna GUI](https://github.com/user-attachments/assets/ae5d9b73-ea22-4263-8203-0ff89bbbcc51)
 
 ## Contents
 
 - [What Jasna Does](#what-jasna-does)
+- [`+modi` Additions](#modi-additions)
 - [Community](#community)
 - [Requirements](#requirements)
 - [Quick Start](#quick-start)
@@ -34,6 +43,32 @@ Jasna is free. Supporters get a key that unlocks the extra models trained for th
 - Reduces clip-boundary flicker with temporal overlap and crossfade.
 - Can use secondary restoration through **unet-4x**, **RTX Super Resolution**, or **Topaz Video AI**.
 - Can stream restored video to the built-in browser player or a supported Stash fork.
+- **`+modi`:** outputs HEVC or AV1, 8/10-bit, with BT.601/709/2020 colorspace preserved.
+- **`+modi`:** 2x/4x frame-rate up-conversion via AI frame generation (RIFE).
+
+## `+modi` Additions
+
+These features are exclusive to the `+modi` fork. See [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md) for the full list of changes against upstream.
+
+### Flexible Output (codec / bit depth / colorspace)
+
+The output stage, previously fixed to HEVC / 10-bit (P010) / BT.709, now supports **AV1**, **8-bit (NV12)** or **10-bit**, and preserves the source **BT.601 / BT.709 / BT.2020** colorspace. The pipeline stays zero-copy on the GPU end to end.
+
+```bash
+jasna --input input.mp4 --output output.mkv --codec av1 --bit-depth 10
+```
+
+`--codec {hevc,av1}`, `--bit-depth {auto,8,10}`. Details: [docs/CODECS_AND_COLORSPACE_en.md](docs/CODECS_AND_COLORSPACE_en.md).
+
+### Frame Generation (frame-rate up-conversion)
+
+`--frame-gen {2x,4x}` raises the output frame rate by inserting AI-interpolated frames (RIFE) between the source frames. File output only (not `--stream`); audio timecodes are kept, so duration and sync are preserved. Runs fp16 by default — measured ~1.9x faster than fp32 (1080p 2x, RTX 5060 Ti) with visually identical output.
+
+```bash
+jasna --input input.mp4 --output output.mkv --frame-gen 2x
+```
+
+Backend via `--frame-gen-backend {rife,rtx}` (`rife` is the default and available now; `rtx` is pending NVIDIA's `nvidia-vfx` release). Details: [docs/FRAME_GENERATION_en.md](docs/FRAME_GENERATION_en.md).
 
 ## Community
 
@@ -288,7 +323,11 @@ Current TODO:
 
 ## Running from Source
 
-Python requirement from `pyproject.toml`: **Python 3.13 or newer**.
+> **`+modi` build guides:** this fork builds the native GPU libraries and runs Jasna **from source**. There is no public packaged/frozen binary — the packaging tooling lives in the private `jasna/protection` submodule (the same arrangement as upstream). Step-by-step guides covering the CUDA 13.0 toolchain, native libs, ffmpeg 8 / mkvmerge, and TensorRT engine setup:
+> - Linux: [docs/BUILDING_LINUX_en.md](docs/BUILDING_LINUX_en.md) ([日本語](docs/BUILDING_LINUX_ja.md))
+> - Windows: [docs/BUILDING_WINDOWS_en.md](docs/BUILDING_WINDOWS_en.md) ([日本語](docs/BUILDING_WINDOWS_ja.md))
+
+Python requirement from `pyproject.toml`: **Python 3.13.x** (`+modi` pins `>=3.13,<3.14`).
 
 The public source checkout does not include the protection module. Running from source is fine for development and free models, but supporter-only models such as **unet-4x** and **SD 1.5 image restoration** will not be available from a plain source checkout.
 

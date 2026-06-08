@@ -1,6 +1,6 @@
 # Output codec, bit depth, and colorspace (AV1 / 8-bit NV12 / BT.601 & BT.2020)
 
-A guide to the output-format flexibility added in `v0.7.1+modi`.
+A guide to the output-format flexibility in `v0.7.2+modi` (introduced in `v0.7.1+modi`).
 
 ## Overview
 
