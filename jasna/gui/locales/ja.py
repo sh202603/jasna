@@ -344,6 +344,10 @@ JA = {
 
         # Encoding
         "codec": "コーデック",
+        "frame_gen": "フレーム生成",
+        "frame_gen_backend": "生成バックエンド",
+        "tip_frame_gen": "AI補間フレームを挿入して出力フレームレートを2倍/4倍にします。ファイル出力のみ。現在はRIFEバックエンドで利用可能。\n既定: オフ",
+        "tip_frame_gen_backend": "フレーム生成エンジン。\nRIFE: ニューラル補間、現在利用可能。\nRTX: NVIDIA RTX Video Frame Generation — 将来のnvidia-vfxリリース待ち。\n既定: RIFE",
         "quality_cq": "品質 (CQ)",
         "custom_args": "カスタム引数",
         "post_export_action": "アクション",

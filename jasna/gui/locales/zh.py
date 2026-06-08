@@ -344,6 +344,10 @@ ZH = {
         
         # Encoding
         "codec": "编解码器",
+        "frame_gen": "补帧",
+        "frame_gen_backend": "补帧后端",
+        "tip_frame_gen": "插入 AI 补间帧以提高输出帧率（2 倍或 4 倍）。仅限文件输出；当前可使用 RIFE 后端。\n默认：关闭",
+        "tip_frame_gen_backend": "补帧引擎。\nRIFE：神经网络补帧，现已可用。\nRTX：NVIDIA RTX Video Frame Generation —— 等待未来 nvidia-vfx 版本。\n默认：RIFE",
         "quality_cq": "质量 (CQ)",
         "custom_args": "自定义参数",
         "post_export_action": "操作",
