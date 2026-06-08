@@ -40,29 +40,30 @@ class FrameGenWriter:
         if self._multiplier < 1:
             raise ValueError(f"multiplier must be >= 1, got {self._multiplier}")
         self._positions = [k / self._multiplier for k in range(1, self._multiplier)]
-        self._prev: tuple[torch.Tensor, int] | None = None
+        self._prev: tuple[torch.Tensor, int, bool] | None = None
 
-    def write(self, frame: torch.Tensor, pts: int) -> None:
+    def write(self, frame: torch.Tensor, pts: int, *, apply_lut: bool = True) -> None:
         if self._multiplier == 1:
-            self._writer.write(frame, pts)
+            self._writer.write(frame, pts, apply_lut=apply_lut)
             return
 
         if self._prev is None:
-            self._prev = (frame, int(pts))
+            self._prev = (frame, int(pts), apply_lut)
             return
 
-        prev_frame, prev_pts = self._prev
+        prev_frame, prev_pts, prev_lut = self._prev
         curr_pts = int(pts)
 
         # Emit the previous (real) frame first, then the interpolated frames.
-        self._writer.write(prev_frame, prev_pts)
+        self._writer.write(prev_frame, prev_pts, apply_lut=prev_lut)
 
         span = curr_pts - prev_pts
         if span >= self._multiplier:
             inters = self._generator.interpolate(prev_frame, frame, self._positions)
             for k, inter in enumerate(inters, start=1):
                 pts_k = prev_pts + round(span * k / self._multiplier)
-                self._writer.write(inter, pts_k)
+                # An intermediate gets the LUT only when both of its source frames do.
+                self._writer.write(inter, pts_k, apply_lut=prev_lut and apply_lut)
         else:
             # span < M: non-monotonic/duplicate PTS, or a time_base too coarse to
             # place M-1 distinct intermediates without colliding with a real frame.
@@ -71,7 +72,7 @@ class FrameGenWriter:
                 span, self._multiplier, prev_pts, curr_pts,
             )
 
-        self._prev = (frame, curr_pts)
+        self._prev = (frame, curr_pts, apply_lut)
 
     def after_write(self, frames_written: int) -> None:
         self._writer.after_write(frames_written)
@@ -87,7 +88,7 @@ class FrameGenWriter:
         # pipeline treats the borrowed restoration_pipeline (it drops the
         # reference but does not close it).
         if self._prev is not None:
-            prev_frame, prev_pts = self._prev
-            self._writer.write(prev_frame, prev_pts)
+            prev_frame, prev_pts, prev_lut = self._prev
+            self._writer.write(prev_frame, prev_pts, apply_lut=prev_lut)
             self._prev = None
         self._writer.close()

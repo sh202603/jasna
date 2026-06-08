@@ -473,6 +473,8 @@ def build_pipeline(
     progress_callback: Callable | None = None,
     segments: "tuple[SegmentRange, ...] | None" = None,
     splice_plan: "SplicePlan | None" = None,
+    frame_gen_multiplier: int = 1,
+    frame_generator=None,
 ) -> "Pipeline":
     """A per-video ``Pipeline``; the session first loads any model the segments ask for."""
     from jasna.pipeline import Pipeline
@@ -489,6 +491,8 @@ def build_pipeline(
         progress_callback=progress_callback,
         segments=segments,
         splice_plan=splice_plan,
+        frame_gen_multiplier=frame_gen_multiplier,
+        frame_generator=frame_generator,
     )
 
 
@@ -500,10 +504,20 @@ def build_job_pipeline(
     segment_job: SegmentJob | None,
     *,
     progress_callback: Callable | None,
+    frame_gen_multiplier: int = 1,
+    frame_generator=None,
 ) -> "Pipeline":
     """The pipeline of a job: ``segment_job`` when it restores ranges, else the whole video."""
     if segment_job is None:
-        return build_pipeline(config, session, input_video, output_video, progress_callback=progress_callback)
+        return build_pipeline(
+            config,
+            session,
+            input_video,
+            output_video,
+            progress_callback=progress_callback,
+            frame_gen_multiplier=frame_gen_multiplier,
+            frame_generator=frame_generator,
+        )
     return build_pipeline(
         segment_job.config,
         session,
@@ -512,4 +526,6 @@ def build_job_pipeline(
         progress_callback=progress_callback,
         segments=segment_job.splice_plan.segments,
         splice_plan=segment_job.splice_plan,
+        frame_gen_multiplier=frame_gen_multiplier,
+        frame_generator=frame_generator,
     )
