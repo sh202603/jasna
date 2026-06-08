@@ -5,7 +5,6 @@ import time
 from pathlib import Path
 
 import torch
-import torch.nn.functional as F
 
 from jasna.restorer.basicvrspp_tenorrt_compilation import basicvsrpp_startup_policy
 from jasna.restorer.basicvsrpp_mosaic_restorer import BasicvsrppMosaicRestorer
@@ -39,15 +38,11 @@ def _profile_split_forward(split: BasicVSRPlusPlusNetSplit, device: torch.device
     n, t, c, h, w = lqs.size()
 
     lqs_flat = lqs.view(-1, c, h, w)
-    feats_ = _timed("feat_extract (TRT)", split._feat_extract_engine, lqs_flat)
-    h_f, w_f = feats_.shape[2:]
-    feats_ = feats_.view(n, t, -1, h_f, w_f)
-
-    lqs_ds = _timed("downsample (bicubic)", lambda: F.interpolate(
-        lqs.view(-1, c, h, w), scale_factor=0.25, mode="bicubic"
-    ).view(n, t, c, h // 4, w // 4))
-
-    flows_fwd, flows_bwd = _timed("compute_flow (SPyNet)", split.compute_flow, lqs_ds)
+    feats_raw, flows_fwd_raw, flows_bwd_raw = _timed("preprocess (TRT)", split._preprocess_engine, lqs_flat)
+    h_f, w_f = feats_raw.shape[2:]
+    feats_ = feats_raw[:t].view(n, t, -1, h_f, w_f)
+    flows_fwd = flows_fwd_raw[:t - 1].view(n, max(t - 1, 0), 2, h // 4, w // 4)
+    flows_bwd = flows_bwd_raw[:t - 1].view(n, max(t - 1, 0), 2, h // 4, w // 4)
 
     feats: dict[str, list[torch.Tensor]] = {"spatial": [feats_[:, i, :, :, :] for i in range(t)]}
 
