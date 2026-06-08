@@ -6,12 +6,20 @@ Jasna は、シンプルな GUI、CLI、GPU 専用処理パイプライン、NVI
 
 Jasna は無料です。支援者には、このプロジェクト用に訓練された追加モデルを解除するキーが提供されます: **unet-4x** セカンダリアップスケーラーと、実験的な **SD 1.5 画像復元**モデルです。詳しくは[プロジェクトを支援する](#プロジェクトを支援する)をご覧ください。
 
-<img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
+> ### ⚙️ これは Jasna の `+modi` フォークです
+>
+> 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) をベースにした改変ビルドで、**フレーム生成**（`--frame-gen` 2x/4x）と**柔軟な出力**（HEVC/AV1, 8/10-bit, BT.601/709/2020 色空間）などを追加しています。
+>
+> - **ソース（このフォーク/ブランチ）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
+> - **上流との変更点一覧:** [docs/CHANGES_vs_upstream_ja.md](docs/CHANGES_vs_upstream_ja.md)
+> - **対象範囲 — 公開（無料）機能のみ。** 支援者モデル（**unet-4x** と **SD 1.5 画像復元**）は支援者キーで解錠される暗号化チェックポイントで、復号コードは**この公開フォークに含まれない**プライベートサブモジュールにあります。そのため、これらのモデルは**ここではダウンロード・復号・実行できません**。上流のコードは同梱されますが inert（不活性）のままです。支援者モデルが必要な場合は上流 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) を使い支援者になってください。それ以外（検出・動画復元・RTX/TVAI セカンダリ・エクスポート後アクション・AV1・フレーム生成）は通常通り動作します。
 
+<img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
 
 ## 目次
 
 - [Jasna でできること](#jasna-でできること)
+- [`+modi` の追加機能](#modi-の追加機能)
 - [コミュニティ](#コミュニティ)
 - [要件](#要件)
 - [クイックスタート](#クイックスタート)
@@ -33,6 +41,32 @@ Jasna は無料です。支援者には、このプロジェクト用に訓練�
 - ハードカット（シーン切り替え）を検出してクリップをその位置で終了し、カットをまたいだ映像の混合を防ぎます。
 - オプションの[セカンダリ復元モデル](docs/ja/models.md) — **unet-4x**、**RTX Super Resolution**、**Topaz Video AI** — で品質をさらに高められます。復元した領域、とくに大きなモザイク、クローズアップ、4K 動画がシャープになります。
 - 復元した動画を内蔵ブラウザプレーヤーや対応する Stash フォークへストリーミングできます。
+- **`+modi`:** HEVC または AV1、8/10-bit、BT.601/709/2020 色空間を保持して出力できます。
+- **`+modi`:** AI フレーム生成（RIFE）による 2x/4x のフレームレート アップコンバート。
+
+## `+modi` の追加機能
+
+これらの機能は `+modi` フォーク専用です。変更点の全一覧は [docs/CHANGES_vs_upstream_ja.md](docs/CHANGES_vs_upstream_ja.md) を参照してください。
+
+### 柔軟な出力（コーデック / ビット深度 / 色空間）
+
+これまで HEVC / 10-bit (P010) / BT.709 に固定されていた出力段が、**AV1**、**8-bit (NV12)** または **10-bit** に対応し、ソースの **BT.601 / BT.709 / BT.2020** 色空間を保持します。パイプラインは GPU 上で end-to-end のゼロコピーを維持します。
+
+```bash
+jasna --input input.mp4 --output output.mkv --codec av1 --bit-depth 10
+```
+
+`--codec {hevc,av1}`、`--bit-depth {auto,8,10}`。詳細: [docs/CODECS_AND_COLORSPACE_ja.md](docs/CODECS_AND_COLORSPACE_ja.md)。
+
+### フレーム生成（フレームレート アップコンバート）
+
+`--frame-gen {2x,4x}` は、ソースフレーム間に AI 補間フレーム（RIFE）を挿入して出力フレームレートを上げます。ファイル出力のみ（`--stream` では不可）。音声のタイムコードは維持されるため、長さと同期は保たれます。既定で fp16 動作 — fp32 比で約 1.9 倍高速（1080p 2x, RTX 5060 Ti）、見た目は同等です。
+
+```bash
+jasna --input input.mp4 --output output.mkv --frame-gen 2x
+```
+
+バックエンドは `--frame-gen-backend {rife,rtx}` で選択（`rife` が既定で現在利用可能。`rtx` は NVIDIA の `nvidia-vfx` リリース待ち）。詳細: [docs/FRAME_GENERATION_ja.md](docs/FRAME_GENERATION_ja.md)。
 
 ## コミュニティ
 
@@ -93,6 +127,10 @@ jasna --input input_folder --output output_folder
 - **[ストリーミング](docs/ja/streaming.md)** — 復元した動画をブラウザや Stash でリアルタイムに視聴。
 - **[CLI リファレンス](docs/ja/cli.md)** — 出力テンプレート、コーデック別エンコーダー設定、エクスポート後のアクションを含む、すべてのコマンドラインオプション。
 - **[ソースから実行](docs/en/development.md)** — 開発者向けセットアップとビルドメモ（英語）。
+
+> **`+modi` ビルドガイド:** このフォークはネイティブ GPU ライブラリをビルドし、Jasna を**ソースから実行**します。公開のパッケージ済み/凍結バイナリはありません — パッケージングツールはプライベートな `jasna/protection` サブモジュールにあります（上流と同じ構成）。CUDA 13.0 ツールチェーン、ネイティブライブラリ、ffmpeg 8 / mkvmerge、TensorRT エンジン設定を網羅した手順:
+> - Linux: [docs/BUILDING_LINUX_ja.md](docs/BUILDING_LINUX_ja.md)（[English](docs/BUILDING_LINUX_en.md)）
+> - Windows: [docs/BUILDING_WINDOWS_ja.md](docs/BUILDING_WINDOWS_ja.md)（[English](docs/BUILDING_WINDOWS_en.md)）
 
 ## ベンチマーク
 
