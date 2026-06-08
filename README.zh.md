@@ -7,7 +7,13 @@
 Jasna 修复 JAV 视频和图片中的马赛克。Jasna 免费，提供简单的应用和命令行，在你的 GPU
 上运行。
 
-<img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
+> ### ⚙️ 这是 Jasna 的 `+modi` 分支
+>
+> 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) 的改版构建，新增**帧生成**（`--frame-gen` 2x/4x）和**灵活输出**（HEVC/AV1、8/10-bit、BT.601/709/2020 色彩空间）等改进。
+>
+> - **源码（本分支）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
+> - **与上游的完整变更:** [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)
+> - **范围 — 仅公开（免费）功能。** 支持者模型（**unet-4x** 和 **SD 1.5 图像修复**）以加密检查点形式提供，需用支持者密钥解锁，而解密代码位于**不属于本公开分支**的私有子模块中 —— 因此这些模型**无法在此下载、解密或运行**。它们的上游代码随附但保持 inert（不激活）。如需支持者模型，请使用上游 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) 并成为支持者。其他一切（检测、视频修复、RTX/TVAI 二级修复、导出后操作、AV1、帧生成）均正常工作。
 
 ## 目录
 
