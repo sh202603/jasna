@@ -52,9 +52,11 @@ def compile_yolo_to_tensorrt_engine(
 
     _prev_yolo_level = YOLO_LOGGER.level
     YOLO_LOGGER.setLevel(logging.ERROR)
-    # Ultralytics' ONNX export forces a CPU export by setting CUDA_VISIBLE_DEVICES=""
-    # and never restores it. That hides every GPU from the subsequent in-process
-    # TensorRT builder, which then fails with CUDA error 100 (cudaErrorNoDevice).
+    # Ultralytics' export with device="cpu" calls select_device("cpu"), which sets
+    # CUDA_VISIBLE_DEVICES="" in this process and never restores it. That hides
+    # every GPU from the subsequent in-process TensorRT builder, which then fails
+    # with CUDA error 100 (cudaErrorNoDevice). Snapshot and restore it around the
+    # export.
     _prev_cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
     try:
         model = YOLO(str(model_path), verbose=False, task="segment")
@@ -67,13 +69,22 @@ def compile_yolo_to_tensorrt_engine(
                 module=r"ultralytics\.engine\.exporter",
             )
             with contextlib.redirect_stdout(null_stream), contextlib.redirect_stderr(null_stream):
+                # Export the ONNX on CPU (half=False, device="cpu"): half=True makes
+                # ultralytics move the model to CUDA, initializing a torch CUDA context
+                # before TensorRT's createInferBuilder. In a frozen (PyInstaller) build
+                # that torch-then-TensorRT CUDA init order fails with CUDA error 100
+                # (works from source, and RF-DETR is unaffected because it ships an ONNX
+                # and never touches torch CUDA first). The engine is still built as fp16
+                # below via compile_onnx_to_tensorrt_engine(fp16=...), so output is
+                # unchanged; only the export precision differs (TRT handles fp16).
                 exported = model.export(
                     format="onnx",
                     imgsz=int(imgsz) if isinstance(imgsz, int) else tuple(int(x) for x in imgsz),
                     dynamic=False,
                     nms=False,
                     batch=int(batch),
-                    half=bool(fp16),
+                    half=False,
+                    device="cpu",
                 )
     finally:
         YOLO_LOGGER.setLevel(_prev_yolo_level)
