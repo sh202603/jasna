@@ -282,6 +282,10 @@ KO = {
 
         # Encoding
         "codec": "코덱",
+        "frame_gen": "프레임 생성",
+        "frame_gen_backend": "생성 백엔드",
+        "tip_frame_gen": "AI 보간 프레임을 삽입해 출력 프레임 레이트를 2배/4배로 높입니다. 파일 출력 전용이며 현재 RIFE 백엔드로 사용할 수 있습니다.\n기본값: 끔",
+        "tip_frame_gen_backend": "프레임 생성 엔진.\nRIFE: 신경망 보간, 현재 사용 가능.\nRTX: NVIDIA RTX Video Frame Generation — 향후 nvidia-vfx 릴리스 대기 중.\n기본값: RIFE",
         "quality_cq": "품질 (CQ)",
         "custom_args": "사용자 정의 인수",
         "post_export_action": "작업",

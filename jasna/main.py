@@ -5,7 +5,6 @@ from pathlib import Path
 
 from jasna import __version__
 from jasna.cli_help import CLI_HELP
-from jasna.engine_paths import model_weights_dir
 from jasna.media import UnsupportedColorspaceError
 from jasna.os_utils import (
     MIN_DRIVER_VERSION,
@@ -138,8 +137,9 @@ def build_parser() -> argparse.ArgumentParser:
     restoration.add_argument(
         "--restoration-model-path",
         type=str,
-        default=str(model_weights_dir() / "lada_mosaic_restoration_model_generic_v1.2.pth"),
-        help="Path to restoration model (default: %(default)s)",
+        default="",
+        help='Path to restoration model. If not set, uses "<model_weights>/lada_mosaic_restoration_model_generic_v1.2.pth". '
+             "model_weights/ is searched in: $JASNA_MODEL_WEIGHTS_DIR, next to the executable (frozen build), CWD, then next to the jasna package.",
     )
     restoration.add_argument(
         "--compile-basicvsrpp",
@@ -321,7 +321,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--detection-model-path",
         type=str,
         default="",
-        help='Optional path to detection weights. If not set, uses "model_weights/<detection-model>.onnx" (RF-DETR) or ".pt" (YOLO).',
+        help='Optional path to detection weights. If not set, uses "<model_weights>/<detection-model>.onnx" (RF-DETR) or ".pt" (YOLO). '
+             "model_weights/ is searched in: $JASNA_MODEL_WEIGHTS_DIR, next to the executable (frozen build), CWD, then next to the jasna package.",
     )
     detection.add_argument(
         "--detection-score-threshold",
@@ -435,6 +436,27 @@ def build_parser() -> argparse.ArgumentParser:
             "Restore only selected ranges and smart-render the rest, for example "
             "10-25,01:10-01:30. Output codec must match the H.264, HEVC, or AV1 input."
         ),
+    )
+    encoding.add_argument(
+        "--frame-gen",
+        type=str,
+        default="none",
+        choices=["none", "2x", "4x"],
+        help='Frame-rate up-conversion: insert AI-interpolated frames to 2x/4x the output fps. File-output only (default: %(default)s)',
+    )
+    encoding.add_argument(
+        "--frame-gen-backend",
+        type=str,
+        default="rife",
+        choices=["rife", "rtx"],
+        help='Frame generation backend: "rife" (neural, works now) or "rtx" (NVIDIA RTX Video Frame Generation, '
+             'pending an nvidia-vfx release that ships the effect) (default: %(default)s)',
+    )
+    encoding.add_argument(
+        "--frame-gen-model-path",
+        type=str,
+        default="",
+        help='Optional path to RIFE weights. If not set, uses "<model_weights>/rife.pth".',
     )
 
     post_export = parser.add_argument_group("Post-export action")
@@ -569,6 +591,15 @@ def main() -> None:
         if args.fmp4:
             parser.error("--fmp4 cannot be combined with --segments")
 
+    from jasna.framegen import MULTIPLIER_CHOICES
+    frame_gen_name = str(args.frame_gen).lower()
+    frame_gen_multiplier = MULTIPLIER_CHOICES[frame_gen_name]
+    frame_gen_backend = str(args.frame_gen_backend).lower()
+    if frame_gen_multiplier > 1 and is_streaming:
+        raise ValueError("Frame generation (--frame-gen) is file-output only and not supported in streaming mode")
+    if frame_gen_multiplier > 1 and segments_spec:
+        raise ValueError("Frame generation (--frame-gen) cannot be combined with --segments smart rendering")
+
     folder_videos: list[Path] = []
     folder_output_dir: Path | None = None
     if input_is_dir:
@@ -648,7 +679,12 @@ def main() -> None:
         raise FileNotFoundError(str(detection_model_path))
 
     restoration_model_name = str(args.restoration_model_name)
-    restoration_model_path = Path(args.restoration_model_path)
+    restoration_model_path_arg = str(args.restoration_model_path).strip()
+    if restoration_model_path_arg:
+        restoration_model_path = Path(restoration_model_path_arg)
+    else:
+        from jasna.model_weights_resolver import resolve_model_weights_file
+        restoration_model_path = resolve_model_weights_file("lada_mosaic_restoration_model_generic_v1.2.pth")
     if not restoration_model_path.exists():
         raise FileNotFoundError(str(restoration_model_path))
 
@@ -768,6 +804,17 @@ def main() -> None:
             log_callback=None,
         )
 
+        frame_generator = None
+        if frame_gen_multiplier > 1:
+            from jasna.framegen import build_frame_generator
+            fg_model_path = str(args.frame_gen_model_path).strip() or None
+            frame_generator = build_frame_generator(
+                frame_gen_backend,
+                device=session.device,
+                model_path=fg_model_path,
+                fp16=bool(args.fp16),
+            )
+
         def _make_pipeline(vid_input: Path, out_path: Path) -> Pipeline:
             return build_pipeline(
                 config,
@@ -776,6 +823,8 @@ def main() -> None:
                 out_path,
                 segments=segments,
                 splice_plan=splice_plan,
+                frame_gen_multiplier=frame_gen_multiplier,
+                frame_generator=frame_generator,
             )
 
         video_inputs = folder_videos if input_is_dir else ([input_video] if input_video is not None else [])
@@ -849,6 +898,8 @@ def main() -> None:
             if pipeline is not None:
                 pipeline.close()
             session.close()
+            if frame_generator is not None and hasattr(frame_generator, "close"):
+                frame_generator.close()
 
 
 if __name__ == "__main__":

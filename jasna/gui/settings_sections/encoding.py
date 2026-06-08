@@ -169,6 +169,35 @@ class EncodingSection:
         )
         self._widgets["fmp4"].pack(side="right")
 
+        # Frame generation (frame-rate up-conversion; file-output only)
+        row_fg = ctk.CTkFrame(inner, fg_color="transparent")
+        row_fg.pack(fill="x", pady=(0, Sizing.PADDING_SMALL))
+
+        fg_label = ctk.CTkLabel(row_fg, text=t("frame_gen"), text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_NORMAL))
+        fg_label.pack(side="left")
+        fg_tip = ctk.CTkLabel(row_fg, text="ⓘ", text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_TINY), cursor="hand2")
+        fg_tip.pack(side="left", padx=4)
+        Tooltip(fg_tip, get_tooltip("frame_gen"))
+        self._widgets["frame_gen"] = ctk.CTkOptionMenu(
+            row_fg, values=["Off", "2x", "4x"],
+            fg_color=Colors.BG_CARD, button_color=Colors.BG_CARD,
+            button_hover_color=Colors.BORDER_LIGHT, dropdown_fg_color=Colors.BG_CARD,
+            text_color=Colors.TEXT_PRIMARY, width=80
+        )
+        self._widgets["frame_gen"].pack(side="right")
+        self._widgets["frame_gen"].set("Off")
+
+        fg_backend_label = ctk.CTkLabel(row_fg, text=t("frame_gen_backend"), text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_NORMAL))
+        fg_backend_label.pack(side="left", padx=(Sizing.PADDING_SMALL, 0))
+        self._widgets["frame_gen_backend"] = ctk.CTkOptionMenu(
+            row_fg, values=["RIFE", "RTX"],
+            fg_color=Colors.BG_CARD, button_color=Colors.BG_CARD,
+            button_hover_color=Colors.BORDER_LIGHT, dropdown_fg_color=Colors.BG_CARD,
+            text_color=Colors.TEXT_PRIMARY, width=80
+        )
+        self._widgets["frame_gen_backend"].pack(side="right", padx=(0, 8))
+        self._widgets["frame_gen_backend"].set("RIFE")
+
         # Custom args
         row3 = ctk.CTkFrame(inner, fg_color="transparent")
         row3.pack(fill="x")
@@ -278,6 +307,10 @@ class EncodingSection:
         else:
             self._widgets["fmp4"].deselect()
 
+        _fg = getattr(preset, "frame_gen", "none").lower()
+        self._widgets["frame_gen"].set("Off" if _fg == "none" else _fg)
+        self._widgets["frame_gen_backend"].set(getattr(preset, "frame_gen_backend", "rife").upper())
+
         self._widgets["lut_path"].delete(0, "end")
         self._widgets["lut_path"].insert(0, preset.lut_path or "")
 
@@ -292,6 +325,8 @@ class EncodingSection:
             "sharpen_strength": round(float(self._widgets["sharpen_strength"].get()), 2),
             "retarget_high_fps": self._widgets["retarget_high_fps"].get() == 1,
             "fmp4": self._widgets["fmp4"].get() == 1,
+            "frame_gen": ("none" if self._widgets["frame_gen"].get() == "Off" else self._widgets["frame_gen"].get().lower()),
+            "frame_gen_backend": self._widgets["frame_gen_backend"].get().lower(),
             "lut_path": self._widgets["lut_path"].get().strip(),
             "working_directory": self._widgets["working_directory"].get().strip(),
         }
