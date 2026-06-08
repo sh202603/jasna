@@ -41,16 +41,17 @@ class FirstRunWizard(ctk.CTkToplevel):
         self.configure(fg_color=Colors.BG_MAIN)
 
         self.transient(master)
-        grab_modal(self)
         # The wizard is modal, so closing it must always be possible - otherwise a check
         # that never finishes leaves the whole app unusable.
         self.protocol("WM_DELETE_WINDOW", self._on_exit)
         self.bind("<Escape>", lambda _event: self._on_exit())
-        self.lift()
-        self.focus_force()
 
         # Build UI immediately with loading state
         self._build_ui_loading()
+
+        # Defer the modal grab so the widgets are painted first; on Linux/X11 an
+        # early grab_set() can leave a CTkToplevel rendered blank.
+        self.after(250, lambda: grab_modal(self))
 
         # Let geometry settle, then size to content and center on parent
         self.update_idletasks()
