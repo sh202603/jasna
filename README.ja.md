@@ -7,7 +7,13 @@
 Jasna は動画と画像のモザイクを復元します。無料で、シンプルなアプリと
 コマンドラインがあり、GPU で動きます。
 
-<img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
+> ### ⚙️ これは Jasna の `+modi` フォークです
+>
+> 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) をベースにした改変ビルドで、**フレーム生成**（`--frame-gen` 2x/4x）と**柔軟な出力**（HEVC/AV1, 8/10-bit, BT.601/709/2020 色空間）などを追加しています。
+>
+> - **ソース（このフォーク/ブランチ）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
+> - **上流との変更点一覧:** [docs/CHANGES_vs_upstream_ja.md](docs/CHANGES_vs_upstream_ja.md)
+> - **対象範囲 — 公開（無料）機能のみ。** 支援者モデル（**unet-4x** と **SD 1.5 画像復元**）は支援者キーで解錠される暗号化チェックポイントで、復号コードは**この公開フォークに含まれない**プライベートサブモジュールにあります。そのため、これらのモデルは**ここではダウンロード・復号・実行できません**。上流のコードは同梱されますが inert（不活性）のままです。支援者モデルが必要な場合は上流 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) を使い支援者になってください。それ以外（検出・動画復元・RTX/TVAI セカンダリ・エクスポート後アクション・AV1・フレーム生成）は通常通り動作します。
 
 ## 目次
 
