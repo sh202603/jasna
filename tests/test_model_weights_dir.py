@@ -16,6 +16,9 @@ def test_model_weights_dir_in_dev_is_cwd_relative(monkeypatch) -> None:
 def test_model_weights_dir_when_frozen_is_next_to_executable(monkeypatch, tmp_path: Path) -> None:
     fake_exe = tmp_path / "jasna-cli.exe"
     fake_exe.touch()
+    # The resolver returns the first *existing* candidate, so the frozen
+    # exe-adjacent dir must exist for it to win over the CWD fallback.
+    (tmp_path / "model_weights").mkdir()
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(fake_exe))
 
@@ -25,6 +28,7 @@ def test_model_weights_dir_when_frozen_is_next_to_executable(monkeypatch, tmp_pa
 def test_detection_model_weights_path_uses_helper(monkeypatch, tmp_path: Path) -> None:
     fake_exe = tmp_path / "jasna-cli.exe"
     fake_exe.touch()
+    (tmp_path / "model_weights").mkdir()
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(fake_exe))
 
