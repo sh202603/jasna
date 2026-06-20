@@ -110,6 +110,26 @@ Common options: `--factor {2x,4x}`, `--backend {rife,rtx}`, `--model-path <rife.
 list. Verify the same way as step 4 (`ffprobe` → ~2x/4x frame rate, unchanged
 duration, audio in sync).
 
+### Folder batch + naming pattern
+
+When `--input` is a folder, `--output` is treated as an output folder and every
+video in it is processed with one shared RIFE model (built once, reused). Frame
+generation is video-only, so any images in the folder are skipped. `--output-pattern`
+controls the output filenames (same semantics as `jasna`): `{original}` is the input
+stem; the default is `{original}_out` keeping each input's extension.
+
+```bash
+# 2x every video in in_dir/ into out_dir/ (default names: <name>_out.<ext>)
+jasna-framegen --input in_dir --output out_dir --factor 2x
+
+# Custom names, e.g. clip.mkv -> clip_2x.mkv
+jasna-framegen --input in_dir --output out_dir --factor 2x --output-pattern "{original}_2x.mkv"
+```
+
+A folder run prints `[i/N] name -> out` per file and continues past a file with an
+unsupported color range; an `--output-pattern` that maps two inputs to the same
+output (or onto an input) is rejected up front.
+
 ---
 
 ## Troubleshooting
