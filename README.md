@@ -70,10 +70,11 @@ jasna --input input.mp4 --output output.mkv --frame-gen 2x
 
 Backend via `--frame-gen-backend {rife,rtx}` (`rife` is the default and available now; `rtx` is pending NVIDIA's `nvidia-vfx` release).
 
-A standalone `jasna-framegen` command applies **only** frame generation to an already-restored video (no detection/restoration) — handy for a two-pass workflow (restore first, e.g. with the official binary, then up-convert):
+A standalone `jasna-framegen` command applies **only** frame generation to an already-restored video (no detection/restoration) — handy for a two-pass workflow (restore first, e.g. with the official binary, then up-convert). It also supports folder input/output with an `--output-pattern` naming template (videos only):
 
 ```bash
 jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x
+jasna-framegen --input in_dir --output out_dir --factor 2x --output-pattern "{original}_2x.mkv"
 ```
 
 Details: [docs/FRAME_GENERATION_en.md](docs/FRAME_GENERATION_en.md).
