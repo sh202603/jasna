@@ -71,8 +71,25 @@ def build_parser() -> argparse.ArgumentParser:
             "pipeline; audio and color metadata are carried over from the input."
         ),
     )
-    parser.add_argument("--input", required=True, type=str, help="Path to the input (already-restored) video.")
-    parser.add_argument("--output", required=True, type=str, help="Path to the output video (.mkv recommended).")
+    parser.add_argument(
+        "--input",
+        required=True,
+        type=str,
+        help="Path to the input (already-restored) video, or a folder of videos.",
+    )
+    parser.add_argument(
+        "--output",
+        required=True,
+        type=str,
+        help="Path to the output video (.mkv recommended), or an output folder when --input is a folder.",
+    )
+    parser.add_argument(
+        "--output-pattern",
+        type=str,
+        default=None,
+        help="Filename template for folder input. Use {original} for the input stem. "
+             "Default: {original}_out with each input's extension. Folder mode only.",
+    )
     parser.add_argument(
         "--factor",
         type=str,
@@ -147,6 +164,64 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _path_collision_key(path: Path) -> str:
+    # Same normalization jasna/main.py uses for collision detection: case-fold on
+    # Windows (case-insensitive filesystem), exact otherwise.
+    absolute = path.resolve(strict=False)
+    key = str(absolute)
+    return key.casefold() if sys.platform == "win32" else key
+
+
+def _plan_folder_jobs(input_dir: Path, output_dir: Path, output_pattern: str | None):
+    """Plan ``(input_video, output_path)`` jobs for a folder batch.
+
+    Returns ``(jobs, skipped_images)``. Videos only — frame generation is
+    video-only, so images in the folder are reported separately (skipped by the
+    caller). Mirrors the folder logic in ``jasna/main.py``: reuses
+    ``classify_folder`` / ``folder_output_path`` for discovery and naming, and
+    raises ``ValueError`` on no videos, a non-folder ``--output``, or
+    ``--output-pattern`` collisions (two inputs -> one output, or an output that
+    would overwrite an input).
+    """
+    from jasna.media.media_files import classify_folder, folder_output_path, is_media
+
+    images, videos = classify_folder(input_dir)
+    if not videos:
+        if images:
+            raise ValueError(
+                f"No video files found in folder (only {len(images)} image(s)); "
+                "frame generation is video-only."
+            )
+        raise ValueError(f"No video files found in folder: {input_dir}")
+
+    if output_dir.exists() and not output_dir.is_dir():
+        raise ValueError(
+            f"--output must be a folder when --input is a folder (got existing file: {output_dir})"
+        )
+    if not output_dir.exists() and is_media(output_dir):
+        raise ValueError(
+            f"--output must be a folder when --input is a folder; got a media filename: {output_dir}"
+        )
+
+    jobs: list[tuple[Path, Path]] = []
+    planned: dict[str, tuple[Path, Path]] = {}
+    input_keys = {_path_collision_key(p) for p in videos}
+    for vid in videos:
+        out_path = folder_output_path(output_dir, vid, output_pattern)
+        key = _path_collision_key(out_path)
+        if key in planned:
+            other_in, other_out = planned[key]
+            raise ValueError(
+                "--output-pattern maps multiple inputs to the same output: "
+                f"{other_in.name} and {vid.name} -> {other_out}"
+            )
+        if key in input_keys:
+            raise ValueError(f"--output-pattern would overwrite an input file: {out_path}")
+        planned[key] = (vid, out_path)
+        jobs.append((vid, out_path))
+    return jobs, images
+
+
 class _EncoderWriter:
     """Minimal ``FrameWriter`` over ``NvidiaVideoEncoder``.
 
@@ -208,6 +283,64 @@ def run_framegen(reader, encoder_ctx, generator, multiplier, *, progress=None) -
     return source_frames
 
 
+def _process_video(
+    input_path: Path,
+    output_path: Path,
+    *,
+    generator,
+    multiplier: int,
+    codec: str,
+    encoder_settings: dict,
+    bit_depth: int | None,
+    working_directory: Path | None,
+    device,
+    batch_size: int,
+    show_progress: bool,
+) -> int:
+    """Frame-generate a single video; return its source-frame count.
+
+    The ``generator`` is borrowed (built/closed once by the caller so a folder
+    batch reuses one model across all videos). Everything else — metadata,
+    encoder, reader — is created fresh per video. The encoder is closed by
+    ``run_framegen`` (via the writer) which performs the mkvmerge/ffmpeg mux.
+    """
+    import torch
+
+    from jasna.media import get_video_meta_data
+    from jasna.media.video_decoder import NvidiaVideoReader
+    from jasna.media.video_encoder import NvidiaVideoEncoder
+
+    metadata = get_video_meta_data(str(input_path))
+    encoder_ctx = NvidiaVideoEncoder(
+        str(output_path),
+        device=device,
+        metadata=metadata,
+        codec=codec,
+        encoder_settings=encoder_settings,
+        stream_mode=False,
+        working_directory=working_directory,
+        bit_depth=bit_depth,
+        lut_path=None,
+        output_fps_multiplier=multiplier,
+    )
+    progress = None
+    if show_progress:
+        from tqdm import tqdm
+        total = metadata.num_frames if metadata.num_frames else None
+        progress = tqdm(total=total, unit="frame", desc=input_path.name)
+    try:
+        with (
+            NvidiaVideoReader(
+                str(input_path), batch_size=batch_size, device=device, metadata=metadata,
+            ) as reader,
+            torch.inference_mode(),
+        ):
+            return run_framegen(reader, encoder_ctx, generator, multiplier, progress=progress)
+    finally:
+        if progress is not None:
+            progress.close()
+
+
 def main() -> None:
     multiprocessing.freeze_support()
     parser = build_parser()
@@ -254,15 +387,11 @@ def main() -> None:
     # Deferred heavy imports. Crucially NOT jasna.pipeline (keeps detection /
     # restoration out of this tool's import surface).
     from jasna.framegen import MULTIPLIER_CHOICES, build_frame_generator
-    from jasna.media import get_video_meta_data, parse_encoder_settings, validate_encoder_settings
-    from jasna.media.video_decoder import NvidiaVideoReader
-    from jasna.media.video_encoder import NvidiaVideoEncoder
+    from jasna.media import UnsupportedColorspaceError, parse_encoder_settings, validate_encoder_settings
 
     input_path = Path(args.input)
     if not input_path.exists():
         raise FileNotFoundError(str(input_path))
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     multiplier = MULTIPLIER_CHOICES[str(args.factor).lower()]
     if multiplier <= 1:
@@ -277,64 +406,76 @@ def main() -> None:
     fg_model_path = str(args.model_path).strip() or None
     batch_size = max(1, int(args.batch_size))
 
-    metadata = get_video_meta_data(str(input_path))
+    # Single file vs folder batch. Folder mode mirrors jasna/main.py: discover
+    # videos, apply the naming pattern, and run them through one shared generator.
+    input_is_dir = input_path.is_dir()
+    if input_is_dir:
+        output_dir = Path(args.output)
+        try:
+            jobs, skipped_images = _plan_folder_jobs(input_path, output_dir, args.output_pattern)
+        except ValueError as e:
+            parser.error(str(e))
+        if skipped_images:
+            print(f"Skipping {len(skipped_images)} image(s): frame generation is video-only.")
+        output_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        jobs = [(input_path, output_path)]
 
     log.info(
-        "frame-gen: %s -> %s | backend=%s factor=%dx codec=%s bit_depth=%s device=%s",
-        input_path, output_path, args.backend, multiplier, codec, args.bit_depth, device,
+        "frame-gen: %d job(s) | backend=%s factor=%dx codec=%s bit_depth=%s device=%s",
+        len(jobs), args.backend, multiplier, codec, args.bit_depth, device,
     )
 
-    source_frames = 0
+    total = len(jobs)
+    processed = 0
+    failed = 0
     with torch.cuda.device(device):
-        # The generator is built (and closed) here — the caller owns it; the writer
-        # only borrows it. build_frame_generator may raise for an unavailable
-        # backend (e.g. "rtx"); that propagates before the try below, so generator
-        # is only closed when it was actually created.
+        # Build the generator ONCE and reuse it across every job (a folder batch
+        # shares one model). It is borrowed by each FrameGenWriter and closed here
+        # exactly once. build_frame_generator may raise for an unavailable backend
+        # (e.g. "rtx"); that propagates before the try below, so the generator is
+        # only closed when it was actually created.
         generator = build_frame_generator(
             args.backend, device=device, model_path=fg_model_path, fp16=fp16,
         )
         try:
-            encoder_ctx = NvidiaVideoEncoder(
-                str(output_path),
-                device=device,
-                metadata=metadata,
-                codec=codec,
-                encoder_settings=encoder_settings,
-                stream_mode=False,
-                working_directory=working_directory,
-                bit_depth=bit_depth,
-                lut_path=None,
-                output_fps_multiplier=multiplier,
-            )
-            progress = None
-            if not args.no_progress:
-                from tqdm import tqdm
-                total = metadata.num_frames if metadata.num_frames else None
-                progress = tqdm(total=total, unit="frame", desc="frame-gen")
-            try:
-                with (
-                    NvidiaVideoReader(
-                        str(input_path), batch_size=batch_size, device=device, metadata=metadata,
-                    ) as reader,
-                    torch.inference_mode(),
-                ):
-                    source_frames = run_framegen(
-                        reader, encoder_ctx, generator, multiplier, progress=progress,
+            for i, (vid, out_path) in enumerate(jobs, start=1):
+                if input_is_dir:
+                    print(f"[{i}/{total}] Processing {vid.name} -> {out_path.name}")
+                try:
+                    n = _process_video(
+                        vid, out_path,
+                        generator=generator, multiplier=multiplier, codec=codec,
+                        encoder_settings=encoder_settings, bit_depth=bit_depth,
+                        working_directory=working_directory, device=device,
+                        batch_size=batch_size, show_progress=not args.no_progress,
                     )
-            finally:
-                if progress is not None:
-                    progress.close()
+                except UnsupportedColorspaceError as e:
+                    # Parity with jasna/main.py: in a folder batch, skip the bad
+                    # file and keep going; for a single file, fail.
+                    failed += 1
+                    print(f"Error processing {vid.name}: {e}")
+                    if not input_is_dir:
+                        sys.exit(1)
+                    continue
+                if n == 0:
+                    failed += 1
+                    print(f"Error: no video frames were decoded from {vid.name}.")
+                    if not input_is_dir:
+                        sys.exit(1)
+                    continue
+                processed += 1
+                log.info(
+                    "frame-gen done: %s | %d source frames -> %d output frames",
+                    out_path.name, n, (n - 1) * multiplier + 1,
+                )
         finally:
             generator.close()
 
-    if source_frames == 0:
-        print("Error: no video frames were decoded from the input.")
-        sys.exit(1)
-
-    log.info(
-        "frame-gen done: %d source frames -> %d output frames",
-        source_frames, (source_frames - 1) * multiplier + 1,
-    )
+    if input_is_dir:
+        print(f"Done: {processed} processed, {failed} failed/skipped (of {total}).")
 
 
 if __name__ == "__main__":
