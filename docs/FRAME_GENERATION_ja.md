@@ -63,6 +63,31 @@ ffprobe out2x.mkv
 
 ---
 
+## 2パス運用: `jasna-framegen`（スタンドアロン）
+
+`jasna-framegen` は、**復元済み動画にフレーム生成だけ**を適用する独立コマンド（モザイク検出も BasicVSR++ 復元も走らせない）。次の用途に使う：
+
+- **1パス目**で復元した動画（公式 jasna バイナリ、または `--frame-gen` なしの `jasna`）に対し、重い復元を再実行せず後から 2x/4x を足したいとき。
+- factor やコーデックだけ変えて素早く再エンコードしたいとき。
+- バッチ処理のためフレーム生成を本パイプラインから分離したいとき。
+
+統合版 `--frame-gen` と同じ NVDEC/NVENC + mkvmerge 経路を再利用するので、音声・色メタは引き継がれ、タイミングは上記同様 PTS 駆動。`model_weights/rife.pth`（手順1〜2）が同じく必要で、protection / サポーターコードには一切触れない。
+
+```bash
+# パス1: 復元のみ（frame-gen なし）。2回目のエンコードで世代劣化を重ねないよう、
+# 準ロスレスな中間ファイルにする（例: 高品質な cq）:
+jasna --input in.mp4 --output restored.mkv --encoder-settings cq=16
+# (または公式バイナリで restored.mkv を作成)
+
+# パス2: フレーム生成のみ
+jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x
+jasna-framegen --input restored.mkv --output out4x.mkv --factor 4x
+```
+
+主なオプション: `--factor {2x,4x}`、`--backend {rife,rtx}`、`--model-path <rife.pth>`、`--codec {hevc,av1}`、`--bit-depth {auto,8,10}`、`--encoder-settings <k=v,...>`、`--device cuda:0`、`--no-fp16`。出力品質は既定で jasna のエンコーダプロファイル（cq=25）。`--encoder-settings` で上書き可能。全オプションは `jasna-framegen --help`。確認は手順4と同じ（`ffprobe` でフレームレートが約2x/4x、尺不変、音声同期）。
+
+---
+
 ## トラブルシュート
 
 - **`RTX Video Frame Generation is not available ...`**: `--frame-gen-backend rtx` は未出荷。`rife` を使う。
