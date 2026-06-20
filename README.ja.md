@@ -66,7 +66,15 @@ jasna --input input.mp4 --output output.mkv --codec av1 --bit-depth 10
 jasna --input input.mp4 --output output.mkv --frame-gen 2x
 ```
 
-バックエンドは `--frame-gen-backend {rife,rtx}` で選択（`rife` が既定で現在利用可能。`rtx` は NVIDIA の `nvidia-vfx` リリース待ち）。詳細: [docs/FRAME_GENERATION_ja.md](docs/FRAME_GENERATION_ja.md)。
+バックエンドは `--frame-gen-backend {rife,rtx}` で選択（`rife` が既定で現在利用可能。`rtx` は NVIDIA の `nvidia-vfx` リリース待ち）。
+
+スタンドアロンの `jasna-framegen` コマンドは、**復元済み動画にフレーム生成だけ**を適用します（検出・復元なし）。2パス運用（先に復元、例えば公式バイナリで → 後からアップコンバート）に便利です:
+
+```bash
+jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x
+```
+
+詳細: [docs/FRAME_GENERATION_ja.md](docs/FRAME_GENERATION_ja.md)。
 
 ## コミュニティ
 

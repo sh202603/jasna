@@ -76,6 +76,42 @@ ffprobe out2x.mkv
 
 ---
 
+## Two-pass workflow: `jasna-framegen` (standalone)
+
+`jasna-framegen` is a separate command that applies **only** frame generation to an
+already-restored video — no mosaic detection, no BasicVSR++ restoration. Use it when:
+
+- You restored a video in a **first pass** (the official jasna binary, or `jasna`
+  without `--frame-gen`) and want to add 2x/4x afterwards without re-running the
+  expensive restore pass.
+- You want to tweak the frame-gen factor / codec and re-encode quickly.
+- You want frame generation decoupled from the main pipeline for batch processing.
+
+It reuses the same NVDEC/NVENC + mkvmerge path as the integrated `--frame-gen`, so
+audio and color metadata are carried over and timing stays PTS-driven exactly as
+above. It needs the same `model_weights/rife.pth` (steps 1-2) and never touches the
+protection / supporter code.
+
+```bash
+# Pass 1: restore only (no frame-gen). Use a near-lossless intermediate so the
+# second encode does not stack a generation loss, e.g. a high-quality cq:
+jasna --input in.mp4 --output restored.mkv --encoder-settings cq=16
+# (or produce restored.mkv with the official binary)
+
+# Pass 2: frame generation only
+jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x
+jasna-framegen --input restored.mkv --output out4x.mkv --factor 4x
+```
+
+Common options: `--factor {2x,4x}`, `--backend {rife,rtx}`, `--model-path <rife.pth>`,
+`--codec {hevc,av1}`, `--bit-depth {auto,8,10}`, `--encoder-settings <k=v,...>`,
+`--device cuda:0`, `--no-fp16`. Output quality defaults to jasna's encoder profile
+(cq=25); override with `--encoder-settings`. Run `jasna-framegen --help` for the full
+list. Verify the same way as step 4 (`ffprobe` → ~2x/4x frame rate, unchanged
+duration, audio in sync).
+
+---
+
 ## Troubleshooting
 
 - **`RTX Video Frame Generation is not available ...`**: `--frame-gen-backend rtx` is not shipped; use `rife`.
