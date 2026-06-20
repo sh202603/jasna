@@ -33,6 +33,7 @@ dependencies = [
 
 [project.scripts]
 jasna = "jasna.main:main"
+jasna-framegen = "jasna.framegen_cli:main"
 
 [project.optional-dependencies]
 dev = [
