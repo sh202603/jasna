@@ -86,6 +86,20 @@ jasna-framegen --input restored.mkv --output out4x.mkv --factor 4x
 
 主なオプション: `--factor {2x,4x}`、`--backend {rife,rtx}`、`--model-path <rife.pth>`、`--codec {hevc,av1}`、`--bit-depth {auto,8,10}`、`--encoder-settings <k=v,...>`、`--device cuda:0`、`--no-fp16`。出力品質は既定で jasna のエンコーダプロファイル（cq=25）。`--encoder-settings` で上書き可能。全オプションは `jasna-framegen --help`。確認は手順4と同じ（`ffprobe` でフレームレートが約2x/4x、尺不変、音声同期）。
 
+### フォルダ一括 + 命名規則
+
+`--input` がフォルダの場合、`--output` は出力フォルダとして扱われ、中の全動画を 1 つの RIFE モデル（1 回だけ構築して再利用）で処理する。フレーム生成は動画専用なので、フォルダ内の画像はスキップされる。出力ファイル名は `--output-pattern` で制御（`jasna` 本体と同じ意味）: `{original}` は入力 stem、既定は `{original}_out`（各入力の拡張子を維持）。
+
+```bash
+# in_dir/ の全動画を 2x にして out_dir/ へ（既定名: <name>_out.<ext>）
+jasna-framegen --input in_dir --output out_dir --factor 2x
+
+# 命名カスタム例: clip.mkv -> clip_2x.mkv
+jasna-framegen --input in_dir --output out_dir --factor 2x --output-pattern "{original}_2x.mkv"
+```
+
+フォルダ実行ではファイルごとに `[i/N] name -> out` を表示し、色域非対応のファイルはスキップして継続する。`--output-pattern` が 2 つの入力を同じ出力に割り当てる（または入力を上書きする）場合は事前にエラーになる。
+
 ---
 
 ## トラブルシュート
