@@ -2,11 +2,11 @@
 
 Windows で Jasna のビルド依存をセットアップし、**ソースから実行**する手順。
 
-> **本ガイドは `v0.7.2+modi` ブランチの手順です。** GPU スタック — **torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11** で、これらの依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が **10.16** 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
+> **本ガイドは `v0.7.2+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）で、これらの依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が **10.16** 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
 >
-> **このブランチの新機能:** AV1 出力 / 8bit(NV12) 出力 / BT.601・BT.2020 色空間保持（[CODECS_AND_COLORSPACE_ja.md](CODECS_AND_COLORSPACE_ja.md) 参照）、および RIFE による 2x/4x フレーム生成（[FRAME_GENERATION_ja.md](FRAME_GENERATION_ja.md) 参照）。
+> **このブランチの新機能:** AV1 出力 / 8bit(NV12) 出力 / BT.601 と BT.2020 の色空間保持（[CODECS_AND_COLORSPACE_ja.md](CODECS_AND_COLORSPACE_ja.md) 参照）、および RIFE による 2x/4x フレーム生成（[FRAME_GENERATION_ja.md](FRAME_GENERATION_ja.md) 参照）。
 
-> **パッケージングについて:** この公開フォークはネイティブ GPU 依存をビルドし、Jasna を**ソースから実行**します。frozen/パッケージ化されたバイナリを生成する **Nuitka のパッケージングツールは同梱していません** — そのツールは upstream と同様に**プライベート**です。ソース実行ではなくパッケージ済みバイナリが欲しい場合は upstream Kruk2/jasna の公式リリースを使ってください。詳細は [パッケージング / frozen ビルド](#10-パッケージング--frozen-ビルド)。
+> **パッケージングについて:** この公開フォークはネイティブ GPU 依存をビルドし、Jasna を**ソースから実行**します。frozen/パッケージ化されたバイナリを生成する **Nuitka のパッケージングツールは同梱していません**。そのツールは upstream と同様に**プライベート**です。ソース実行ではなくパッケージ済みバイナリが欲しい場合は upstream Kruk2/jasna の公式リリースを使ってください。詳細は [パッケージング / frozen ビルド](#10-パッケージング--frozen-ビルド)。
 
 ---
 
@@ -16,10 +16,10 @@ Windows で Jasna のビルド依存をセットアップし、**ソースから
 
 | 種別 | 要件 | winget ID / 入手元 | 備考 |
 |---|---|---|---|
-| OS | Windows 10/11 x64 | — | PowerShell 7+ 推奨 |
+| OS | Windows 10/11 x64 | n/a | PowerShell 7+ 推奨 |
 | Git | Git for Windows | `Git.Git` | サブモジュール取得用 |
 | uv | 最新版 | `astral-sh.uv` | Python の自動管理を含む (下記参照) |
-| Python | 3.13+ | — (uv が自動管理) | uv が `uv venv --python 3.13` 実行時に未インストールなら自動取得するため、別途インストール不要 |
+| Python | 3.13+ | n/a (uv が自動管理) | uv が `uv venv --python 3.13` 実行時に未インストールなら自動取得するため、別途インストール不要 |
 | CUDA Toolkit | **13.2** | NVIDIA 公式 ([developer.nvidia.com](https://developer.nvidia.com/cuda-downloads)) | 既定 `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2`。`CUDA_PATH` が 13.2 を指していること (セクション 3.1)。サイズが大きいため winget は非推奨 |
 | NVIDIA Driver | 591.67+ (59x 系) | NVIDIA 公式 or GeForce Experience | GPU は compute capability 7.5+ |
 | VS Build Tools | **2022** (Desktop development with C++) | `Microsoft.VisualStudio.2022.BuildTools` | `vali` / `PyNvVideoCodec` の C++ ビルドに必要 |
@@ -175,7 +175,7 @@ $env:CL                = "/utf-8"   # 日本語 Windows (CP932) で C4819 → C2
 
 毎回コマンドを打つのが面倒な場合、以下を **`$Workspace\setup-build-env.ps1`** として保存し、ビルドの度に `. $Workspace\setup-build-env.ps1` で読み込む（または `cd $Workspace; . .\setup-build-env.ps1`）。
 
-`$Workspace` をスクリプト自身の置き場所から自動算出するので、ワークスペースを移動・コピーしても書き換え不要。
+`$Workspace` をスクリプト自身の置き場所から自動算出するので、ワークスペースを移動やコピーしても書き換え不要。
 
 ```powershell
 # setup-build-env.ps1
@@ -266,7 +266,7 @@ ffmpeg はビルド中に `vali` と `PyNvVideoCodec` がそれぞれ別の変�
 | **`vali` CMake** | `FFMPEG_ROOT` (CMake) | `vali/src/CMakeLists.txt` がガード無しで `C:/Program Files/ffmpeg8` をハードコード | セクション 5.2 (junction か vali ソース 1 行編集) |
 | **`PyNvVideoCodec` CMake** | `FFMPEG_DIR` (環境変数) | 未設定なら同梱 `external/ffmpeg/` にフォールバック (lib 無し → ビルド失敗) | `$env:FFMPEG_DIR = "C:/Program Files/ffmpeg8"` を設定 (★フォワードスラッシュ。詳細はセクション 7) |
 
-> 実行時には Jasna が v8 の `ffmpeg`/`ffprobe` CLI を `PATH` 上に要求する — `bin/` ディレクトリを追加する（セクション 3.2）。
+> 実行時には Jasna が v8 の `ffmpeg`/`ffprobe` CLI を `PATH` 上に要求する。`bin/` ディレクトリを追加する（セクション 3.2）。
 
 ---
 
@@ -302,7 +302,7 @@ uv pip install . --no-build-isolation
 
 > **フォワードスラッシュが必須**: PyNvVideoCodec の install 段で CMake が `FFMPEG_DIR` の値を生成スクリプトに埋め込む際、バックスラッシュを含むパス (`C:\Program Files\ffmpeg8`) を quoted string として処理すると `\P` 等を不正エスケープとみなして `Syntax error in cmake code` で失敗する。
 
-> `vali` の `FFMPEG_ROOT` (CMake 変数) とは別の変数名・別の渡し方なので注意。PyNvVideoCodec は環境変数のみを参照する。
+> `vali` の `FFMPEG_ROOT` (CMake 変数) とは別の変数名と渡し方なので注意。PyNvVideoCodec は環境変数のみを参照する。
 
 > 日本語 Windows では `$env:CL = "/utf-8"` が無いと `error C2220: 警告がエラーとして扱われます` / `warning C4819` で失敗する。詳細はセクション 3.4 参照。
 
@@ -338,6 +338,17 @@ uv pip install -e .[dev] `
 
 `[dev]` で `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja` が入る。
 
+**オプション: torchcodec バックエンド。** 実験的な torchcodec のデコード/エンコード経路（`--video-backend torchcodec`/`auto`）を使う場合は、`torchcodec` extra を追加し、同じフラグで `.[dev,torchcodec]` を入れる:
+
+```powershell
+uv pip install -e .[dev,torchcodec] `
+    --extra-index-url https://download.pytorch.org/whl/cu130 `
+    --index-strategy unsafe-best-match `
+    --prerelease=allow
+```
+
+これで `torchcodec>=0.14.0` が入る。通常のビルドには不要で、既定の `native` バックエンドは torchcodec なしで動作する。詳細は [TORCHCODEC_BACKEND_ja.md](TORCHCODEC_BACKEND_ja.md)。
+
 スモークテスト:
 
 ```powershell
@@ -370,7 +381,7 @@ Select-String -Path .venv\Lib\site-packages\mmengine\runner\checkpoint.py -Patte
 
 ### 8.2 ONNX パッケージ（YOLO 検出モデル用）
 
-**YOLO（lada-yolo-\*）検出モデル**を使う場合、ultralytics は TensorRT エンジンをビルドする前にモデルを ONNX へエクスポートします。これには自動では入らない 3 パッケージが必要です。（RF-DETR モデルは不要 — 事前ビルド済み `.onnx` を TensorRT が直接パースするため。）
+**YOLO（lada-yolo-\*）検出モデル**を使う場合、ultralytics は TensorRT エンジンをビルドする前にモデルを ONNX へエクスポートします。これには自動では入らない 3 パッケージが必要です。（RF-DETR モデルは不要。事前ビルド済み `.onnx` を TensorRT が直接パースするため）
 
 ```powershell
 cd $Workspace\jasna
@@ -435,7 +446,7 @@ jasna --input assets\test_clip1_1080p.mp4 --output $env:TEMP\out.mp4   # 短い�
 jasna                    # GUI 起動（引数なし）
 ```
 
-`model_weights\` は自動解決される（付録 A.1）。v8 の `ffmpeg`/`ffprobe` CLI と `mkvmerge` が `PATH` 上にあること（セクション 3.2・1）、および `CUDA_PATH` が CUDA 13.2 を指していてネイティブライブラリが CUDA `bin\` を見つけられること（付録 A.2）を確認する。
+`model_weights\` は自動解決される（付録 A.1）。v8 の `ffmpeg`/`ffprobe` CLI と `mkvmerge` が `PATH` 上にあること（セクション 3.2 と 1）、および `CUDA_PATH` が CUDA 13.2 を指していてネイティブライブラリが CUDA `bin\` を見つけられること（付録 A.2）を確認する。
 
 ---
 
@@ -497,10 +508,10 @@ jasna                    # GUI 起動（引数なし）
 **修正**:
 
 - **新規 `jasna/model_weights_resolver.py`**: `model_weights/` フォルダを以下の優先順で自動的に探す。
-  1. **環境変数 `JASNA_MODEL_WEIGHTS_DIR` で指定したフォルダ** — ユーザーが「ここを使え」と明示した場所が最優先
-  2. **実行ファイルと同じフォルダの中の `model_weights\`** — パッケージ済みインストールの標準配置がここ
-  3. **コマンドを実行したフォルダの中の `model_weights\`** — `PowerShell` で `cd` してきた、いま自分がいる場所
-  4. **jasna ソースの親フォルダの中の `model_weights\`** — `uv pip install -e .` でソースから入れて動かしている開発者向け
+  1. **環境変数 `JASNA_MODEL_WEIGHTS_DIR` で指定したフォルダ**：ユーザーが「ここを使え」と明示した場所が最優先
+  2. **実行ファイルと同じフォルダの中の `model_weights\`**：パッケージ済みインストールの標準配置がここ
+  3. **コマンドを実行したフォルダの中の `model_weights\`**：`PowerShell` で `cd` してきた、いま自分がいる場所
+  4. **jasna ソースの親フォルダの中の `model_weights\`**：`uv pip install -e .` でソースから入れて動かしている開発者向け
 
   最初に見つかったものを使う。どこを採用したかは `--log-level info` で起動時にログ表示される（同じ値が続けば重複ログは抑止）。
 - **`jasna/main.py`**: `--restoration-model-path` のデフォルトを `""` に変更。未指定時にリゾルバ経由で解決。help 文に探索順を併記

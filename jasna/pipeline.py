@@ -17,6 +17,8 @@ from jasna.media.container_utils import MOV_SUFFIXES
 from jasna.media.encoder_settings import require_encodable_size
 from jasna.media.probe import UnsupportedVideoError, get_video_meta_data
 from jasna.media.video_encoder import VideoEncoder, resolve_encoder_options
+from jasna.media.video_encoder import VideoEncoder
+from jasna.media.backend import VideoBackend, make_video_encoder
 from jasna.media.frame_rate import resolve_frame_rate_retarget
 from jasna.media.splice import (
     H264_SMART_MAX_B_FRAMES,
@@ -134,6 +136,8 @@ class Pipeline:
         progress_callback: ProgressCallback | None,
         segments: tuple[SegmentRange, ...] | None,
         splice_plan: SplicePlan | None,
+        video_decode_backend: VideoBackend | str = VideoBackend.NATIVE,
+        video_encode_backend: VideoBackend | str = VideoBackend.NATIVE,
     ) -> None:
         self.config = config
         self.resume: ResumeJob | None = None
@@ -142,6 +146,8 @@ class Pipeline:
         self.working_dir = config.working_dir
         self.codec = config.codec
         self.encoder_settings = dict(config.encoder_settings)
+        self.video_decode_backend = video_decode_backend
+        self.video_encode_backend = video_encode_backend
         self.batch_size = config.batch_size
         self.device = session.device
         self.max_clip_size = config.max_clip_size
@@ -315,14 +321,14 @@ class Pipeline:
             ltx_large_canvas=ltx_large_canvas,
         )
 
-    def _video_encoder(self, metadata, frame_rate, settings: dict[str, object]) -> VideoEncoder:
+    def _video_encoder(self, metadata, frame_rate, settings: dict[str, object]):
         if self.fmp4 and self.output_video.suffix.lower() not in MOV_SUFFIXES:
             log.info(
                 "Fragmented MP4 has no effect on %s output; it is already playable while it grows",
                 self.output_video.suffix,
             )
-        return VideoEncoder(
-            str(self.output_video),
+        return make_video_encoder(
+            file=str(self.output_video),
             device=self.device,
             metadata=metadata,
             codec=self.codec,
@@ -333,6 +339,7 @@ class Pipeline:
             fmp4=self.fmp4,
             settings=settings,
             frame_generation=self.config.frame_generation != "none",
+            backend=self.video_encode_backend,
         )
 
     def _run_full(
