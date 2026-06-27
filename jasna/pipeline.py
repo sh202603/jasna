@@ -20,6 +20,7 @@ from jasna.media.encoder_options import nvenc_vram_beside_ltx, resolve_encoder_o
 from jasna.media.encoder_settings import require_encodable_size
 from jasna.media.probe import UnsupportedVideoError, get_video_meta_data
 from jasna.media.video_encoder import VideoEncoder
+from jasna.media.backend import VideoBackend, make_video_encoder
 from jasna.media.frame_rate import FrameRateRetarget, resolve_frame_rate_retarget
 from jasna.media.lut import CubeLut, parse_cube_file
 from jasna.media.splice import (
@@ -198,11 +199,15 @@ class Pipeline:
         progress_callback: ProgressCallback | None,
         segments: tuple[SegmentRange, ...] | None,
         splice_plan: SplicePlan | None,
+        video_decode_backend: VideoBackend | str = VideoBackend.NATIVE,
+        video_encode_backend: VideoBackend | str = VideoBackend.NATIVE,
     ) -> None:
         self.config = config
         self.resume: ResumeJob | None = None
         self.input_video = input_video
         self.output_video = output_video
+        self.video_decode_backend = video_decode_backend
+        self.video_encode_backend = video_encode_backend
         self.device = session.device
         self.detection_model = session.detection_model_for(config)
         self.restoration_pipeline = session.restoration_pipeline
@@ -378,14 +383,14 @@ class Pipeline:
             ltx_large_canvas=ltx_large_canvas,
         )
 
-    def _video_encoder(self, metadata, frame_rate, settings: dict[str, object]) -> VideoEncoder:
+    def _video_encoder(self, metadata, frame_rate, settings: dict[str, object]):
         if self.config.fmp4 and self.output_video.suffix.lower() not in MOV_SUFFIXES:
             log.info(
                 "Fragmented MP4 has no effect on %s output; it is already playable while it grows",
                 self.output_video.suffix,
             )
-        return VideoEncoder(
-            str(self.output_video),
+        return make_video_encoder(
+            file=str(self.output_video),
             device=self.device,
             metadata=self._encoder_metadata(metadata),
             codec=self.config.codec,
@@ -396,6 +401,7 @@ class Pipeline:
             fmp4=self.config.fmp4,
             settings=settings,
             frame_generation=self.config.frame_generation != "none",
+            backend=self.video_encode_backend,
         )
 
     def _lut(self) -> CubeLut | None:

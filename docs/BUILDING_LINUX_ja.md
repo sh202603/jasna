@@ -2,11 +2,11 @@
 
 Linux で Jasna のビルド依存をセットアップし、**ソースから実行**する手順です。
 
-> **本ガイドは `v0.7.2+modi` ブランチの手順です。** GPU スタック — **torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11** で、これらの依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が **10.16** 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
+> **本ガイドは `v0.7.2+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）で、これらの依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が **10.16** 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
 >
-> **このブランチの新機能:** AV1 出力 / 8bit(NV12) 出力 / BT.601・BT.2020 色空間保持（[CODECS_AND_COLORSPACE_ja.md](CODECS_AND_COLORSPACE_ja.md) 参照）、および RIFE による 2x/4x フレーム生成（[FRAME_GENERATION_ja.md](FRAME_GENERATION_ja.md) 参照）。
+> **このブランチの新機能:** AV1 出力 / 8bit(NV12) 出力 / BT.601 と BT.2020 の色空間保持（[CODECS_AND_COLORSPACE_ja.md](CODECS_AND_COLORSPACE_ja.md) 参照）、および RIFE による 2x/4x フレーム生成（[FRAME_GENERATION_ja.md](FRAME_GENERATION_ja.md) 参照）。
 
-> **パッケージングについて:** この公開フォークはネイティブ GPU 依存をビルドし、Jasna を**ソースから実行**します。frozen/パッケージ化されたバイナリを生成する **Nuitka のパッケージングツールは同梱していません** — そのツールは upstream と同様に**プライベート**です。ソース実行ではなくパッケージ済みバイナリが欲しい場合は upstream Kruk2/jasna の公式リリースを使ってください。詳細は [パッケージング / frozen ビルド](#10-パッケージング--frozen-ビルド)。
+> **パッケージングについて:** この公開フォークはネイティブ GPU 依存をビルドし、Jasna を**ソースから実行**します。frozen/パッケージ化されたバイナリを生成する **Nuitka のパッケージングツールは同梱していません**。そのツールは upstream と同様に**プライベート**です。ソース実行ではなくパッケージ済みバイナリが欲しい場合は upstream Kruk2/jasna の公式リリースを使ってください。詳細は [パッケージング / frozen ビルド](#10-パッケージング--frozen-ビルド)。
 
 > 本ガイドは **Ubuntu 26.04 LTS**（ffmpeg 8 / gcc 15 / glibc 2.43 を同梱）+ **CUDA 13.3** + RTX 50 シリーズ GPU + **ドライバ 595** で検証済みです。他のディストリでも動作しますが、パッケージ名や ffmpeg/CUDA の導入手順は異なります。
 
@@ -16,14 +16,14 @@ Linux で Jasna のビルド依存をセットアップし、**ソースから�
 
 > ⚠ **Linux 固有の注意点が 2 つあります:**
 > 1. **ffmpeg はシステムの dev パッケージを使い、ダウンロードはしません。** この `vali` フォークは ffmpeg を自動ダウンロードしません（upstream の VALI README にはダウンロードすると書かれていますが、こちらには当てはまりません）。`apt` で ffmpeg-8 の **dev** ライブラリを入れ、それにリンクします。PyNvVideoCodec はさらに、それらを `FFMPEG_DIR` で特定のディレクトリ構成として渡す必要があります（5節）。
-> 2. **システムの `python3.13` と、その `-dev` ヘッダに対してビルドする必要があります**（self-contained / managed Python は不可）。PyNvVideoCodec の pybind11 が Python の include ディレクトリを `/usr/include/python3.13` と解決し、これは `python3.13-dev` を入れたときだけ存在します。**Ubuntu 26.04 の既定 `python3` は 3.14** なので注意 — 3.14 では vali / PyNvVideoCodec の include パス解決と torch cu130 wheel が合わずビルド・解決に失敗します（`pyproject.toml` は `requires-python = ">=3.13,<3.14"` で 3.14 を明示的に拒否）。`python3.13` が標準リポジトリに無ければ deadsnakes 等の追加が必要で、venv を作る前に **`/usr/bin/python3.13` が存在することを確認**してください（`ls -l /usr/bin/python3.13`）。
+> 2. **システムの `python3.13` と、その `-dev` ヘッダに対してビルドする必要があります**（self-contained / managed Python は不可）。PyNvVideoCodec の pybind11 が Python の include ディレクトリを `/usr/include/python3.13` と解決し、これは `python3.13-dev` を入れたときだけ存在します。**Ubuntu 26.04 の既定 `python3` は 3.14** なので注意。3.14 では vali / PyNvVideoCodec の include パス解決と torch cu130 wheel が合わずビルドや解決に失敗します（`pyproject.toml` は `requires-python = ">=3.13,<3.14"` で 3.14 を明示的に拒否）。`python3.13` が標準リポジトリに無ければ deadsnakes 等の追加が必要で、venv を作る前に **`/usr/bin/python3.13` が存在することを確認**してください（`ls -l /usr/bin/python3.13`）。
 
 | カテゴリ | 要件 | 入手元 | 備考 |
 |---|---|---|---|
-| OS | Ubuntu 26.04 x64（または同等） | — | 26.04 で検証。`apt` に ffmpeg 8 がある |
+| OS | Ubuntu 26.04 x64（または同等） | n/a | 26.04 で検証。`apt` に ffmpeg 8 がある |
 | ビルドツール | `build-essential`, `pkg-config` | apt | gcc/g++ 15 で問題なし。CUDA 13.3 の `nvcc` はホストコンパイラとして受け入れる |
 | cmake / ninja | 最近の版 | apt **または** venv（4節） | `pip install` 時は venv 側が使われる。システム側は任意 |
-| Python | **3.13 + 3.13-dev + 3.13-tk** | apt (`python3.13 python3.13-dev python3.13-tk`) | dev ヘッダは vali（`Development.Module`）と PyNvVideoCodec（pybind11）に必須。`python3.13-tk`（Tcl/Tk）は GUI の実行に必要 — 無いと `tkinter`/`customtkinter` の import に失敗する |
+| Python | **3.13 + 3.13-dev + 3.13-tk** | apt (`python3.13 python3.13-dev python3.13-tk`) | dev ヘッダは vali（`Development.Module`）と PyNvVideoCodec（pybind11）に必須。`python3.13-tk`（Tcl/Tk）は GUI の実行に必要で、無いと `tkinter`/`customtkinter` の import に失敗する |
 | uv | 最新 | [astral.sh/uv](https://docs.astral.sh/uv/) | venv を管理 |
 | CUDA Toolkit | **13.x**（13.3 で検証） | NVIDIA apt リポジトリ | toolkit のみ。ドライバは**置き換えない**。`nvcc` が 13.x を指すこと（3節） |
 | NVIDIA ドライバ | 590+（59x 系列） | ディストリ / NVIDIA | GPU は compute capability 7.5+ |
@@ -50,7 +50,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ### 1.2 CUDA 13 toolkit のインストール
 
-`vali` と `PyNvVideoCodec` のコンパイルに CUDA *toolkit*（`nvcc`・ヘッダ・`cudart`）が必要です。**toolkit のみ** を入れます — 既存のドライバには触れません。
+`vali` と `PyNvVideoCodec` のコンパイルに CUDA *toolkit*（`nvcc`、ヘッダ、`cudart`）が必要です。**toolkit のみ** を入れます。既存のドライバには触れません。
 
 ```bash
 cd /tmp
@@ -124,7 +124,7 @@ which nvcc                 # /usr/local/cuda-13.3/bin/nvcc
 
 ## 4. Python 仮想環境の作成
 
-`jasna` リポジトリ配下に `.venv` を、**システムの `python3.13` から**作成します（managed/standalone Python は不可 — 1節の注意参照）。
+`jasna` リポジトリ配下に `.venv` を、**システムの `python3.13` から**作成します（managed/standalone Python は不可。1節の注意参照）。
 
 ```bash
 cd "$WORKSPACE/jasna"
@@ -173,7 +173,7 @@ ls "$FFMPEG_DIR/lib/x86_64"     # libavcodec.so, libavcodec.so.62, ...
 
 > **前提**: 3節（CUDA 環境）+ 4節（venv + `setuptools<80`）+ 1.1節（ffmpeg dev ライブラリ）。
 
-`vali` の `setup.py` は既に `-DCMAKE_CUDA_ARCHITECTURES=native` を渡し、`CUDA_PATH` から `nvcc` を固定するため、そのまま configure・ビルドできます:
+`vali` の `setup.py` は既に `-DCMAKE_CUDA_ARCHITECTURES=native` を渡し、`CUDA_PATH` から `nvcc` を固定するため、そのまま configure とビルドができます:
 
 ```bash
 cd "$WORKSPACE/vali"
@@ -187,7 +187,7 @@ LD_LIBRARY_PATH=/usr/local/cuda-13.3/targets/x86_64-linux/lib \
   python -c "import python_vali; print('vali OK', python_vali.__version__)"
 ```
 
-> Jasna 実行時は `LD_LIBRARY_PATH` 不要です — torch (cu130) が同梱の CUDA 13 ランタイムを先にロードし、`vali`/`PyNvVideoCodec` を満たします。上記の `LD_LIBRARY_PATH` はネイティブライブラリを単体 import するときだけ必要です。
+> Jasna 実行時は `LD_LIBRARY_PATH` 不要です。torch (cu130) が同梱の CUDA 13 ランタイムを先にロードし、`vali`/`PyNvVideoCodec` を満たします。上記の `LD_LIBRARY_PATH` はネイティブライブラリを単体 import するときだけ必要です。
 
 ---
 
@@ -197,8 +197,8 @@ LD_LIBRARY_PATH=/usr/local/cuda-13.3/targets/x86_64-linux/lib \
 
 CUDA 13 のシステムでは追加の環境変数が 2 つ必要です:
 
-- **`FFMPEG_DIR`** — 5節の symlink prefix。
-- **`CUDACXX`** — `CMAKE_CUDA_COMPILER` を先に設定し、CMake のコンパイラ識別プローブをスキップさせます。このプローブは `-arch=sm_52` をハードコードしており、**CUDA 13 では `sm_52` が削除**されています（`ptxas fatal: Value 'sm_52' is not defined`）。コンパイラを先に設定すればプローブを回避でき、プロジェクト既定のアーキ一覧（`75;80;86;89;120`）は CUDA 13 で有効です。
+- **`FFMPEG_DIR`**：5節の symlink prefix。
+- **`CUDACXX`**：`CMAKE_CUDA_COMPILER` を先に設定し、CMake のコンパイラ識別プローブをスキップさせます。このプローブは `-arch=sm_52` をハードコードしており、**CUDA 13 では `sm_52` が削除**されています（`ptxas fatal: Value 'sm_52' is not defined`）。コンパイラを先に設定すればプローブを回避でき、プロジェクト既定のアーキ一覧（`75;80;86;89;120`）は CUDA 13 で有効です。
 
 ```bash
 cd "$WORKSPACE/PyNvVideoCodec"
@@ -234,15 +234,26 @@ uv pip install -e .[dev] \
 
 各フラグの理由:
 
-- `--extra-index-url https://download.pytorch.org/whl/cu130` — `torch+cu130` / `torch-tensorrt+cu130` wheel の入手元。
-- `--index-strategy unsafe-best-match` — `torch-tensorrt==2.12.0` をインデックスの local-version リリース `2.12.0+cu130` で満たせるようにする。
-- `--prerelease=allow` — 推移依存（`nvidia-cuda-runtime-cu13`）がプレリリース。
+- `--extra-index-url https://download.pytorch.org/whl/cu130`：`torch+cu130` / `torch-tensorrt+cu130` wheel の入手元。
+- `--index-strategy unsafe-best-match`：`torch-tensorrt==2.12.0` をインデックスの local-version リリース `2.12.0+cu130` で満たせるようにする。
+- `--prerelease=allow`：推移依存（`nvidia-cuda-runtime-cu13`）がプレリリース。
 
 `[dev]` extra は `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja` を入れます。
 
+**オプション: torchcodec バックエンド。** 実験的な torchcodec のデコード/エンコード経路（`--video-backend torchcodec`/`auto`）を使う場合は、`torchcodec` extra を追加し、同じフラグで `.[dev,torchcodec]` を入れます:
+
+```bash
+uv pip install -e .[dev,torchcodec] \
+    --extra-index-url https://download.pytorch.org/whl/cu130 \
+    --index-strategy unsafe-best-match \
+    --prerelease=allow
+```
+
+これで `torchcodec>=0.14.0` が入ります。通常のビルドには不要で、既定の `native` バックエンドは torchcodec なしで動作します。詳細は [TORCHCODEC_BACKEND_ja.md](TORCHCODEC_BACKEND_ja.md)。
+
 ### 8.2 ONNX パッケージ（YOLO 検出モデル用）
 
-**YOLO（lada-yolo-\*）検出モデル**を使う場合、ultralytics は TensorRT エンジンをビルドする前にモデルを ONNX へエクスポートします。これには自動では入らない 3 パッケージが必要です。（RF-DETR モデルは不要 — 事前ビルド済み `.onnx` を TensorRT が直接パースするため。）
+**YOLO（lada-yolo-\*）検出モデル**を使う場合、ultralytics は TensorRT エンジンをビルドする前にモデルを ONNX へエクスポートします。これには自動では入らない 3 パッケージが必要です。（RF-DETR モデルは不要。事前ビルド済み `.onnx` を TensorRT が直接パースするため）
 
 ```bash
 uv pip install onnx onnxslim onnxruntime
@@ -337,10 +348,10 @@ jasna                        # GUI を起動（引数なし）
 ### 環境 / Python
 
 - **vali configure 失敗: `Could NOT find Python3 (missing: ... Development.Module)`**
-  Python の開発ヘッダが無い。`python3.13-dev` を入れ、venv を `/usr/bin/python3.13` から作成（1.1・4節）。managed/standalone Python は使わないこと。
+  Python の開発ヘッダが無い。`python3.13-dev` を入れ、venv を `/usr/bin/python3.13` から作成（1.1 と 4 節）。managed/standalone Python は使わないこと。
 
 - **PyNvVideoCodec generate 失敗: `pybind11::module includes non-existent path /usr/include/python3.13`**
-  同じ原因 — `python3.13-dev` 未導入、または venv を非システム Python から作った。`python3.13-dev` を入れ、`/usr/bin/python3.13` から venv を作り直す。
+  同じ原因：`python3.13-dev` 未導入、または venv を非システム Python から作った。`python3.13-dev` を入れ、`/usr/bin/python3.13` から venv を作り直す。
 
 - **`vali` / `PyNvVideoCodec` ビルド失敗: `ModuleNotFoundError: No module named 'pkg_resources'`**
   `setuptools` ≥ 80 が `pkg_resources` を落とした。venv で `uv pip install "setuptools<80"`（4節）してから再ビルド。
@@ -369,8 +380,8 @@ jasna                        # GUI を起動（引数なし）
 
 ### jasna インストール
 
-- **`uv pip install -e .[dev]` が `no version of torch==2.12.0+cu130` で失敗** — `--extra-index-url https://download.pytorch.org/whl/cu130` を追加。
-- **`torch-tensorrt==2.12.0+cu130 ... unsatisfiable`** — `--index-strategy unsafe-best-match --prerelease=allow` を追加（8節）。
+- **`uv pip install -e .[dev]` が `no version of torch==2.12.0+cu130` で失敗**。`--extra-index-url https://download.pytorch.org/whl/cu130` を追加。
+- **`torch-tensorrt==2.12.0+cu130 ... unsatisfiable`**。`--index-strategy unsafe-best-match --prerelease=allow` を追加（8節）。
 
 ### ランタイム
 
@@ -394,7 +405,7 @@ jasna                        # GUI を起動（引数なし）
 
 ### A.1 `model_weights/` ディレクトリの自動解決
 
-`jasna/model_weights_resolver.py` を追加し、`model_weights/` を優先順位で探索: `JASNA_MODEL_WEIGHTS_DIR` 環境変数 → 実行ファイルの隣 → カレントディレクトリ → ソースツリーの隣。`main.py`・`mosaic/detection_registry.py`・`engine_paths.py`・GUI（`gui/processor.py`, `gui/engine_preflight.py`）がハードコードの `Path("model_weights")` ではなく resolver を経由するようになります。これで CLI を任意のディレクトリから実行可能に。
+`jasna/model_weights_resolver.py` を追加し、`model_weights/` を優先順位で探索: `JASNA_MODEL_WEIGHTS_DIR` 環境変数 → 実行ファイルの隣 → カレントディレクトリ → ソースツリーの隣。`main.py`、`mosaic/detection_registry.py`、`engine_paths.py`、GUI（`gui/processor.py`, `gui/engine_preflight.py`）がハードコードの `Path("model_weights")` ではなく resolver を経由するようになります。これで CLI を任意のディレクトリから実行可能に。
 
 ### A.2 DLL ロード補助 (`jasna/media/video_decoder.py`)
 
@@ -412,7 +423,7 @@ CUDA / `python_vali` のディレクトリを DLL 検索パスに登録するが
 
 ### B.1 モーダルダイアログの空表示 (`jasna/gui/app.py`, `jasna/gui/wizard.py`, `jasna/gui/components.py`)
 
-**問題**: Linux/X11 で customtkinter の `CTkToplevel` ダイアログが完全に空（テキストもボタンも無い暗いウィンドウ）で開く。対象: **About**（`app.py` `_show_about`）、**System Check** / 初回ウィザード（`wizard.py` `FirstRunWizard`）、**プリセット作成**・**確認**ダイアログ（`components.py` `PresetDialog`, `ConfirmDialog`）。いずれも生成直後・子ウィジェット描画前に `grab_set()`（場合により `lift()` / `focus_force()`）を呼ぶ。一部のウィンドウマネージャでは、ウィンドウはマップされるが未描画のまま残り、ダイアログがリサイズ不可のため再描画が走らない。
+**問題**: Linux/X11 で customtkinter の `CTkToplevel` ダイアログが完全に空（テキストもボタンも無い暗いウィンドウ）で開く。対象: **About**（`app.py` `_show_about`）、**System Check** / 初回ウィザード（`wizard.py` `FirstRunWizard`）、**プリセット作成**と**確認**ダイアログ（`components.py` `PresetDialog`, `ConfirmDialog`）。いずれも生成直後、子ウィジェット描画前に `grab_set()`（場合により `lift()` / `focus_force()`）を呼ぶ。一部のウィンドウマネージャでは、ウィンドウはマップされるが未描画のまま残り、ダイアログがリサイズ不可のため再描画が走らない。
 
 **修正**: 先に全ての子ウィジェットを生成し、その後 `lift()` / `grab_set()` / `focus_force()` を `self.after(200, …)` / `after(250, …)` でイベントループの後続ティックに遅延させ、内容が描画された後にモーダルグラブを確立する。Windows の挙動は不変（同じ呼び出しが 1 ティック遅れて走るだけ）。
 
