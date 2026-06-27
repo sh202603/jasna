@@ -14,7 +14,7 @@ from jasna.accelerator import empty_cache, ipc_collect
 from jasna.blend_buffer import BlendBuffer
 from jasna.crop_buffer import CropBuffer
 from jasna.frame_queue import FrameQueue
-from jasna.media.video_decoder import VideoReader
+from jasna.media.backend import VideoBackend, make_video_reader
 from jasna.pipeline_debug_logging import PipelineDebugMemoryLogger
 from jasna.pipeline_items import ClipRestoreItem, FrameMeta, PrimaryRestoreResult, SecondaryLoopStats, _SENTINEL
 from jasna.pipeline_processing import process_frame_batch, finalize_processing
@@ -63,6 +63,7 @@ def decode_detect_loop(
     output_frame_count: int | None,
     output_fps: float | None,
     progress: Progressbar | None,
+    video_backend: VideoBackend | str = VideoBackend.NATIVE,
 ) -> None:
     timer = LoopTimer("decode-detect")
     try:
@@ -77,12 +78,10 @@ def decode_detect_loop(
         blend_frames = (temporal_overlap // 3) if enable_crossfade else 0
 
         with (
-            VideoReader(
-                input_video,
-                batch_size=batch_size,
-                device=device,
-                metadata=metadata,
+            make_video_reader(
+                file=input_video, batch_size=batch_size, device=device, metadata=metadata,
                 frame_stride=frame_stride,
+                backend=video_backend,
             ) as reader,
             torch.inference_mode(),
         ):
@@ -337,22 +336,21 @@ def blend_encode_loop(
     vram_offloader: VramOffloader,
     seek_ts: float | None,
     frame_stride: int,
+    video_backend: VideoBackend | str = VideoBackend.NATIVE,
 ) -> None:
     timer = LoopTimer("blend-encode")
     try:
         torch.cuda.set_device(device)
 
-        def _flat_frames(rdr: VideoReader):
+        def _flat_frames(rdr):
             for batch, pts in rdr.frames(seek_ts=seek_ts):
                 for i in range(len(pts)):
                     yield batch[i]
 
-        with VideoReader(
-            input_video,
-            batch_size=batch_size,
-            device=device,
-            metadata=metadata,
+        with make_video_reader(
+            file=input_video, batch_size=batch_size, device=device, metadata=metadata,
             frame_stride=frame_stride,
+            backend=video_backend,
         ) as reader2:
             frame_gen = _flat_frames(reader2)
             secondary_done = False
@@ -654,6 +652,8 @@ def run_restoration_pass(
     """
     device = pipeline.device
     restoration_pipeline = pipeline.restoration_pipeline
+    # Preview/HLS/raw-player passes hand in objects without a backend choice: native.
+    decode_backend = getattr(pipeline, "decode_backend", VideoBackend.NATIVE)
     max_clip_size = pipeline.max_clip_size
     secondary_workers = max(1, int(restoration_pipeline.secondary_num_workers))
 
@@ -726,6 +726,7 @@ def run_restoration_pass(
                 output_frame_count=output_frame_count,
                 output_fps=output_fps,
                 progress=progress,
+                video_backend=decode_backend,
             ),
             name="DecodeDetect", daemon=True,
         ),
@@ -758,6 +759,7 @@ def run_restoration_pass(
                 vram_offloader=vram_offloader,
                 seek_ts=seek_ts,
                 frame_stride=frame_stride,
+                video_backend=decode_backend,
             ),
             name="BlendEncode", daemon=True,
         ),

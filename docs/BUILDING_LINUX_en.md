@@ -2,11 +2,11 @@
 
 How to set up the Jasna build dependencies on Linux and run jasna **from source**.
 
-> **This guide covers the `v0.7.2+modi` branch.** It builds jasna against the GPU stack — **torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11** — already pinned in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0`; TensorRT 11 is not yet supported by torch-tensorrt.
+> **This guide covers the `v0.7.2+modi` branch.** It builds jasna against the GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**), already pinned in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0`; TensorRT 11 is not yet supported by torch-tensorrt.
 >
 > **New on this branch:** AV1 output, 8-bit (NV12) output, and BT.601/BT.2020 colorspace preservation (see [CODECS_AND_COLORSPACE_en.md](CODECS_AND_COLORSPACE_en.md)); and 2x/4x frame generation via RIFE (see [FRAME_GENERATION_en.md](FRAME_GENERATION_en.md)).
 
-> **Packaging note:** This public fork builds the native GPU dependencies and runs jasna **from source**. It does **not** ship Nuitka packaging tooling to produce a frozen/packaged binary — that tooling is private (the same arrangement as upstream). If you want a pre-packaged binary instead of running from source, use upstream Kruk2/jasna's official releases. See [Packaging / frozen builds](#10-packaging--frozen-builds).
+> **Packaging note:** This public fork builds the native GPU dependencies and runs jasna **from source**. It does **not** ship Nuitka packaging tooling to produce a frozen/packaged binary: that tooling is private (the same arrangement as upstream). If you want a pre-packaged binary instead of running from source, use upstream Kruk2/jasna's official releases. See [Packaging / frozen builds](#10-packaging--frozen-builds).
 
 > This guide was verified on **Ubuntu 26.04 LTS** (ships ffmpeg 8, gcc 15, glibc 2.43) with **CUDA 13.3**, an RTX 50-series GPU, and **driver 595**. Other distributions work too, but the package names and ffmpeg/CUDA install steps will differ.
 
@@ -15,17 +15,17 @@ How to set up the Jasna build dependencies on Linux and run jasna **from source*
 ## 1. Prerequisites
 
 > ⚠ **Two Linux-specific notes up front:**
-> 1. **ffmpeg is taken from system dev packages, not downloaded.** This fork of `vali` does *not* auto-download ffmpeg (the upstream VALI README claims it does — that does not apply here). You install ffmpeg-8 **dev** libraries via `apt`, and the build links against them. PyNvVideoCodec additionally needs them exposed in a specific directory layout via `FFMPEG_DIR` (Section 5).
-> 2. **You must build against the system `python3.13` with its `-dev` headers**, not a self-contained/managed Python. PyNvVideoCodec's pybind11 resolves the Python include dir to `/usr/include/python3.13`, which only exists when `python3.13-dev` is installed. **Ubuntu 26.04's default `python3` is 3.14** — on 3.14 the vali / PyNvVideoCodec include-path resolution and the torch cu130 wheels do not match, so the build/resolve fails (`pyproject.toml` pins `requires-python = ">=3.13,<3.14"` to reject 3.14 outright). If `python3.13` is not in the default repos, add deadsnakes or similar, and **confirm `/usr/bin/python3.13` exists** before creating the venv (`ls -l /usr/bin/python3.13`).
+> 1. **ffmpeg is taken from system dev packages, not downloaded.** This fork of `vali` does *not* auto-download ffmpeg (the upstream VALI README claims it does, but that does not apply here). You install ffmpeg-8 **dev** libraries via `apt`, and the build links against them. PyNvVideoCodec additionally needs them exposed in a specific directory layout via `FFMPEG_DIR` (Section 5).
+> 2. **You must build against the system `python3.13` with its `-dev` headers**, not a self-contained/managed Python. PyNvVideoCodec's pybind11 resolves the Python include dir to `/usr/include/python3.13`, which only exists when `python3.13-dev` is installed. **Ubuntu 26.04's default `python3` is 3.14**: on 3.14 the vali / PyNvVideoCodec include-path resolution and the torch cu130 wheels do not match, so the build/resolve fails (`pyproject.toml` pins `requires-python = ">=3.13,<3.14"` to reject 3.14 outright). If `python3.13` is not in the default repos, add deadsnakes or similar, and **confirm `/usr/bin/python3.13` exists** before creating the venv (`ls -l /usr/bin/python3.13`).
 
 | Category | Requirement | Source | Notes |
 |---|---|---|---|
-| OS | Ubuntu 26.04 x64 (or similar) | — | Verified on 26.04; ships ffmpeg 8 in `apt` |
-| Build tools | `build-essential`, `pkg-config` | apt | gcc/g++ 15 is fine — CUDA 13.3's `nvcc` accepts it as host compiler |
+| OS | Ubuntu 26.04 x64 (or similar) | n/a | Verified on 26.04; ships ffmpeg 8 in `apt` |
+| Build tools | `build-essential`, `pkg-config` | apt | gcc/g++ 15 is fine: CUDA 13.3's `nvcc` accepts it as host compiler |
 | cmake / ninja | any recent | apt **or** the venv (Section 4) | The venv copies are used during `pip install`; system ones are optional |
-| Python | **3.13 + 3.13-dev + 3.13-tk** | apt (`python3.13 python3.13-dev python3.13-tk`) | Dev headers are mandatory for vali (`Development.Module`) and PyNvVideoCodec (pybind11). `python3.13-tk` (Tcl/Tk) is required to run the GUI — without it `tkinter`/`customtkinter` fail to import |
+| Python | **3.13 + 3.13-dev + 3.13-tk** | apt (`python3.13 python3.13-dev python3.13-tk`) | Dev headers are mandatory for vali (`Development.Module`) and PyNvVideoCodec (pybind11). `python3.13-tk` (Tcl/Tk) is required to run the GUI; without it `tkinter`/`customtkinter` fail to import |
 | uv | latest | [astral.sh/uv](https://docs.astral.sh/uv/) | Manages the venv |
-| CUDA Toolkit | **13.x** (verified 13.3) | NVIDIA apt repo | Toolkit only — does **not** replace your driver. `nvcc` must resolve to 13.x (Section 3) |
+| CUDA Toolkit | **13.x** (verified 13.3) | NVIDIA apt repo | Toolkit only: does **not** replace your driver. `nvcc` must resolve to 13.x (Section 3) |
 | NVIDIA Driver | 590+ (59x series) | your distro / NVIDIA | GPU must be compute capability 7.5+ |
 | ffmpeg / ffprobe | **v8** (runtime) + **dev libs** (build) | apt | Runtime CLI must be major version 8; build needs `libav*-dev` (Section 1.1) |
 | MKVToolNix | `mkvmerge` (runtime) | apt (`mkvtoolnix`) | Needed only when actually processing video, not for the build itself |
@@ -50,7 +50,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ### 1.2 Install the CUDA 13 toolkit
 
-The CUDA *toolkit* (`nvcc`, headers, `cudart`) is needed to compile `vali` and `PyNvVideoCodec`. Install the **toolkit only** — it does not touch your existing driver.
+The CUDA *toolkit* (`nvcc`, headers, `cudart`) is needed to compile `vali` and `PyNvVideoCodec`. Install the **toolkit only**; it does not touch your existing driver.
 
 ```bash
 cd /tmp
@@ -103,7 +103,7 @@ export CUDAToolkit_ROOT=/usr/local/cuda-13.3
 export PATH="$CUDA_PATH/bin:$PATH"
 ```
 
-Verify `nvcc` resolves to 13.x (your distro may also have an older `nvcc` on `PATH` — the prepend above wins):
+Verify `nvcc` resolves to 13.x (your distro may also have an older `nvcc` on `PATH`; the prepend above wins):
 
 ```bash
 nvcc --version            # must show "release 13.x"
@@ -124,7 +124,7 @@ which nvcc                 # /usr/local/cuda-13.3/bin/nvcc
 
 ## 4. Create the Python virtual environment
 
-Create a `.venv` under the `jasna` repo, **from the system `python3.13`** (not a managed/standalone Python — see the note in Section 1).
+Create a `.venv` under the `jasna` repo, **from the system `python3.13`** (not a managed/standalone Python; see the note in Section 1).
 
 ```bash
 cd "$WORKSPACE/jasna"
@@ -148,7 +148,7 @@ uv pip install cmake ninja scikit-build "setuptools<80" wheel numpy
 
 ## 5. Expose ffmpeg-8 to the build
 
-`vali` finds the system ffmpeg-8 dev libraries automatically (CMake's default search picks up `/usr/include/x86_64-linux-gnu` + `/usr/lib/x86_64-linux-gnu`), so it needs no extra configuration — the `apt` packages from Section 1.1 are enough.
+`vali` finds the system ffmpeg-8 dev libraries automatically (CMake's default search picks up `/usr/include/x86_64-linux-gnu` + `/usr/lib/x86_64-linux-gnu`), so it needs no extra configuration; the `apt` packages from Section 1.1 are enough.
 
 **PyNvVideoCodec is different.** Its CMake expects an ffmpeg prefix with `include/` and `lib/x86_64/` subdirectories, which does **not** match Ubuntu's multiarch layout. Build a small symlink prefix that points at the system ffmpeg-8 files (keeping headers and libraries the same version):
 
@@ -187,7 +187,7 @@ LD_LIBRARY_PATH=/usr/local/cuda-13.3/targets/x86_64-linux/lib \
   python -c "import python_vali; print('vali OK', python_vali.__version__)"
 ```
 
-> At Jasna runtime you don't need `LD_LIBRARY_PATH` — torch (cu130) loads its bundled CUDA 13 runtime first, which satisfies `vali`/`PyNvVideoCodec`. The `LD_LIBRARY_PATH` above is only for importing the native libs standalone.
+> At Jasna runtime you don't need `LD_LIBRARY_PATH`: torch (cu130) loads its bundled CUDA 13 runtime first, which satisfies `vali`/`PyNvVideoCodec`. The `LD_LIBRARY_PATH` above is only for importing the native libs standalone.
 
 ---
 
@@ -197,8 +197,8 @@ LD_LIBRARY_PATH=/usr/local/cuda-13.3/targets/x86_64-linux/lib \
 
 Two extra environment variables are required on a CUDA-13 system:
 
-- **`FFMPEG_DIR`** — the symlink prefix from Section 5.
-- **`CUDACXX`** — pre-sets `CMAKE_CUDA_COMPILER` so CMake skips its compiler-identification probe. That probe hardcodes `-arch=sm_52`, which **CUDA 13 removed** (`ptxas fatal: Value 'sm_52' is not defined`). Pre-setting the compiler avoids the probe; the project's default architecture list (`75;80;86;89;120`) is valid for CUDA 13.
+- **`FFMPEG_DIR`**: the symlink prefix from Section 5.
+- **`CUDACXX`**: pre-sets `CMAKE_CUDA_COMPILER` so CMake skips its compiler-identification probe. That probe hardcodes `-arch=sm_52`, which **CUDA 13 removed** (`ptxas fatal: Value 'sm_52' is not defined`). Pre-setting the compiler avoids the probe; the project's default architecture list (`75;80;86;89;120`) is valid for CUDA 13.
 
 ```bash
 cd "$WORKSPACE/PyNvVideoCodec"
@@ -234,21 +234,32 @@ uv pip install -e .[dev] \
 
 Why each flag:
 
-- `--extra-index-url https://download.pytorch.org/whl/cu130` — source of the `torch+cu130` / `torch-tensorrt+cu130` wheels.
-- `--index-strategy unsafe-best-match` — lets uv satisfy `torch-tensorrt==2.12.0` with the index's local-version release `2.12.0+cu130`.
-- `--prerelease=allow` — a transitive dep (`nvidia-cuda-runtime-cu13`) is a pre-release.
+- `--extra-index-url https://download.pytorch.org/whl/cu130`: source of the `torch+cu130` / `torch-tensorrt+cu130` wheels.
+- `--index-strategy unsafe-best-match`: lets uv satisfy `torch-tensorrt==2.12.0` with the index's local-version release `2.12.0+cu130`.
+- `--prerelease=allow`: a transitive dep (`nvidia-cuda-runtime-cu13`) is a pre-release.
 
 The `[dev]` extra installs `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja`.
 
+**Optional: the torchcodec backend.** For the experimental torchcodec decode/encode path (`--video-backend torchcodec`/`auto`), add the `torchcodec` extra, i.e. install `.[dev,torchcodec]` with the same flags:
+
+```bash
+uv pip install -e .[dev,torchcodec] \
+    --extra-index-url https://download.pytorch.org/whl/cu130 \
+    --index-strategy unsafe-best-match \
+    --prerelease=allow
+```
+
+This adds `torchcodec>=0.14.0`. It is **not** needed for a normal build; the default `native` backend works without it. See [TORCHCODEC_BACKEND_en.md](TORCHCODEC_BACKEND_en.md).
+
 ### 8.2 ONNX packages (for YOLO detection models)
 
-If you use a **YOLO (lada-yolo-\*) detection model**, ultralytics exports it to ONNX before building the TensorRT engine, which needs three packages that are **not** pulled in automatically. (RF-DETR models do not need these — they parse a prebuilt `.onnx` via TensorRT directly.)
+If you use a **YOLO (lada-yolo-\*) detection model**, ultralytics exports it to ONNX before building the TensorRT engine, which needs three packages that are **not** pulled in automatically. (RF-DETR models do not need these: they parse a prebuilt `.onnx` via TensorRT directly.)
 
 ```bash
 uv pip install onnx onnxslim onnxruntime
 ```
 
-When running from source, ultralytics auto-downloads these on first export if they are missing — but installing them ahead of time avoids a stall on the first YOLO run.
+When running from source, ultralytics auto-downloads these on first export if they are missing, but installing them ahead of time avoids a stall on the first YOLO run.
 
 Smoke test:
 
@@ -308,7 +319,7 @@ Running **from source** picks up `model_weights/rife.pth` automatically (same re
 
 ## 10. Packaging / frozen builds
 
-There is currently **no public way to produce a packaged/frozen binary from this fork.** Upstream switched its build from PyInstaller to **Nuitka**, but it does not publish any Nuitka build script or instructions — the actual packaging tooling lives in a **private submodule (`jasna/protection`)** that is not part of this public fork. The fork's old PyInstaller build scripts (`build_exe.py`, `jasna.spec`) have been **removed**.
+There is currently **no public way to produce a packaged/frozen binary from this fork.** Upstream switched its build from PyInstaller to **Nuitka**, but it does not publish any Nuitka build script or instructions; the actual packaging tooling lives in a **private submodule (`jasna/protection`)** that is not part of this public fork. The fork's old PyInstaller build scripts (`build_exe.py`, `jasna.spec`) have been **removed**.
 
 The supported public path is therefore to **run jasna from source** (Section 11). If you need a pre-packaged binary, use upstream Kruk2/jasna's official releases.
 
@@ -340,7 +351,7 @@ jasna                        # launches the GUI (no args)
   The Python development headers are missing. Install `python3.13-dev` and create the venv from `/usr/bin/python3.13` (Sections 1.1, 4). Do **not** use a managed/standalone Python here.
 
 - **PyNvVideoCodec generate fails: `pybind11::module includes non-existent path /usr/include/python3.13`**
-  Same cause — `python3.13-dev` not installed, or the venv was built from a non-system Python. Install `python3.13-dev` and rebuild the venv from `/usr/bin/python3.13`.
+  Same cause: `python3.13-dev` not installed, or the venv was built from a non-system Python. Install `python3.13-dev` and rebuild the venv from `/usr/bin/python3.13`.
 
 - **`vali` / `PyNvVideoCodec` build fails: `ModuleNotFoundError: No module named 'pkg_resources'`**
   `setuptools` ≥ 80 dropped `pkg_resources`. `uv pip install "setuptools<80"` in the venv (Section 4), then rebuild.
@@ -369,8 +380,8 @@ jasna                        # launches the GUI (no args)
 
 ### jasna install
 
-- **`uv pip install -e .[dev]` fails: `no version of torch==2.12.0+cu130`** — add `--extra-index-url https://download.pytorch.org/whl/cu130`.
-- **`torch-tensorrt==2.12.0+cu130 ... unsatisfiable`** — add `--index-strategy unsafe-best-match --prerelease=allow` (Section 8).
+- **`uv pip install -e .[dev]` fails: `no version of torch==2.12.0+cu130`**. Add `--extra-index-url https://download.pytorch.org/whl/cu130`.
+- **`torch-tensorrt==2.12.0+cu130 ... unsatisfiable`**. Add `--index-strategy unsafe-best-match --prerelease=allow` (Section 8).
 
 ### Runtime
 
@@ -412,7 +423,7 @@ The Linux-specific runtime fixes, already applied to this branch's source (docum
 
 ### B.1 Blank modal dialogs (`jasna/gui/app.py`, `jasna/gui/wizard.py`, `jasna/gui/components.py`)
 
-**Problem**: On Linux/X11, customtkinter `CTkToplevel` dialogs opened completely blank (an empty dark window with no text or buttons). Affected dialogs: **About** (`app.py` `_show_about`), **System Check** / first-run wizard (`wizard.py` `FirstRunWizard`), and the **preset-create** and **confirmation** dialogs (`components.py` `PresetDialog`, `ConfirmDialog`). Each calls `grab_set()` — and sometimes `lift()` / `focus_force()` — immediately on creation, before its child widgets are drawn. On some window managers this leaves the window mapped but unpainted, and because the dialogs are non-resizable the content never receives a redraw.
+**Problem**: On Linux/X11, customtkinter `CTkToplevel` dialogs opened completely blank (an empty dark window with no text or buttons). Affected dialogs: **About** (`app.py` `_show_about`), **System Check** / first-run wizard (`wizard.py` `FirstRunWizard`), and the **preset-create** and **confirmation** dialogs (`components.py` `PresetDialog`, `ConfirmDialog`). Each calls `grab_set()` (and sometimes `lift()` / `focus_force()`) immediately on creation, before its child widgets are drawn. On some window managers this leaves the window mapped but unpainted, and because the dialogs are non-resizable the content never receives a redraw.
 
 **Fix**: Create all child widgets first, then defer `lift()` / `grab_set()` / `focus_force()` to a later event-loop tick via `self.after(200, …)` / `after(250, …)`, so the modal grab is established only after the content has been painted. Windows behavior is unchanged (the same calls run, just a tick later).
 

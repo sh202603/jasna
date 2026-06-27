@@ -54,9 +54,10 @@ import logging
 from jasna.os_utils import (
     check_ascii_install_path,
     check_gpu_driver_version,
-    check_nvidia_gpu,
     check_required_executables,
+    check_supported_gpu,
     check_windows_nvidia_sysmem_fallback_policy,
+    gpu_check_error,
 )
 
 log = logging.getLogger("jasna.framegen_cli")
@@ -127,27 +128,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output video codec (default: %(default)s).",
     )
     parser.add_argument(
-        "--bit-depth",
-        type=str,
-        default="auto",
-        choices=["auto", "8", "10"],
-        help='Output bit depth. "auto" matches the source (default: %(default)s).',
-    )
-    parser.add_argument(
         "--encoder-settings",
         type=str,
         default="",
         help="Optional NVENC overrides (key=value,... or JSON), same format as jasna. "
              "Empty inherits jasna's high-quality defaults (cq=25, preset P5, ...).",
     )
-    parser.add_argument(
-        "--working-directory",
-        type=str,
-        default="",
-        help="Directory for temporary encode files (raw elementary stream + timecodes). "
-             "Defaults to the output directory.",
-    )
     parser.add_argument("--batch-size", type=int, default=8, help="Decode batch size (default: %(default)s).")
+    parser.add_argument(
+        "--video-backend",
+        type=str,
+        default="native",
+        choices=["native", "auto", "torchcodec"],
+        help='Decode/encode backend: "native" (vali + PyNvVideoCodec, default), "auto" (torchcodec where '
+             'available/eligible, else native), or "torchcodec" (force torchcodec). Note: frame generation '
+             'always encodes natively (CFR output is required), so torchcodec here only affects decoding.',
+    )
+    parser.add_argument(
+        "--decode-backend", type=str, default="inherit",
+        choices=["inherit", "native", "auto", "torchcodec"],
+        help='Override the decode backend only (default "inherit" = --video-backend).',
+    )
+    parser.add_argument(
+        "--encode-backend", type=str, default="inherit",
+        choices=["inherit", "native", "auto", "torchcodec"],
+        help='Override the encode backend only (default "inherit" = --video-backend).',
+    )
     parser.add_argument(
         "--log-level",
         type=str,
@@ -223,7 +229,7 @@ def _plan_folder_jobs(input_dir: Path, output_dir: Path, output_pattern: str | N
 
 
 class _EncoderWriter:
-    """Minimal ``FrameWriter`` over ``NvidiaVideoEncoder``.
+    """Minimal ``FrameWriter`` over ``VideoEncoder``.
 
     Lazily enters the encoder context on the first frame, encodes each frame, and
     exits on ``close()`` (the exit performs raw-stream -> mkvmerge timecodes ->
@@ -240,11 +246,11 @@ class _EncoderWriter:
         self._encoder_ctx = encoder_ctx
         self._entered = False
 
-    def write(self, frame, pts: int) -> None:
+    def write(self, frame, pts: int, *, apply_lut: bool = True) -> None:
         if not self._entered:
             self._encoder_ctx.__enter__()
             self._entered = True
-        self._encoder_ctx.encode(frame, int(pts))
+        self._encoder_ctx.encode(frame, int(pts), apply_lut=apply_lut)
 
     def after_write(self, frames_written: int) -> None:
         pass
@@ -258,7 +264,7 @@ class _EncoderWriter:
 def run_framegen(reader, encoder_ctx, generator, multiplier, *, progress=None) -> int:
     """Decode every frame, push it through ``FrameGenWriter``, return the source-frame count.
 
-    ``reader`` is an already-entered ``NvidiaVideoReader``. The ``generator`` is
+    ``reader`` is an already-entered ``VideoReader``. The ``generator`` is
     *borrowed*: this function never closes it (``FrameGenWriter.close()`` does not
     either) — the caller owns its lifetime. The encoder is closed via the writer.
     """
@@ -291,37 +297,41 @@ def _process_video(
     multiplier: int,
     codec: str,
     encoder_settings: dict,
-    bit_depth: int | None,
-    working_directory: Path | None,
     device,
     batch_size: int,
     show_progress: bool,
+    decode_backend="native",
+    encode_backend="native",
 ) -> int:
     """Frame-generate a single video; return its source-frame count.
 
     The ``generator`` is borrowed (built/closed once by the caller so a folder
     batch reuses one model across all videos). Everything else — metadata,
     encoder, reader — is created fresh per video. The encoder is closed by
-    ``run_framegen`` (via the writer) which performs the mkvmerge/ffmpeg mux.
+    ``run_framegen`` (via the writer) which finalizes the encode and muxes audio.
     """
     import torch
 
-    from jasna.media import get_video_meta_data
-    from jasna.media.video_decoder import NvidiaVideoReader
-    from jasna.media.video_encoder import NvidiaVideoEncoder
+    from jasna.media.probe import get_video_meta_data
+    from jasna.media.backend import VideoBackend, coerce_backend, make_video_encoder, make_video_reader
+
+    # Frame generation always raises the output fps (multiplier > 1), which the
+    # torchcodec encoder can't do (it encodes CFR at the source rate), so encoding
+    # is always native here. Downgrade a forced ``torchcodec`` encode backend to
+    # ``auto`` so it falls back to native instead of erroring; decode still uses the
+    # requested backend.
+    enc_backend = VideoBackend.AUTO if coerce_backend(encode_backend) is VideoBackend.TORCHCODEC else encode_backend
 
     metadata = get_video_meta_data(str(input_path))
-    encoder_ctx = NvidiaVideoEncoder(
-        str(output_path),
+    encoder_ctx = make_video_encoder(
+        file=str(output_path),
         device=device,
         metadata=metadata,
         codec=codec,
         encoder_settings=encoder_settings,
-        stream_mode=False,
-        working_directory=working_directory,
-        bit_depth=bit_depth,
         lut_path=None,
-        output_fps_multiplier=multiplier,
+        output_fps=metadata.video_fps_exact * multiplier,
+        backend=enc_backend,
     )
     progress = None
     if show_progress:
@@ -330,8 +340,9 @@ def _process_video(
         progress = tqdm(total=total, unit="frame", desc=input_path.name)
     try:
         with (
-            NvidiaVideoReader(
-                str(input_path), batch_size=batch_size, device=device, metadata=metadata,
+            make_video_reader(
+                file=str(input_path), batch_size=batch_size, device=device, metadata=metadata,
+                backend=decode_backend,
             ) as reader,
             torch.inference_mode(),
         ):
@@ -352,15 +363,12 @@ def main() -> None:
         print(f"Current path: {path_info}")
         sys.exit(1)
 
-    check_required_executables(disable_ffmpeg_check=args.disable_ffmpeg_check)
+    if not args.disable_ffmpeg_check:
+        check_required_executables()
 
-    gpu_ok, gpu_result = check_nvidia_gpu()
+    gpu_ok, gpu_result = check_supported_gpu(str(args.device))
     if not gpu_ok:
-        if gpu_result == "no_cuda":
-            print("Error: No CUDA device. An NVIDIA GPU with compute capability 7.5+ is required.")
-        else:
-            _, major, minor = gpu_result
-            print(f"Error: Compute capability 7.5+ required (GPU: {major}.{minor}).")
+        print(f"Error: {gpu_check_error(gpu_result)}")
         sys.exit(1)
 
     driver_ok, driver_info = check_gpu_driver_version()
@@ -387,7 +395,7 @@ def main() -> None:
     # Deferred heavy imports. Crucially NOT jasna.pipeline (keeps detection /
     # restoration out of this tool's import surface).
     from jasna.framegen import MULTIPLIER_CHOICES, build_frame_generator
-    from jasna.media import UnsupportedColorspaceError, parse_encoder_settings, validate_encoder_settings
+    from jasna.media.probe import UnsupportedColorspaceError
 
     input_path = Path(args.input)
     if not input_path.exists():
@@ -398,9 +406,20 @@ def main() -> None:
         parser.error("--factor must be 2x or 4x")
 
     codec = str(args.codec).lower()
-    bit_depth = None if str(args.bit_depth).lower() == "auto" else int(args.bit_depth)
-    encoder_settings = validate_encoder_settings(parse_encoder_settings(str(args.encoder_settings)))
-    working_directory = Path(args.working_directory) if args.working_directory else None
+    from jasna.accelerator import vendor_for_device
+    from jasna.main import _resolve_cli_encoder_settings
+    encoder_settings = _resolve_cli_encoder_settings(
+        str(args.encoder_settings), cq=None, codec=codec, vendor=vendor_for_device(str(args.device))
+    )
+
+    from jasna.media.backend import VideoBackend
+    video_backend = VideoBackend(str(args.video_backend).lower())
+
+    def _resolve_backend(override: str) -> VideoBackend:
+        return video_backend if override == "inherit" else VideoBackend(override.lower())
+
+    decode_backend = _resolve_backend(str(args.decode_backend).lower())
+    encode_backend = _resolve_backend(str(args.encode_backend).lower())
     device = torch.device(str(args.device))
     fp16 = bool(args.fp16)
     fg_model_path = str(args.model_path).strip() or None
@@ -424,8 +443,8 @@ def main() -> None:
         jobs = [(input_path, output_path)]
 
     log.info(
-        "frame-gen: %d job(s) | backend=%s factor=%dx codec=%s bit_depth=%s device=%s",
-        len(jobs), args.backend, multiplier, codec, args.bit_depth, device,
+        "frame-gen: %d job(s) | backend=%s factor=%dx codec=%s device=%s",
+        len(jobs), args.backend, multiplier, codec, device,
     )
 
     total = len(jobs)
@@ -448,9 +467,9 @@ def main() -> None:
                     n = _process_video(
                         vid, out_path,
                         generator=generator, multiplier=multiplier, codec=codec,
-                        encoder_settings=encoder_settings, bit_depth=bit_depth,
-                        working_directory=working_directory, device=device,
+                        encoder_settings=encoder_settings, device=device,
                         batch_size=batch_size, show_progress=not args.no_progress,
+                        decode_backend=decode_backend, encode_backend=encode_backend,
                     )
                 except UnsupportedColorspaceError as e:
                     # Parity with jasna/main.py: in a folder batch, skip the bad
