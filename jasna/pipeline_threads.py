@@ -60,6 +60,7 @@ def decode_detect_loop(
     vr_mode: str = "off",
     vr_projector=None,
     video_backend: VideoBackend | str = VideoBackend.NATIVE,
+    encode_backend_name: str = "native",
 ) -> None:
     timer = LoopTimer("decode-detect")
     try:
@@ -114,12 +115,13 @@ def decode_detect_loop(
                 )
                 effect_active = False
             log.info(
-                "Processing %s: %d frames @ %s fps, %dx%d",
+                "Processing %s: %d frames @ %s fps, %dx%d [decode: %s, encode: %s]",
                 input_video,
                 metadata.num_frames if output_frame_count is None else output_frame_count,
                 metadata.video_fps if output_fps is None else output_fps,
                 metadata.video_width,
                 metadata.video_height,
+                getattr(reader, "backend", "native"), encode_backend_name,
             )
 
             try:

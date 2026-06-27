@@ -57,6 +57,8 @@ def _create_blocking_cuda_stream(device: torch.device) -> tuple[int, torch.cuda.
 
 
 class NvidiaVideoReader:
+    backend = "native"
+
     def __init__(
         self,
         file: str,

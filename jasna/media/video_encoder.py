@@ -308,6 +308,8 @@ def _amf_host_input(packed: torch.Tensor, *, ten_bit: bool) -> torch.Tensor:
 
 
 class NvidiaVideoEncoder:
+    backend = "native"
+
     def __init__(
         self,
         file: str,
