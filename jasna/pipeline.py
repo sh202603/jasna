@@ -183,6 +183,8 @@ class Pipeline:
             output_frame_count = frame_rate.output_frame_count(metadata.num_frames)
 
         encode_heartbeat: list[float] = [time.monotonic()]
+        # Read by run_restoration_pass for the "Processing ..." log line.
+        self.encode_backend_name = getattr(encoder_ctx, "backend", "native")
         frame_writer = _OfflineFrameWriter(encoder_ctx, encode_heartbeat)
         if self.frame_gen_multiplier > 1 and self.frame_generator is not None:
             from jasna.framegen import FrameGenWriter
