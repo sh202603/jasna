@@ -368,8 +368,11 @@ def build_pipeline(
     splice_plan: "SplicePlan | None" = None,
     frame_gen_multiplier: int = 1,
     frame_generator=None,
+    decode_backend=None,
+    encode_backend=None,
 ) -> "Pipeline":
     """A per-video ``Pipeline``; the session first loads any model the segments ask for."""
+    from jasna.media.backend import VideoBackend
     from jasna.pipeline import Pipeline
     from jasna.segments import job_restoration, resolve_restorations
 
@@ -378,6 +381,12 @@ def build_pipeline(
         segment.restoration.model for segment in resolve_restorations(tuple(segments or ()), default)
     ) or frozenset({config.restoration_model_name})
     provide_restoration_models(config, session, models, log_callback=None)
+
+    if decode_backend is None:
+        decode_backend = VideoBackend.NATIVE
+    if encode_backend is None:
+        encode_backend = VideoBackend.NATIVE
+
     return Pipeline(
         config=config,
         session=session,
@@ -388,4 +397,6 @@ def build_pipeline(
         splice_plan=splice_plan,
         frame_gen_multiplier=frame_gen_multiplier,
         frame_generator=frame_generator,
+        decode_backend=decode_backend,
+        encode_backend=encode_backend,
     )
