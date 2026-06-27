@@ -430,6 +430,8 @@ def resolve_encoder_options(
 
 
 class VideoEncoder:
+    backend = "native"
+
     def __init__(
         self,
         file: str,
