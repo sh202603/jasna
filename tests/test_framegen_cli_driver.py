@@ -54,7 +54,7 @@ class FakeEncoderCtx:
         self.exited += 1
         return False
 
-    def encode(self, frame, pts):
+    def encode(self, frame, pts, *, apply_lut=True):
         self.encoded.append((frame, int(pts)))
 
 

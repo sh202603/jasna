@@ -33,7 +33,7 @@ def test_folder_batch_reuses_one_generator(tmp_path):
     gen = MagicMock()
 
     class FakeReader:
-        def __init__(self, file, batch_size, device, metadata):
+        def __init__(self, file, batch_size, device, metadata, frame_stride=1):
             pass
 
         def __enter__(self):
@@ -55,7 +55,7 @@ def test_folder_batch_reuses_one_generator(tmp_path):
         def __exit__(self, *args):
             return False
 
-        def encode(self, frame, pts):
+        def encode(self, frame, pts, *, apply_lut=True):
             pass
 
     def fake_build_generator(backend, *, device, **kwargs):
@@ -63,20 +63,20 @@ def test_folder_batch_reuses_one_generator(tmp_path):
         return gen
 
     decoder_mod = types.ModuleType("jasna.media.video_decoder")
-    decoder_mod.NvidiaVideoReader = FakeReader
+    decoder_mod.VideoReader = FakeReader
     encoder_mod = types.ModuleType("jasna.media.video_encoder")
-    encoder_mod.NvidiaVideoEncoder = FakeEncoder
+    encoder_mod.VideoEncoder = FakeEncoder
 
     meta = MagicMock()
     meta.num_frames = 1
 
     with (
         patch("jasna.framegen_cli.check_ascii_install_path", return_value=(True, "/fake")),
-        patch("jasna.framegen_cli.check_nvidia_gpu", return_value=(True, "Fake GPU")),
+        patch("jasna.framegen_cli.check_supported_gpu", return_value=(True, "Fake GPU")),
         patch("jasna.framegen_cli.check_gpu_driver_version", return_value=(True, "590.18")),
         patch("jasna.framegen_cli.check_required_executables"),
         patch("jasna.framegen_cli.check_windows_nvidia_sysmem_fallback_policy", return_value=(True, "OK")),
-        patch("jasna.media.get_video_meta_data", return_value=meta),
+        patch("jasna.media.probe.get_video_meta_data", return_value=meta),
         patch("jasna.framegen.build_frame_generator", side_effect=fake_build_generator),
         patch.dict(sys.modules, {
             "jasna.media.video_decoder": decoder_mod,
