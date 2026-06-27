@@ -78,6 +78,16 @@ jasna-framegen --input in_dir --output out_dir --factor 2x --output-pattern "{or
 
 詳細: [docs/FRAME_GENERATION_ja.md](docs/FRAME_GENERATION_ja.md)。
 
+### 動画バックエンド（実験的）
+
+Jasna は既定でデコードに `python_vali`、エンコードに `PyNvVideoCodec` を使います（`--video-backend native`）。**実験的**な [torchcodec](https://github.com/meta-pytorch/torchcodec) バックエンドは、8-bit HEVC/AV1 出力でこの両方を置き換えられます。
+
+```bash
+jasna --input input.mp4 --output output.mkv --video-backend auto
+```
+
+`--video-backend {native,auto,torchcodec}`（既定 `native`、つまり従来挙動）: `auto` は torchcodec が使える場面で使い、それ以外はネイティブにフォールバックします。`torchcodec` は強制します。`--decode-backend` / `--encode-backend` でデコード側・エンコード側を個別に上書きできます。torchcodec エンコーダは**8-bit HEVC/AV1**とマッピング可能な NVENC 設定に対応します。**10-bit、フレーム生成、ストリーミング、マッピング不可のエンコーダ設定は常にネイティブにフォールバック**し、色空間メタデータはどちらでも保持されます。オプション依存（cu130 wheel index から `pip install "torchcodec>=0.14.0"`）が必要です。詳細: [docs/TORCHCODEC_BACKEND_ja.md](docs/TORCHCODEC_BACKEND_ja.md)。
+
 ## コミュニティ
 
 [SLS Discord](https://discord.gg/uNwQ4mHqgv) では、復元例、サポート、設定について話せます。あまり変な振る舞いはしないでください。

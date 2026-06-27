@@ -69,6 +69,16 @@ jasna --input input.mp4 --output output.mkv --frame-gen 2x
 
 后端通过 `--frame-gen-backend {rife,rtx}` 选择（`rife` 为默认且当前可用；`rtx` 等待 NVIDIA 的 `nvidia-vfx` 发布）。详情: [docs/FRAME_GENERATION_en.md](docs/FRAME_GENERATION_en.md)。
 
+### 视频后端（实验性）
+
+Jasna 默认用 `python_vali` 解码、`PyNvVideoCodec` 编码（`--video-backend native`）。一个**实验性**的 [torchcodec](https://github.com/meta-pytorch/torchcodec) 后端可在 8-bit HEVC/AV1 输出时替换两者：
+
+```bash
+jasna --input input.mp4 --output output.mkv --video-backend auto
+```
+
+`--video-backend {native,auto,torchcodec}`（默认 `native`，即原有行为）：`auto` 在适用时使用 torchcodec，否则回退到 native；`torchcodec` 强制使用。`--decode-backend` / `--encode-backend` 可分别覆盖解码侧与编码侧。torchcodec 编码器支持**8-bit HEVC/AV1**及可映射的 NVENC 设置；**10-bit、帧生成、流式传输以及无法映射的编码设置始终回退到 native**，色彩空间元数据在两种情况下都会保留。需要可选依赖（从 cu130 wheel index 执行 `pip install "torchcodec>=0.14.0"`）。详情: [docs/TORCHCODEC_BACKEND_en.md](docs/TORCHCODEC_BACKEND_en.md)。
+
 ## 社区
 
 加入 [SLS Discord](https://discord.gg/uNwQ4mHqgv) 查看示例、获取支持，并讨论设置。请不要表现得太奇怪。

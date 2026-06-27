@@ -96,6 +96,33 @@ class TestMainValidation:
         with pytest.raises(ValueError, match="[Ff]rame generation"):
             _run_main_with_args(tmp_path, ["--frame-gen", "2x", "--segments", "1-2"])
 
+    def test_torchcodec_streaming_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="streaming"):
+            _run_main_with_args(tmp_path, ["--video-backend", "torchcodec", "--stream"])
+
+    def test_torchcodec_encode_segments_rejected(self, tmp_path):
+        # Smart-render fragments always use the native encoder, so forcing
+        # torchcodec encode alongside --segments is rejected up front (before
+        # the input is probed).
+        with pytest.raises(ValueError, match="torchcodec encode"):
+            _run_main_with_args(
+                tmp_path,
+                ["--encode-backend", "torchcodec", "--segments", "1-2"],
+            )
+
+    def test_torchcodec_decode_retarget_rejected(self, tmp_path):
+        # The fps-retarget frame stride is only implemented by the native reader.
+        with pytest.raises(ValueError, match="retarget"):
+            _run_main_with_args(
+                tmp_path,
+                ["--decode-backend", "torchcodec", "--retarget-high-fps"],
+            )
+
+    def test_torchcodec_av1_allowed(self, tmp_path):
+        # torchcodec supports av1_nvenc, so --video-backend torchcodec --codec av1
+        # must NOT raise (Pipeline is mocked, so this reaches construction cleanly).
+        _run_main_with_args(tmp_path, ["--video-backend", "torchcodec", "--codec", "av1"])
+
     def test_batch_size_zero_raises(self, tmp_path):
         with pytest.raises(ValueError, match="batch-size must be > 0"):
             _run_main_with_args(tmp_path, ["--batch-size", "0"])
