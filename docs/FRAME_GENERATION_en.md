@@ -79,7 +79,7 @@ ffprobe out2x.mkv
 ## Two-pass workflow: `jasna-framegen` (standalone)
 
 `jasna-framegen` is a separate command that applies **only** frame generation to an
-already-restored video — no mosaic detection, no BasicVSR++ restoration. Use it when:
+already-restored video, with no mosaic detection and no BasicVSR++ restoration. Use it when:
 
 - You restored a video in a **first pass** (the official jasna binary, or `jasna`
   without `--frame-gen`) and want to add 2x/4x afterwards without re-running the
@@ -157,6 +157,6 @@ check the upstream license before redistributing. https://github.com/hzwer/Pract
   processing continues). Frames round-trip through uint8 either way, so the output path is unchanged.
 - Measured speedup (RTX 5060 Ti, 1080p, `--frame-gen 2x`, lada-yolo-v4, end-to-end pipeline):
   16.5 fps with an fp32 checkpoint → **31.4 fps with fp16 (~1.9x)**. The fp16 and fp32 outputs average
-  ~50 dB PSNR against each other — visually identical, so there is no quality reason to prefer fp32.
+  ~50 dB PSNR against each other (visually identical), so there is no quality reason to prefer fp32.
 - Interpolation runs at full resolution on the blend-encode thread (v1). TensorRT and a dedicated stage
   are possible future work.

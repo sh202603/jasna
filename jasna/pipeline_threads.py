@@ -16,6 +16,7 @@ from jasna.accelerator import empty_cache, ipc_collect
 from jasna.blend_buffer import BlendBuffer
 from jasna.crop_buffer import CropBuffer
 from jasna.frame_queue import FrameQueue
+from jasna.media.backend import VideoBackend, make_video_reader
 from jasna.media.probe import VideoMetadata
 from jasna.media.video_decoder import VideoReader
 from jasna.pipeline_debug_logging import PipelineDebugMemoryLogger
@@ -64,14 +65,18 @@ class PassContext:
     stop_event: threading.Event
     error_holder: list[BaseException]
     debug_memory: PipelineDebugMemoryLogger
+    # +modi: the torchcodec/native choice (``VideoBackend``); ``decode_backend`` above is upstream's
+    # VALI/PyAV choice for the native reader.
+    video_backend: VideoBackend | str = VideoBackend.NATIVE
 
-    def open_reader(self) -> VideoReader:
-        return VideoReader(
-            self.input_video,
+    def open_reader(self):
+        return make_video_reader(
+            file=self.input_video,
             batch_size=self.batch_size,
             device=self.device,
             metadata=self.metadata,
             frame_stride=self.frame_stride,
+            backend=self.video_backend,
             decode_backend=self.decode_backend,
         )
 
@@ -102,6 +107,7 @@ def decode_detect_loop(
     output_frame_count: int | None,
     output_fps: float | None,
     progress: Progressbar | None,
+    video_backend: VideoBackend | str = VideoBackend.NATIVE,
 ) -> None:
     """Decode, detect and track; ``pipeline`` supplies the detector, tracker settings and VR layout."""
     timer = LoopTimer("decode-detect")
@@ -612,6 +618,8 @@ def run_restoration_pass(
     """
     device = pipeline.device
     restoration_pipeline = pipeline.restoration_pipeline
+    # Preview/HLS/raw-player passes hand in objects without a backend choice: native.
+    decode_backend = getattr(pipeline, "decode_backend", VideoBackend.NATIVE)
     max_clip_size = pipeline.max_clip_size
     secondary_workers = max(1, int(restoration_pipeline.secondary_num_workers))
 
@@ -652,6 +660,7 @@ def run_restoration_pass(
             secondary_queue=secondary_queue,
             encode_queue=encode_queue,
         ),
+        video_backend=getattr(pipeline, "video_decode_backend", VideoBackend.NATIVE),
     )
 
     if use_async_secondary:
