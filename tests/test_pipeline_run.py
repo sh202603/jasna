@@ -112,8 +112,8 @@ class TestPipelineColorspaceCheck:
 
         with (
             patch("jasna.pipeline.get_video_meta_data", return_value=meta),
-            patch("jasna.pipeline_threads.NvidiaVideoReader", reader_cls),
-            patch("jasna.pipeline.NvidiaVideoEncoder", return_value=mock_encoder),
+            patch("jasna.pipeline_threads.make_video_reader", reader_cls),
+            patch("jasna.pipeline.make_video_encoder", return_value=mock_encoder),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
             patch("jasna.pipeline_threads.torch.inference_mode", return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock(return_value=False))),
         ):
@@ -153,8 +153,8 @@ class TestPipelineRun:
 
         with (
             patch("jasna.pipeline.get_video_meta_data", return_value=metadata),
-            patch("jasna.pipeline_threads.NvidiaVideoReader", reader_cls),
-            patch("jasna.pipeline.NvidiaVideoEncoder", return_value=mock_encoder) as encoder_cls,
+            patch("jasna.pipeline_threads.make_video_reader", reader_cls),
+            patch("jasna.pipeline.make_video_encoder", return_value=mock_encoder) as encoder_cls,
             patch("jasna.pipeline.Progressbar") as progress_cls,
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
             patch(
@@ -183,8 +183,8 @@ class TestPipelineRun:
 
         with (
             patch("jasna.pipeline.get_video_meta_data", return_value=_fake_metadata()),
-            patch("jasna.pipeline_threads.NvidiaVideoReader", reader_cls),
-            patch("jasna.pipeline.NvidiaVideoEncoder", return_value=mock_encoder),
+            patch("jasna.pipeline_threads.make_video_reader", reader_cls),
+            patch("jasna.pipeline.make_video_encoder", return_value=mock_encoder),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
             patch("jasna.pipeline_threads.torch.inference_mode", return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock(return_value=False))),
         ):
@@ -287,8 +287,8 @@ class TestPipelineRun:
 
         with (
             patch("jasna.pipeline.get_video_meta_data", return_value=_fake_metadata()),
-            patch("jasna.pipeline_threads.NvidiaVideoReader", reader_cls),
-            patch("jasna.pipeline.NvidiaVideoEncoder", return_value=mock_encoder),
+            patch("jasna.pipeline_threads.make_video_reader", reader_cls),
+            patch("jasna.pipeline.make_video_encoder", return_value=mock_encoder),
             patch("jasna.pipeline_threads.process_frame_batch", side_effect=fake_process_batch),
             patch("jasna.pipeline_threads.finalize_processing"),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
@@ -332,8 +332,8 @@ class TestPipelineRun:
 
         with (
             patch("jasna.pipeline.get_video_meta_data", return_value=_fake_metadata()),
-            patch("jasna.pipeline_threads.NvidiaVideoReader", reader_cls),
-            patch("jasna.pipeline.NvidiaVideoEncoder", return_value=mock_encoder),
+            patch("jasna.pipeline_threads.make_video_reader", reader_cls),
+            patch("jasna.pipeline.make_video_encoder", return_value=mock_encoder),
             patch("jasna.pipeline_threads.process_frame_batch", side_effect=fake_process_batch),
             patch("jasna.pipeline_threads.finalize_processing"),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
@@ -364,8 +364,8 @@ class TestPipelineRun:
 
         with (
             patch("jasna.pipeline.get_video_meta_data", return_value=_fake_metadata()),
-            patch("jasna.pipeline_threads.NvidiaVideoReader", reader_cls),
-            patch("jasna.pipeline.NvidiaVideoEncoder", return_value=mock_encoder),
+            patch("jasna.pipeline_threads.make_video_reader", reader_cls),
+            patch("jasna.pipeline.make_video_encoder", return_value=mock_encoder),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
             patch("jasna.pipeline_threads.torch.inference_mode", return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock(return_value=False))),
         ):
@@ -412,8 +412,8 @@ class TestPipelineRun:
 
         with (
             patch("jasna.pipeline.get_video_meta_data", return_value=_fake_metadata()),
-            patch("jasna.pipeline_threads.NvidiaVideoReader", reader_cls),
-            patch("jasna.pipeline.NvidiaVideoEncoder", return_value=mock_encoder),
+            patch("jasna.pipeline_threads.make_video_reader", reader_cls),
+            patch("jasna.pipeline.make_video_encoder", return_value=mock_encoder),
             patch("jasna.pipeline_threads.process_frame_batch", side_effect=fake_process_batch),
             patch("jasna.pipeline_threads.finalize_processing"),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
@@ -481,8 +481,8 @@ class TestPipelineRun:
 
         with (
             patch("jasna.pipeline.get_video_meta_data", return_value=_fake_metadata()),
-            patch("jasna.pipeline_threads.NvidiaVideoReader", reader_cls),
-            patch("jasna.pipeline.NvidiaVideoEncoder", return_value=mock_encoder),
+            patch("jasna.pipeline_threads.make_video_reader", reader_cls),
+            patch("jasna.pipeline.make_video_encoder", return_value=mock_encoder),
             patch("jasna.pipeline_threads.process_frame_batch", side_effect=fake_process_batch),
             patch("jasna.pipeline_threads.finalize_processing"),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
@@ -1053,8 +1053,8 @@ class TestPipelineRun:
 
         with (
             patch("jasna.pipeline.get_video_meta_data", return_value=_fake_metadata()),
-            patch("jasna.pipeline_threads.NvidiaVideoReader", reader_cls),
-            patch("jasna.pipeline.NvidiaVideoEncoder", return_value=mock_encoder),
+            patch("jasna.pipeline_threads.make_video_reader", reader_cls),
+            patch("jasna.pipeline.make_video_encoder", return_value=mock_encoder),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
             patch("jasna.pipeline_threads.torch.inference_mode", return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock(return_value=False))),
         ):

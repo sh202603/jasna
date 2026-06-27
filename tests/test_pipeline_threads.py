@@ -109,7 +109,7 @@ class TestDecodeDetectLoop:
             )
 
         with (
-            patch("jasna.pipeline_threads.NvidiaVideoReader", return_value=reader),
+            patch("jasna.pipeline_threads.make_video_reader", return_value=reader),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
             patch("jasna.pipeline_threads.torch.inference_mode", return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock(return_value=False))),
             patch("jasna.pipeline_threads.process_frame_batch", side_effect=_process) as process,
@@ -175,7 +175,7 @@ class TestDecodeDetectLoop:
         from jasna.pipeline_processing import BatchProcessResult
 
         with (
-            patch("jasna.pipeline_threads.NvidiaVideoReader", return_value=reader),
+            patch("jasna.pipeline_threads.make_video_reader", return_value=reader),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
             patch("jasna.pipeline_threads.torch.inference_mode", return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock(return_value=False))),
             patch("jasna.pipeline_threads.process_frame_batch", return_value=BatchProcessResult(next_frame_idx=2, clips_emitted=0)),
@@ -216,7 +216,7 @@ class TestDecodeDetectLoop:
         from jasna.pipeline_processing import BatchProcessResult
 
         with (
-            patch("jasna.pipeline_threads.NvidiaVideoReader", return_value=reader),
+            patch("jasna.pipeline_threads.make_video_reader", return_value=reader),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
             patch("jasna.pipeline_threads.torch.inference_mode", return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock(return_value=False))),
             patch("jasna.pipeline_threads.process_frame_batch", return_value=BatchProcessResult(next_frame_idx=50, clips_emitted=0)) as mock_pfb,
@@ -268,7 +268,7 @@ class TestDecodeDetectLoop:
         from jasna.pipeline_processing import BatchProcessResult
 
         with (
-            patch("jasna.pipeline_threads.NvidiaVideoReader", return_value=reader),
+            patch("jasna.pipeline_threads.make_video_reader", return_value=reader),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
             patch("jasna.pipeline_threads.torch.inference_mode", return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock(return_value=False))),
             patch("jasna.pipeline_threads.process_frame_batch", return_value=BatchProcessResult(next_frame_idx=2, clips_emitted=0)),
@@ -457,7 +457,7 @@ class TestBlendEncodeLoop:
             frame_writer = _RecordingWriter()
 
         with (
-            patch("jasna.pipeline_threads.NvidiaVideoReader", return_value=reader),
+            patch("jasna.pipeline_threads.make_video_reader", return_value=reader),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
         ):
             blend_encode_loop(
@@ -511,7 +511,7 @@ class TestBlendEncodeLoop:
         metadata_queue.put(_SENTINEL)
 
         with (
-            patch("jasna.pipeline_threads.NvidiaVideoReader", return_value=reader),
+            patch("jasna.pipeline_threads.make_video_reader", return_value=reader),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
         ):
             blend_encode_loop(
@@ -551,7 +551,7 @@ class TestBlendEncodeLoop:
         t.start()
 
         with (
-            patch("jasna.pipeline_threads.NvidiaVideoReader", return_value=reader),
+            patch("jasna.pipeline_threads.make_video_reader", return_value=reader),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
         ):
             blend_encode_loop(
@@ -585,7 +585,7 @@ class TestBlendEncodeLoop:
         writer = _RecordingWriter()
 
         with (
-            patch("jasna.pipeline_threads.NvidiaVideoReader", return_value=reader),
+            patch("jasna.pipeline_threads.make_video_reader", return_value=reader),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
         ):
             blend_encode_loop(
@@ -621,7 +621,7 @@ class TestBlendEncodeLoop:
         writer = _RecordingWriter()
 
         with (
-            patch("jasna.pipeline_threads.NvidiaVideoReader", return_value=reader),
+            patch("jasna.pipeline_threads.make_video_reader", return_value=reader),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
         ):
             blend_encode_loop(
@@ -663,7 +663,7 @@ class TestBlendEncodeLoop:
         writer = _RecordingWriter()
 
         with (
-            patch("jasna.pipeline_threads.NvidiaVideoReader", return_value=reader),
+            patch("jasna.pipeline_threads.make_video_reader", return_value=reader),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
         ):
             blend_encode_loop(
@@ -851,7 +851,7 @@ class TestRunStreamingPass:
         cancel = threading.Event()
 
         with (
-            patch("jasna.pipeline_threads.NvidiaVideoReader", reader_cls),
+            patch("jasna.pipeline_threads.make_video_reader", reader_cls),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
             patch("jasna.pipeline_threads.torch.inference_mode", return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock(return_value=False))),
             patch("jasna.pipeline_threads.process_frame_batch", side_effect=fake_pfb),
@@ -920,7 +920,7 @@ class TestRunStreamingPass:
         cancel = threading.Event()
 
         with (
-            patch("jasna.pipeline_threads.NvidiaVideoReader", reader_cls),
+            patch("jasna.pipeline_threads.make_video_reader", reader_cls),
             patch("jasna.pipeline_threads.torch.cuda.set_device"),
             patch("jasna.pipeline_threads.torch.inference_mode", return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock(return_value=False))),
             patch("jasna.pipeline_threads.process_frame_batch", side_effect=fake_pfb),

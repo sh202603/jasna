@@ -55,6 +55,13 @@ dev = [
   "cmake",
   "ninja",
 ]
+# Optional torchcodec backend (opt-in via --video-backend auto|torchcodec).
+# 0.13.0 is buggy/unusable; pin >=0.14.0. Install the cu130 build alongside
+# torch 2.12, e.g. from https://download.pytorch.org/whl/cu130 . Native-only
+# installs work without this extra.
+torchcodec = [
+  "torchcodec>=0.14.0",
+]
 
 [tool.setuptools]
 include-package-data = false
@@ -65,6 +72,9 @@ exclude = ["jasna.protection.keytool*", "jasna.protection.tests*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "perf: performance/throughput regression checks (GPU-only, opt-in via -m perf)",
+]
 filterwarnings = [
   "ignore:'maxsplit' is passed as positional argument:DeprecationWarning:mmengine\\.utils\\.misc",
   "ignore:`torch\\.jit\\.script` is deprecated:DeprecationWarning",

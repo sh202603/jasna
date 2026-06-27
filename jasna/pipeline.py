@@ -17,6 +17,7 @@ import psutil
 import torch
 
 from jasna.media import UnsupportedColorspaceError, get_video_meta_data
+from jasna.media.backend import VideoBackend, make_video_encoder
 from jasna.media.video_encoder import NvidiaVideoEncoder
 from jasna.media.frame_rate import resolve_frame_rate_retarget
 from jasna.media.splice import (
@@ -100,12 +101,16 @@ class Pipeline:
         working_dir: Path | None = None,
         frame_gen_multiplier: int = 1,
         frame_generator=None,
+        decode_backend: VideoBackend | str = VideoBackend.NATIVE,
+        encode_backend: VideoBackend | str = VideoBackend.NATIVE,
     ) -> None:
         self.input_video = input_video
         self.output_video = output_video
         self.working_dir = working_dir
         self.codec = str(codec)
         self.encoder_settings = dict(encoder_settings)
+        self.decode_backend = decode_backend
+        self.encode_backend = encode_backend
         self.frame_gen_multiplier = max(1, int(frame_gen_multiplier))
         self.frame_generator = frame_generator
         self.batch_size = int(batch_size)
@@ -430,6 +435,7 @@ class Pipeline:
                     output_fps=float(frame_rate.output_fps),
                     vr_mode=self._vr_resolution.resolved,
                     vr_projector=self._vr_projector,
+                    video_backend=self.decode_backend,
                 ),
                 name="DecodeDetect", daemon=True,
             ),
@@ -461,6 +467,7 @@ class Pipeline:
                     frame_stride=frame_rate.frame_stride,
                     seek_ts=seek_ts,
                     vr_projector=self._vr_projector,
+                    video_backend=self.decode_backend,
                 ),
                 name="BlendEncode", daemon=True,
             ),
@@ -545,14 +552,15 @@ class Pipeline:
             disable=self.disable_progress,
             callback=self.progress_callback,
         )
-        encoder_ctx = NvidiaVideoEncoder(
-            str(self.output_video),
+        encoder_ctx = make_video_encoder(
+            file=str(self.output_video),
             device=self.device,
             metadata=metadata,
             codec=self.codec,
             encoder_settings=self.encoder_settings,
             lut_path=self.lut_path,
             output_fps=frame_rate.output_fps * self.frame_gen_multiplier,
+            backend=self.encode_backend,
         )
         try:
             self._run_pass(
