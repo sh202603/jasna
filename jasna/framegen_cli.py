@@ -149,6 +149,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--batch-size", type=int, default=8, help="Decode batch size (default: %(default)s).")
     parser.add_argument(
+        "--video-backend",
+        type=str,
+        default="native",
+        choices=["native", "auto", "torchcodec"],
+        help='Decode/encode backend: "native" (vali + PyNvVideoCodec, default), "auto" (torchcodec where '
+             'available/eligible, else native), or "torchcodec" (force torchcodec). Note: frame generation '
+             'always encodes natively (CFR output is required), so torchcodec here only affects decoding.',
+    )
+    parser.add_argument(
+        "--decode-backend", type=str, default="inherit",
+        choices=["inherit", "native", "auto", "torchcodec"],
+        help='Override the decode backend only (default "inherit" = --video-backend).',
+    )
+    parser.add_argument(
+        "--encode-backend", type=str, default="inherit",
+        choices=["inherit", "native", "auto", "torchcodec"],
+        help='Override the encode backend only (default "inherit" = --video-backend).',
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="error",
@@ -296,6 +315,8 @@ def _process_video(
     device,
     batch_size: int,
     show_progress: bool,
+    decode_backend="native",
+    encode_backend="native",
 ) -> int:
     """Frame-generate a single video; return its source-frame count.
 
@@ -307,12 +328,18 @@ def _process_video(
     import torch
 
     from jasna.media import get_video_meta_data
-    from jasna.media.video_decoder import NvidiaVideoReader
-    from jasna.media.video_encoder import NvidiaVideoEncoder
+    from jasna.media.backend import VideoBackend, coerce_backend, make_video_encoder, make_video_reader
+
+    # Frame generation always raises the output fps (multiplier > 1), which the
+    # torchcodec encoder can't do (it encodes CFR at the source rate), so encoding
+    # is always native here. Downgrade a forced ``torchcodec`` encode backend to
+    # ``auto`` so it falls back to native instead of erroring; decode still uses the
+    # requested backend.
+    enc_backend = VideoBackend.AUTO if coerce_backend(encode_backend) is VideoBackend.TORCHCODEC else encode_backend
 
     metadata = get_video_meta_data(str(input_path))
-    encoder_ctx = NvidiaVideoEncoder(
-        str(output_path),
+    encoder_ctx = make_video_encoder(
+        file=str(output_path),
         device=device,
         metadata=metadata,
         codec=codec,
@@ -322,6 +349,7 @@ def _process_video(
         bit_depth=bit_depth,
         lut_path=None,
         output_fps_multiplier=multiplier,
+        backend=enc_backend,
     )
     progress = None
     if show_progress:
@@ -330,8 +358,9 @@ def _process_video(
         progress = tqdm(total=total, unit="frame", desc=input_path.name)
     try:
         with (
-            NvidiaVideoReader(
-                str(input_path), batch_size=batch_size, device=device, metadata=metadata,
+            make_video_reader(
+                file=str(input_path), batch_size=batch_size, device=device, metadata=metadata,
+                backend=decode_backend,
             ) as reader,
             torch.inference_mode(),
         ):
@@ -400,6 +429,15 @@ def main() -> None:
     codec = str(args.codec).lower()
     bit_depth = None if str(args.bit_depth).lower() == "auto" else int(args.bit_depth)
     encoder_settings = validate_encoder_settings(parse_encoder_settings(str(args.encoder_settings)))
+
+    from jasna.media.backend import VideoBackend
+    video_backend = VideoBackend(str(args.video_backend).lower())
+
+    def _resolve_backend(override: str) -> VideoBackend:
+        return video_backend if override == "inherit" else VideoBackend(override.lower())
+
+    decode_backend = _resolve_backend(str(args.decode_backend).lower())
+    encode_backend = _resolve_backend(str(args.encode_backend).lower())
     working_directory = Path(args.working_directory) if args.working_directory else None
     device = torch.device(str(args.device))
     fp16 = bool(args.fp16)
@@ -451,6 +489,7 @@ def main() -> None:
                         encoder_settings=encoder_settings, bit_depth=bit_depth,
                         working_directory=working_directory, device=device,
                         batch_size=batch_size, show_progress=not args.no_progress,
+                        decode_backend=decode_backend, encode_backend=encode_backend,
                     )
                 except UnsupportedColorspaceError as e:
                     # Parity with jasna/main.py: in a folder batch, skip the bad

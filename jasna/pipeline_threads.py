@@ -11,6 +11,7 @@ import torch
 from jasna.blend_buffer import BlendBuffer
 from jasna.crop_buffer import CropBuffer
 from jasna.frame_queue import FrameQueue
+from jasna.media.backend import VideoBackend, make_video_reader
 from jasna.media.video_decoder import NvidiaVideoReader
 from jasna.pipeline_debug_logging import PipelineDebugMemoryLogger
 from jasna.pipeline_items import ClipRestoreItem, FrameMeta, PrimaryRestoreResult, SecondaryRestoreResult, _SENTINEL
@@ -48,6 +49,7 @@ def decode_detect_loop(
     seek_ts: float | None = None,
     progress: Progressbar | None = None,
     debug_memory: PipelineDebugMemoryLogger | None = None,
+    video_backend: VideoBackend | str = VideoBackend.NATIVE,
 ) -> None:
     timer = LoopTimer("decode-detect")
     try:
@@ -57,7 +59,10 @@ def decode_detect_loop(
         blend_frames = (temporal_overlap // 3) if enable_crossfade else 0
 
         with (
-            NvidiaVideoReader(input_video, batch_size=batch_size, device=device, metadata=metadata) as reader,
+            make_video_reader(
+                file=input_video, batch_size=batch_size, device=device, metadata=metadata,
+                backend=video_backend,
+            ) as reader,
             torch.inference_mode(),
         ):
             if progress is not None:
@@ -271,17 +276,21 @@ def blend_encode_loop(
     cancel_event: threading.Event | None = None,
     seek_ts: float | None = None,
     vram_offloader=None,
+    video_backend: VideoBackend | str = VideoBackend.NATIVE,
 ) -> None:
     timer = LoopTimer("blend-encode")
     try:
         torch.cuda.set_device(device)
 
-        def _flat_frames(rdr: NvidiaVideoReader):
+        def _flat_frames(rdr):
             for batch, pts in rdr.frames(seek_ts=seek_ts):
                 for i in range(len(pts)):
                     yield batch[i]
 
-        with NvidiaVideoReader(input_video, batch_size=batch_size, device=device, metadata=metadata) as reader2:
+        with make_video_reader(
+            file=input_video, batch_size=batch_size, device=device, metadata=metadata,
+            backend=video_backend,
+        ) as reader2:
             frame_gen = _flat_frames(reader2)
             secondary_done = False
             frames_encoded = 0

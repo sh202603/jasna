@@ -19,6 +19,7 @@ from jasna._frozen import patch_frozen_torch
 patch_frozen_torch()
 
 from jasna.media import UnsupportedColorspaceError, get_video_meta_data
+from jasna.media.backend import VideoBackend, make_video_encoder
 from jasna.media.video_encoder import NvidiaVideoEncoder
 from jasna.mosaic.detection_registry import build_detection_model
 from jasna.pipeline_debug_logging import PipelineDebugMemoryLogger
@@ -79,12 +80,16 @@ class Pipeline:
         bit_depth: int | None = None,
         frame_gen_multiplier: int = 1,
         frame_generator=None,
+        decode_backend: VideoBackend | str = VideoBackend.NATIVE,
+        encode_backend: VideoBackend | str = VideoBackend.NATIVE,
     ) -> None:
         self.input_video = input_video
         self.output_video = output_video
         self.codec = str(codec)
         self.encoder_settings = dict(encoder_settings)
         self.bit_depth = bit_depth
+        self.decode_backend = decode_backend
+        self.encode_backend = encode_backend
         self.frame_gen_multiplier = max(1, int(frame_gen_multiplier))
         self.frame_generator = frame_generator
         self.batch_size = int(batch_size)
@@ -320,8 +325,8 @@ class Pipeline:
             callback=self.progress_callback,
         )
 
-        encoder_ctx = NvidiaVideoEncoder(
-            str(self.output_video),
+        encoder_ctx = make_video_encoder(
+            file=str(self.output_video),
             device=device,
             metadata=metadata,
             codec=self.codec,
@@ -331,6 +336,7 @@ class Pipeline:
             lut_path=self.lut_path,
             bit_depth=self.bit_depth,
             output_fps_multiplier=self.frame_gen_multiplier,
+            backend=self.encode_backend,
         )
         frame_writer = _OfflineFrameWriter(encoder_ctx, encode_heartbeat)
         if self.frame_gen_multiplier > 1 and self.frame_generator is not None:
@@ -384,6 +390,7 @@ class Pipeline:
                     frame_shape=frame_shape,
                     progress=pb,
                     debug_memory=debug_memory,
+                    video_backend=self.decode_backend,
                 ),
                 name="DecodeDetect", daemon=True,
             ),
@@ -412,6 +419,7 @@ class Pipeline:
                     error_holder=error_holder,
                     frame_writer=frame_writer,
                     vram_offloader=vram_offloader,
+                    video_backend=self.decode_backend,
                 ),
                 name="BlendEncode", daemon=True,
             ),

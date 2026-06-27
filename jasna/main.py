@@ -314,6 +314,29 @@ def build_parser() -> argparse.ArgumentParser:
         help='Encoder settings, as JSON object or comma-separated key=value pairs (e.g. {"cq":22} or cq=22,lookahead=32)',
     )
     encoding.add_argument(
+        "--video-backend",
+        type=str,
+        default="native",
+        choices=["native", "auto", "torchcodec"],
+        help='Decode/encode backend: "native" (vali + PyNvVideoCodec, default), "auto" (use torchcodec where '
+             'available/eligible, else native), or "torchcodec" (force torchcodec; errors when it cannot satisfy '
+             'the request, e.g. 10-bit / streaming).',
+    )
+    encoding.add_argument(
+        "--decode-backend",
+        type=str,
+        default="inherit",
+        choices=["inherit", "native", "auto", "torchcodec"],
+        help='Override the decode backend only (default "inherit" = --video-backend).',
+    )
+    encoding.add_argument(
+        "--encode-backend",
+        type=str,
+        default="inherit",
+        choices=["inherit", "native", "auto", "torchcodec"],
+        help='Override the encode backend only (default "inherit" = --video-backend).',
+    )
+    encoding.add_argument(
         "--working-directory",
         type=str,
         default="",
@@ -540,6 +563,25 @@ def main() -> None:
     if codec == "av1" and is_streaming:
         raise ValueError("AV1 is not supported in streaming mode (use hevc)")
 
+    from jasna.media.backend import VideoBackend
+    video_backend = VideoBackend(str(args.video_backend).lower())
+
+    def _resolve_backend(override: str) -> VideoBackend:
+        return video_backend if override == "inherit" else VideoBackend(override.lower())
+
+    decode_backend = _resolve_backend(str(args.decode_backend).lower())
+    encode_backend = _resolve_backend(str(args.encode_backend).lower())
+
+    if VideoBackend.TORCHCODEC in (decode_backend, encode_backend) and is_streaming:
+        raise ValueError(
+            "torchcodec backend is not supported in streaming mode (use native or auto)"
+        )
+    if encode_backend is VideoBackend.TORCHCODEC and str(args.bit_depth).lower() == "10":
+        raise ValueError(
+            "torchcodec encode cannot do 10-bit (GPU encode is 8-bit nv12); "
+            "use --bit-depth 8/auto on an 8-bit source, or --encode-backend auto to fall back to native"
+        )
+
     from jasna.framegen import MULTIPLIER_CHOICES
     frame_gen_name = str(args.frame_gen).lower()
     frame_gen_multiplier = MULTIPLIER_CHOICES[frame_gen_name]
@@ -687,6 +729,8 @@ def main() -> None:
                 bit_depth=bit_depth,
                 frame_gen_multiplier=frame_gen_multiplier,
                 frame_generator=frame_generator,
+                decode_backend=decode_backend,
+                encode_backend=encode_backend,
             )
 
         video_inputs = folder_videos if input_is_dir else ([input_video] if input_video is not None else [])

@@ -1,4 +1,4 @@
-# 出力コーデック・ビット深度・色空間（AV1 / 8bit NV12 / BT.601・BT.2020）
+# 出力コーデック、ビット深度、色空間（AV1 / 8bit NV12 / BT.601 / BT.2020）
 
 `v0.7.2+modi` における出力フォーマットの柔軟化についてのガイドです（`v0.7.1+modi` で追加）。
 
@@ -21,9 +21,9 @@ CPU への往復はありません（`tests/test_no_cpu_tensor_ops.py` で保証
 
 ### `--bit-depth {auto,8,10}`
 出力ビット深度。既定 `auto`。
-- `auto` — ソースが 10bit なら P010(10bit)、それ以外は NV12(8bit) で出力。
-- `8` — 常に 8bit (NV12)。
-- `10` — 常に 10bit (P010)。
+- `auto`：ソースが 10bit なら P010(10bit)、それ以外は NV12(8bit) で出力。
+- `8`：常に 8bit (NV12)。
+- `10`：常に 10bit (P010)。
 
 > **補足:** 復元パイプラインは内部的に常に 8bit RGB で動作します。そのため 8bit ソースを
 > 10bit で出力しても情報量は増えず、コンテナが広がるだけです。`auto` を推奨します。
@@ -74,7 +74,7 @@ mux は 2 段構成です。
 
 1. NVENC の生ストリーム（HEVC `.hevc` / AV1 `.obu`）を **mkvmerge** で中間ファイルにまとめる
    （タイムコード付与）。
-2. **ffmpeg** で最終 remux — 音声を結合し、色メタデータ（matrix / primaries / transfer / range）を
+2. **ffmpeg** で最終 remux。音声を結合し、色メタデータ（matrix / primaries / transfer / range）を
    付与。映像は `-c:v copy`（再エンコードなし）。出力が `.mp4` / `.mov` の場合は `-movflags +faststart`
    を付与する。
 
@@ -102,8 +102,8 @@ mux は 2 段構成です。
   (Kr, Kb) から limited-range マトリクスを生成し、8bit は NV12（uint8）、10bit は P010（int16, 上位10bit）を返す。
 - 色空間の判定/保持: `jasna/media/__init__.py` の `Colorspace` enum と `VideoMetadata.yuv_colorspace`
   （av の `Colorspace` enum は BT.2020 を表現できないため独自に保持）。
-- エンコーダ: `jasna/media/video_encoder.py` がコーデック＋ビット深度から `fmt`（P010/NV12）・`profile`・
-  B フレーム数・一時ファイル拡張子（`.hevc`/`.obu`）を決定。
+- エンコーダ: `jasna/media/video_encoder.py` がコーデック＋ビット深度から `fmt`（P010/NV12）、`profile`、
+  B フレーム数、一時ファイル拡張子（`.hevc`/`.obu`）を決定。
 - フルレンジ判定: `jasna/media/__init__.py` で ffprobe の `color_range` が `pc` または `jpeg` のとき
   フルレンジ（`AvColorRange.JPEG`）とみなし、パイプライン冒頭で拒否する。`tv` / 不在 / `unknown` は
   limited（MPEG）。ffprobe はフルレンジを `pc` と報告する（`jpeg` ではない）ため、`pc` を取りこぼさない

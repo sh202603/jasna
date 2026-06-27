@@ -21,12 +21,12 @@ Output codec. Default `hevc`. `av1` is supported for file output only (see Limit
 
 ### `--bit-depth {auto,8,10}`
 Output bit depth. Default `auto`.
-- `auto` — 10-bit (P010) if the source is 10-bit, otherwise 8-bit (NV12).
-- `8` — always 8-bit (NV12).
-- `10` — always 10-bit (P010).
+- `auto`: 10-bit (P010) if the source is 10-bit, otherwise 8-bit (NV12).
+- `8`: always 8-bit (NV12).
+- `10`: always 10-bit (P010).
 
 > **Note:** the restoration pipeline runs in 8-bit RGB internally, so encoding an 8-bit source as
-> 10-bit gains no information — it only widens the container. `auto` is recommended.
+> 10-bit gains no information; it only widens the container. `auto` is recommended.
 
 ### Examples
 
@@ -56,7 +56,7 @@ limited-range RGB→YUV coefficients. The output container is tagged with the co
 | `smpte170m` / `bt601` / `bt470bg` | BT.601 | `smpte170m` / `smpte170m` / `smpte170m` |
 | `bt2020nc` / `bt2020c` | BT.2020 | `bt2020nc` / `bt2020` / `bt2020-10` |
 
-**The output tags are the canonical triple derived from the matrix family — not a field-by-field
+**The output tags are the canonical triple derived from the matrix family, not a field-by-field
 copy of the input tags.** Detection looks only at the input `color_space` (matrix), maps it to a
 family in the table above, and re-tags with that family's (colorspace, primaries, transfer). So if
 the input's primaries / transfer disagree with its matrix, the output is normalized to the canonical
@@ -77,7 +77,7 @@ Muxing is a two-stage process:
 
 1. The NVENC elementary stream (HEVC `.hevc` / AV1 `.obu`) is assembled into an intermediate file
    with **mkvmerge** (which applies timecodes).
-2. **ffmpeg** does the final remux — it muxes in the audio and tags the color metadata (matrix /
+2. **ffmpeg** does the final remux: it muxes in the audio and tags the color metadata (matrix /
    primaries / transfer / range). The video is `-c:v copy` (no re-encode). For `.mp4` / `.mov`
    outputs it adds `-movflags +faststart`.
 
