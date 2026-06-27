@@ -10,7 +10,8 @@ opt-in, experimental feature.
 **Runtime environment**: the same GPU-only stack as jasna itself (NVIDIA GPU, CUDA 13.x,
 torch 2.12.0+cu130, an ffmpeg 8 shared build on PATH) plus the optional dependency
 `torchcodec>=0.14.0` (cu130 build). The numbers in this document were measured on
-Windows 11 / Python 3.13.9 / torch 2.12.0+cu130 / CUDA 13.0 / RTX 5080 / ffmpeg 8.1 full-shared.
+Windows 11 / Python 3.13.9 / torch 2.12.0+cu130 / CUDA 13.0 / RTX 5080 / ffmpeg 8.1 full-shared
+(Appendix A is the Linux side of the same dual-booted RTX 5080; the GPU is shared).
 
 ## Background and goal
 
@@ -190,20 +191,42 @@ uv pip install "torchcodec>=0.14.0" --no-deps --index-url https://download.pytor
 
 ## Performance and validation
 
-For a real 1080p clip (31524 frames, rfdetr, with restoration), native vs torchcodec (environment:
-see the intro):
+For a real 1080p clip (31524 frames, rfdetr, with restoration, threaded encode), native vs torchcodec
+(environment: see the intro; RTX 5080 / Windows):
 
 | Measurement | native | torchcodec | Note |
 |---|---|---|---|
 | Decode-only | 2463 fps | 2164 fps | native ~12% faster (content-dependent; torchcodec can be faster on synthetic clips) |
 | Encode-only (hevc 8-bit, incl. mux) | 147 fps | 198 fps | torchcodec ~1.35x (native also does mkvmerge explicit timecodes, etc.) |
-| Full-length total (with restoration) | ~284 s | ~275 s | on par |
-| Output SSIM (native vs torchcodec) | n/a | 0.9904 | both correctly restored |
+| Full-length total (with restoration) | ~265 s | ~258 s | on par (within run-to-run noise; lada-yolo shows the same: native 208 s / torchcodec 201 s) |
+| Output bitrate (cq=25-equivalent settings) | ~5.93 Mbps | ~6.12 Mbps | torchcodec ~+3.3% (different encoder, so the rate point differs at the same nominal settings) |
+| Output SSIM (native vs torchcodec, all 31524 frames) | n/a | All 0.954 / Y 0.937 | chroma U/V ≈ 0.99; see "Output equivalence" below |
 
 Decode and encode throughput go opposite ways, but each is only a few % of the total, so full-length
 wall-clock is backend-independent (restoration and detection dominate). On a real 1080p clip with
-mosaics, detect → track → restore → NVENC → remux all work correctly; the output is equivalent to
-native (SSIM 0.990) and frame counts match.
+mosaics, detect → track → restore → NVENC → remux all work correctly, mosaics are restored under both
+backends, and frame counts match. The output is, however, not bit-equivalent to native: SSIM is
+All 0.954 / Y 0.937 (next section).
+
+### Output equivalence and pipeline determinism
+
+The native pipeline is deterministic: running the same clip twice yields a byte-identical video
+bitstream (matching `ffmpeg -map 0:v -c copy -f md5` packet MD5, SSIM 1.0, identical file size). The
+whole-file MKV MD5 changes even for identical video because mkvmerge writes a random segment UID, so
+equivalence must be judged by packet MD5 or SSIM, not the file hash.
+
+Since native is deterministic, the native-vs-torchcodec SSIM of 0.954 (All) / 0.937 (Y) is a
+torchcodec-specific difference, **not pipeline nondeterminism**. It is detector-independent
+(lada-yolo 0.9543 / rfdetr 0.9542) and roughly uniform across the frame, so the dominant cause is the
+**decode pixel difference** (vali's explicit BT conversion + dither vs torchcodec's internal
+conversion — see "Color"; the pipeline blends non-mosaic regions straight from the decoded source, so
+the difference covers the whole frame), with the encode difference (+3.3% bitrate) secondary. No
+visible breakage was observed (chroma 0.99), but the output is not bit-equivalent and is one step
+lower in fidelity; acceptability is a per-use-case call.
+
+> An earlier version listed this SSIM as 0.9904; it did not reproduce under controlled
+> re-measurement (all frames, native verified deterministic) on the same RTX 5080 and clip, and was
+> corrected to 0.954.
 
 ## Limitations and notes
 
@@ -232,7 +255,7 @@ native (SSIM 0.990) and frame counts match.
   native (Appendix A). Threading brings rfdetr back to parity with native (192 s). The trade-off
   is that a light detector (lada-yolo) regresses from 100 s to 114 s, though it still beats native
   (124 s). Keeping torchcodec at or above native for both detectors was prioritized, so threaded is
-  the default. Output is unchanged before/after threading (md5-identical, SSIM 0.9904).
+  the default. Output is unchanged before/after threading (SSIM vs native stays 0.954).
 
 ## Tests
 
@@ -303,7 +326,7 @@ co-bottleneck with decode-detect — so the total exceeds native.
 
 Following the analysis, torchcodec encoding was moved to a dedicated worker thread like native
 (`encode()` records an event and enqueues; the worker `event.synchronize()`s then `add_frames`).
-Output is unchanged: before/after outputs are md5-identical and SSIM vs native stays 0.9904.
+Output is unchanged: the encoded result is the same before/after threading, and SSIM vs native stays 0.954.
 
 The effect split by detector (RTX 5080 / Linux, same-session A/B):
 
@@ -323,13 +346,31 @@ to the blend thread's cadence, which happened to pack more efficiently.
 It is a trade-off, but threaded keeps torchcodec at or above native for both detectors (parity on
 rfdetr, 114 s < 124 s on lada-yolo), so threaded is the default for torchcodec.
 
-### Discrepancy with the main table
+### OS difference (same RTX 5080, dual-boot)
 
-The main "Performance and validation" section reports the Windows rfdetr full run as faster on
-torchcodec (275 s vs 284 s), but on Linux native is faster (192 s vs 197 s, inline). The encode
-threading model may behave differently across OS, so the main-table numbers may warrant
-re-measurement. Note also that for a heavy detector, auto picks torchcodec and can be a
-pessimization.
+The main "Performance and validation" section (Windows) and this appendix (Linux) were measured on
+**the same RTX 5080, dual-booted**, so the cross-OS difference is not hardware but the OS / software
+stack.
+
+Full-length total for the same clip and same code (threaded):
+
+```
+              Linux     Windows (same 5080)
+lada-yolo     ~124s     ~208s   (+68%)
+rfdetr        ~192s     ~265s   (+38%)
+```
+
+Windows is 34–68% slower, and the gap is concentrated in the **launch-bound TRT stages (detection and
+BasicVSR++ restoration)**; the fixed-function decode/encode stages are unchanged. The lighter,
+more-launch-heavy lada-yolo is hurt more. HAGS is already on (that lever is exhausted), so the
+remainder points to WDDM submission overhead and the per-OS TRT engine builds (`.win.engine`).
+Remedies: CUDA-graphing detection and restoration, and unifying the TRT version across OSes.
+
+Note that on Windows (threaded), native vs torchcodec is 208 s vs 201 s for lada-yolo and 265 s vs
+258 s for rfdetr — **torchcodec ≤ native for both detectors** (within run-to-run noise). So the
+"a heavy detector makes auto pick torchcodec and pessimize" concern does not reproduce: after
+threading it is parity even on Linux (rfdetr 192 = 192) and a slight win on Windows. It was specific
+to the inline era (the first table in this appendix).
 
 ## Appendix B: why the advantage depends on the GPU
 
