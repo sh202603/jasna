@@ -100,10 +100,19 @@ libraries.
 contract (`__enter__` / `encode(frame, pts)` / `__exit__`). The constructor re-checks
 eligibility and raises `TorchcodecEncodeUnsupported(ValueError)` if ineligible.
 
-- Incremental encoding via `torchcodec.encoders.Encoder`. `__enter__` does
-  `add_video(height, width, frame_rate, device='cuda', codec=...)` → `open_file(temp mkv)`;
-  `encode` applies the LUT then `VideoStream.add_frames(frame.unsqueeze(0))`; `__exit__`
-  calls `close()`. Codec maps hevc→`hevc_nvenc`, av1→`av1_nvenc`.
+- Incremental encoding via `torchcodec.encoders.Encoder`. Codec maps hevc→`hevc_nvenc`,
+  av1→`av1_nvenc`.
+- Encoding runs on a dedicated worker thread, like the native encoder (rationale in
+  Appendix A). `__enter__` starts the worker, which does `Encoder()` →
+  `add_video(height, width, frame_rate, device='cuda', codec=...)` → `open_file(temp mkv)`.
+  `encode(frame, pts)` runs on the caller (BlendEncode) thread and only records a
+  `torch.cuda.Event` on the current stream and pushes `(frame, event)` onto a bounded queue.
+  The worker, in FIFO order, does `event.synchronize()` (torchcodec manages its own internal
+  CUDA stream and cannot take an injected one, so a host-side wait is used), applies the LUT,
+  and calls `add_frames`; `__exit__` sends a stop sentinel and the worker calls `close()`. The
+  whole `Encoder` lifecycle lives on the worker to avoid cross-thread use of its internal
+  stream. torchcodec is CFR and ignores pts, so there is no pts-reorder buffer: a single FIFO
+  preserves frame order.
 - `__exit__` runs the temp mkv through `remux_with_audio_and_metadata(temp, out, metadata,
   codec)`. Audio, color tags, and the HEVC VUI rewrite are applied by that shared helper,
   so colorspace is identical to native.
@@ -217,6 +226,13 @@ native (SSIM 0.990) and frame counts match.
 - **Frame count (does not reach output)**: the native vali reader returns a few extra frames at
   the raw-decode level (50 vs ground-truth 48; 504 vs 500, varies); torchcodec is always exact.
   The pipeline output is correct for both.
+- **Encode threading decision (adopted)**: torchcodec encoding runs on a dedicated worker thread,
+  like the native encoder. Synchronous encoding lets the encode wall-time surface on the
+  blend-encode stage under a heavy detector (rfdetr), making it a co-bottleneck that loses to
+  native (Appendix A). Threading brings rfdetr back to parity with native (192 s). The trade-off
+  is that a light detector (lada-yolo) regresses from 100 s to 114 s, though it still beats native
+  (124 s). Keeping torchcodec at or above native for both detectors was prioritized, so threaded is
+  the default. Output is unchanged before/after threading (md5-identical, SSIM 0.9904).
 
 ## Tests
 
@@ -235,3 +251,136 @@ native (SSIM 0.990) and frame counts match.
 - Existing tests: the decode/encode construction seams moved to the factory, so the mock targets
   in `test_pipeline_threads.py` / `test_pipeline_run*.py` were repointed to `make_video_reader` /
   `make_video_encoder`.
+
+## Appendix A: how the winner depends on the detector
+
+Comparing native vs torchcodec with a light detector (lada-yolo) and a heavy one (rfdetr).
+Measured on Linux / RTX 5080 / no secondary / 1080p, 31524 frames (the main table above is
+Windows / rfdetr, so both OS and detector differ). The backend winner flips with the detector.
+
+```
+                        lada-yolo               rfdetr
+                     native  torchcodec     native  torchcodec
+total (wall-clock)    124s    101s           192s    197s
+decode-detect total   123.9s  100.8s         191.8s  196.6s
+blend-encode busy     70.1s   101.6s         150.5s  197.3s
+  of which write      0.6s    60.2s          1.0s    112.6s
+```
+
+With lada-yolo torchcodec is ~18% faster; with rfdetr native is ~3% faster. For rfdetr,
+`--video-backend auto` picks torchcodec (8-bit HEVC is eligible), so auto is also 198 s, below native.
+
+### Why the per-stage split is not comparable across backends
+
+Timing is accumulated as CPU wall-clock per category, and since GPU work is async, the split
+depends on what is synchronized at each category boundary. Native synchronizes only its decode
+stream at the end of a batch; torchcodec synchronizes the whole device per batch
+(`torch.cuda.synchronize(device)`). So the decode-vs-detect split is not comparable across
+backends; only the stage totals and the wall-clock total are.
+
+### Why torchcodec wins with lada-yolo
+
+With a light detector, decode-detect is the bottleneck. The decode-only bench has native ~12%
+faster (2463 fps vs 2164 fps), yet the combined decode-detect total is faster on torchcodec
+(123.9 s vs 100.8 s). Native winning alone but losing combined is the signature of native decode
+contending with detection for SMs: vali does a two-pass color conversion after decode, and those
+SM kernels compete with the detection TensorRT kernels. torchcodec's conversion is lighter, so
+more SMs go to detection and the bottleneck stage shrinks by 23 s.
+
+### Why it flips with rfdetr
+
+With a heavy detector, that SM relief no longer applies. rfdetr nearly saturates the GPU, so
+freeing SMs in decode does not help (detection refills them), and the combined decode-detect total
+is even slightly higher on torchcodec (191.8 s vs 196.6 s) due to torchcodec's per-batch contiguity
+copy and full-device sync, which are not hidden under saturation.
+
+The decisive factor is encoding. torchcodec encode (before threading) ran synchronously on the
+blend-encode thread and uses SMs for pre-processing. The same encode takes 60.2 s with a free GPU
+(lada-yolo) but balloons to 112.6 s under saturation (rfdetr), pushing blend-encode to 197.3 s — a
+co-bottleneck with decode-detect — so the total exceeds native.
+
+### Encode threading and its effect (implemented, measured)
+
+Following the analysis, torchcodec encoding was moved to a dedicated worker thread like native
+(`encode()` records an event and enqueues; the worker `event.synchronize()`s then `add_frames`).
+Output is unchanged: before/after outputs are md5-identical and SSIM vs native stays 0.9904.
+
+The effect split by detector (RTX 5080 / Linux, same-session A/B):
+
+```
+                  native   torchcodec inline   torchcodec threaded
+lada-yolo total    124s      100s               114s
+rfdetr    total    192s      197s               192s
+```
+
+For rfdetr it worked as intended: blend-encode write dropped from 112 s to ~7 s, the stage fell
+below decode-detect, and the total reached 192 s (on par with native). For lada-yolo it regressed
+from 100 s to 114 s: decode-detect rose from 100.3 s to 114.3 s (both decode and detect up ~7 s),
+because when the detector is light and the GPU has headroom, the worker's concurrent encode
+contends with detection for SMs and raises the bottleneck stage. Inline encoding had paced itself
+to the blend thread's cadence, which happened to pack more efficiently.
+
+It is a trade-off, but threaded keeps torchcodec at or above native for both detectors (parity on
+rfdetr, 114 s < 124 s on lada-yolo), so threaded is the default for torchcodec.
+
+### Discrepancy with the main table
+
+The main "Performance and validation" section reports the Windows rfdetr full run as faster on
+torchcodec (275 s vs 284 s), but on Linux native is faster (192 s vs 197 s, inline). The encode
+threading model may behave differently across OS, so the main-table numbers may warrant
+re-measurement. Note also that for a heavy detector, auto picks torchcodec and can be a
+pessimization.
+
+## Appendix B: why the advantage depends on the GPU
+
+Whether torchcodec wins depends on the GPU's engine layout. The mechanism is not "torchcodec has a
+stronger decoder": both backends use the same NVDEC hardware, so there is no difference at that layer.
+
+### Two decoders and the NVDEC count
+
+The pipeline runs two decoders concurrently: the decode-detect read and the blend-encode re-read of
+original frames. The RTX 5080 has two NVDEC engines, so the two decoders land on separate engines and
+do not contend. GeForce RTX 50 engine counts (SM ≈ CUDA cores / 128):
+
+```
+GPU            NVENC  NVDEC   SM
+RTX 5090         3      2     170
+RTX 5080 (test)  2      2      84
+RTX 5070 Ti      2      1      70
+RTX 5070         1      1      48
+RTX 5060 Ti      1      1      36
+RTX 5060         1      1      30
+```
+
+The RTX 5060 and 5060 Ti have only one NVDEC, so the two decoders share a single engine and contend.
+This constraint applies to both native and torchcodec.
+
+### Saturation causes the flip (implication of Appendix A)
+
+rfdetr saturating the RTX 5080's SMs approximates running a light detector on a weaker GPU. As shown
+in Appendix A, under saturation torchcodec's SM relief stops working and the (previously synchronous)
+encode surfaces and loses to native. A weaker GPU saturates at the same load sooner, so on an RTX 5060
+even a light detector may behave like rfdetr-on-5080.
+
+### Prediction for the RTX 5060 class
+
+Whether torchcodec wins on a weaker GPU is decided by the balance between spare SMs and encode
+exposure. The SM relief only helps when detection is not saturating the GPU (measured in Appendix A).
+The RTX 5060 has few SMs and saturates early, so the gain is unlikely to appear. On top of that, a
+single NVDEC makes the two decoders contend, and the encode is starved of SMs. These all stack against
+torchcodec. So "a weak decoder reduces the benefit" is directionally right, but the cause is not the
+decoder's raw speed: it is one NVDEC for two decoders plus SM scarcity throwing off the detection/encode
+balance. The final winner depends on that balance and must be measured.
+
+### Confirming the prediction by measurement
+
+1. Run the same conditions on RTX 5060-class hardware and compare per-stage times, especially whether
+   torchcodec's encode time exceeds the decode-detect stage.
+2. Capture per-engine utilization (`nvidia-smi dmon`, etc.) to tell whether NVDEC or SM saturates first.
+3. See how encode threading (implemented per Appendix A) behaves on a weak GPU. On the RTX 5080 it
+   improved rfdetr and regressed lada-yolo, so on the SM-scarce, early-saturating 5060 class even a
+   light detector may land on the regression side.
+
+Sources:
+- [Video Encode and Decode GPU Support Matrix (NVIDIA Developer)](https://developer.nvidia.com/video-encode-decode-gpu-support-matrix)
+- [NVIDIA RTX Blackwell GPU Architecture (PDF)](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)
