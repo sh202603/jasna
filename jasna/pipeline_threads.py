@@ -64,6 +64,7 @@ def decode_detect_loop(
     output_fps: float | None,
     progress: Progressbar | None,
     video_backend: VideoBackend | str = VideoBackend.NATIVE,
+    encode_backend_name: str = "native",
 ) -> None:
     timer = LoopTimer("decode-detect")
     try:
@@ -119,12 +120,13 @@ def decode_detect_loop(
                     scene_detector.reset()
                 effect_active = False
             log.info(
-                "Processing %s: %d frames @ %s fps, %dx%d",
+                "Processing %s: %d frames @ %s fps, %dx%d [decode: %s, encode: %s]",
                 input_video,
                 metadata.num_frames if output_frame_count is None else output_frame_count,
                 metadata.video_fps if output_fps is None else output_fps,
                 metadata.video_width,
                 metadata.video_height,
+                getattr(reader, "backend", "native"), encode_backend_name,
             )
 
             try:
@@ -654,6 +656,7 @@ def run_restoration_pass(
     restoration_pipeline = pipeline.restoration_pipeline
     # Preview/HLS/raw-player passes hand in objects without a backend choice: native.
     decode_backend = getattr(pipeline, "decode_backend", VideoBackend.NATIVE)
+    encode_backend_name = getattr(pipeline, "encode_backend_name", "native")
     max_clip_size = pipeline.max_clip_size
     secondary_workers = max(1, int(restoration_pipeline.secondary_num_workers))
 
@@ -727,6 +730,7 @@ def run_restoration_pass(
                 output_fps=output_fps,
                 progress=progress,
                 video_backend=decode_backend,
+                encode_backend_name=encode_backend_name,
             ),
             name="DecodeDetect", daemon=True,
         ),
