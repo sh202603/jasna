@@ -328,6 +328,8 @@ def _mov_container_options(suffix: str, *, fmp4: bool) -> dict[str, str]:
 
 
 class NvidiaVideoEncoder:
+    backend = "native"
+
     def __init__(
         self,
         file: str,

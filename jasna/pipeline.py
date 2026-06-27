@@ -380,6 +380,7 @@ class Pipeline:
         frame_shape: list[tuple[int, int]] = []
 
         encode_heartbeat: list[float] = [time.monotonic()]
+        encode_backend_name = getattr(encoder_ctx, "backend", "native")
         frame_writer = _OfflineFrameWriter(encoder_ctx, encode_heartbeat)
         if self.frame_gen_multiplier > 1 and self.frame_generator is not None:
             from jasna.framegen import FrameGenWriter
@@ -463,6 +464,7 @@ class Pipeline:
                     vr_projector=self._vr_projector,
                     cancel_event=self._cancel_event,
                     video_backend=self.decode_backend,
+                    encode_backend_name=encode_backend_name,
                 ),
                 name="DecodeDetect", daemon=True,
             ),

@@ -219,6 +219,8 @@ class _ValiFrameSource:
 
 
 class NvidiaVideoReader:
+    backend = "native"
+
     def __init__(
         self,
         file: str,
