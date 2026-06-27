@@ -33,7 +33,7 @@ def test_cli_threads_device_and_multiplier(tmp_path):
         return NoOpDeviceContext()
 
     class FakeReader:
-        def __init__(self, file, batch_size, device, metadata):
+        def __init__(self, file, batch_size, device, metadata, frame_stride=1):
             captured["reader_device"] = device
 
         def __enter__(self):
@@ -57,7 +57,7 @@ def test_cli_threads_device_and_multiplier(tmp_path):
         def __exit__(self, *args):
             return False
 
-        def encode(self, frame, pts):
+        def encode(self, frame, pts, *, apply_lut=True):
             captured.setdefault("encoded", []).append((frame, pts))
 
     def fake_build_generator(backend, *, device, **kwargs):
@@ -77,7 +77,7 @@ def test_cli_threads_device_and_multiplier(tmp_path):
 
     with (
         patch("jasna.framegen_cli.check_ascii_install_path", return_value=(True, "/fake")),
-        patch("jasna.framegen_cli.check_nvidia_gpu", return_value=(True, "Fake GPU")),
+        patch("jasna.framegen_cli.check_supported_gpu", return_value=(True, "Fake GPU")),
         patch("jasna.framegen_cli.check_gpu_driver_version", return_value=(True, "590.18")),
         patch("jasna.framegen_cli.check_required_executables"),
         patch("jasna.framegen_cli.check_windows_nvidia_sysmem_fallback_policy", return_value=(True, "OK")),

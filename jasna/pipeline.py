@@ -16,6 +16,7 @@ from jasna.accelerator import AcceleratorVendor, vendor_for_device
 from jasna.media.container_utils import MOV_SUFFIXES
 from jasna.media.probe import UnsupportedVideoError, get_video_meta_data
 from jasna.media.video_encoder import VideoEncoder
+from jasna.media.backend import VideoBackend, make_video_encoder
 from jasna.media.frame_rate import resolve_frame_rate_retarget
 from jasna.media.splice import (
     KeyframeIndex,
@@ -89,12 +90,16 @@ class Pipeline:
         splice_plan: SplicePlan | None,
         frame_gen_multiplier: int = 1,
         frame_generator=None,
+        decode_backend: VideoBackend | str = VideoBackend.NATIVE,
+        encode_backend: VideoBackend | str = VideoBackend.NATIVE,
     ) -> None:
         self.input_video = input_video
         self.output_video = output_video
         self.working_dir = config.working_dir
         self.codec = config.codec
         self.encoder_settings = dict(config.encoder_settings)
+        self.decode_backend = decode_backend
+        self.encode_backend = encode_backend
         self.frame_gen_multiplier = max(1, int(frame_gen_multiplier))
         self.frame_generator = frame_generator
         self.batch_size = config.batch_size
@@ -255,14 +260,14 @@ class Pipeline:
             )
         return frame_rate
 
-    def _video_encoder(self, metadata, frame_rate) -> VideoEncoder:
+    def _video_encoder(self, metadata, frame_rate):
         if self.fmp4 and self.output_video.suffix.lower() not in MOV_SUFFIXES:
             log.info(
                 "Fragmented MP4 has no effect on %s output; it is already playable while it grows",
                 self.output_video.suffix,
             )
-        return VideoEncoder(
-            str(self.output_video),
+        return make_video_encoder(
+            file=str(self.output_video),
             device=self.device,
             metadata=metadata,
             codec=self.codec,
@@ -271,6 +276,7 @@ class Pipeline:
             sharpen_strength=self.sharpen_strength,
             output_fps=frame_rate.output_fps * self.frame_gen_multiplier,
             fmp4=self.fmp4,
+            backend=self.encode_backend,
         )
 
     def _run_full(
