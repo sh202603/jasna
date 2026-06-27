@@ -403,6 +403,8 @@ def _normalized_audio_layout(layout: av.AudioLayout) -> av.AudioLayout:
 
 
 class NvidiaVideoEncoder:
+    backend = "native"
+
     def __init__(
         self,
         file: str,
