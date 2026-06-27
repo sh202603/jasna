@@ -397,6 +397,30 @@ def build_parser() -> argparse.ArgumentParser:
         help=CLI_HELP["encoder_settings"],
     )
     encoding.add_argument(
+        "--video-backend",
+        type=str,
+        default="native",
+        choices=["native", "auto", "torchcodec"],
+        help='Decode/encode backend: "native" (PyAV NVDEC/NVENC, default), "auto" (use torchcodec for decode where '
+             'available, else native), or "torchcodec" (force torchcodec; errors when it cannot satisfy '
+             'the request, e.g. 10-bit source / streaming).',
+    )
+    encoding.add_argument(
+        "--decode-backend",
+        type=str,
+        default="inherit",
+        choices=["inherit", "native", "auto", "torchcodec"],
+        help='Override the decode backend only (default "inherit" = --video-backend).',
+    )
+    encoding.add_argument(
+        "--encode-backend",
+        type=str,
+        default="inherit",
+        choices=["inherit", "native", "auto", "torchcodec"],
+        help='Override the encode backend only (default "inherit" = --video-backend). '
+             "torchcodec encode runs only when forced and outputs 8-bit HEVC/AV1.",
+    )
+    encoding.add_argument(
         "--lut",
         type=str,
         default="",
@@ -599,6 +623,30 @@ def main() -> None:
         raise ValueError("Frame generation (--frame-gen) is file-output only and not supported in streaming mode")
     if frame_gen_multiplier > 1 and segments_spec:
         raise ValueError("Frame generation (--frame-gen) cannot be combined with --segments smart rendering")
+
+    from jasna.media.backend import VideoBackend
+    video_backend = VideoBackend(str(args.video_backend).lower())
+
+    def _resolve_backend(override: str) -> VideoBackend:
+        return video_backend if override == "inherit" else VideoBackend(override.lower())
+
+    decode_backend = _resolve_backend(str(args.decode_backend).lower())
+    encode_backend = _resolve_backend(str(args.encode_backend).lower())
+
+    if VideoBackend.TORCHCODEC in (decode_backend, encode_backend) and is_streaming:
+        raise ValueError(
+            "torchcodec backend is not supported in streaming mode (use native or auto)"
+        )
+    if encode_backend is VideoBackend.TORCHCODEC and segments_spec:
+        raise ValueError(
+            "torchcodec encode is not supported with --segments smart rendering "
+            "(fragments require the native encoder)"
+        )
+    if decode_backend is VideoBackend.TORCHCODEC and bool(args.retarget_high_fps):
+        raise ValueError(
+            "torchcodec decode does not support --retarget-high-fps (frame stride); "
+            "use the native decode backend"
+        )
 
     folder_videos: list[Path] = []
     folder_output_dir: Path | None = None
@@ -825,6 +873,8 @@ def main() -> None:
                 splice_plan=splice_plan,
                 frame_gen_multiplier=frame_gen_multiplier,
                 frame_generator=frame_generator,
+                decode_backend=decode_backend,
+                encode_backend=encode_backend,
             )
 
         video_inputs = folder_videos if input_is_dir else ([input_video] if input_video is not None else [])

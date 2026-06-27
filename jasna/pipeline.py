@@ -17,6 +17,7 @@ import psutil
 import torch
 
 from jasna.media import UnsupportedColorspaceError, get_video_meta_data
+from jasna.media.backend import VideoBackend, make_video_encoder
 from jasna.media.video_encoder import NvidiaVideoEncoder
 from jasna.media.frame_rate import resolve_frame_rate_retarget
 from jasna.media.splice import (
@@ -104,12 +105,16 @@ class Pipeline:
         working_dir: Path | None = None,
         frame_gen_multiplier: int = 1,
         frame_generator=None,
+        decode_backend: VideoBackend | str = VideoBackend.NATIVE,
+        encode_backend: VideoBackend | str = VideoBackend.NATIVE,
     ) -> None:
         self.input_video = input_video
         self.output_video = output_video
         self.working_dir = working_dir
         self.codec = str(codec)
         self.encoder_settings = dict(encoder_settings)
+        self.decode_backend = decode_backend
+        self.encode_backend = encode_backend
         self.frame_gen_multiplier = max(1, int(frame_gen_multiplier))
         self.frame_generator = frame_generator
         self.batch_size = int(batch_size)
@@ -457,6 +462,7 @@ class Pipeline:
                     vr_mode=self._vr_resolution.resolved,
                     vr_projector=self._vr_projector,
                     cancel_event=self._cancel_event,
+                    video_backend=self.decode_backend,
                 ),
                 name="DecodeDetect", daemon=True,
             ),
@@ -489,6 +495,7 @@ class Pipeline:
                     frame_stride=frame_rate.frame_stride,
                     seek_ts=seek_ts,
                     cancel_event=self._cancel_event,
+                    video_backend=self.decode_backend,
                 ),
                 name="BlendEncode", daemon=True,
             ),
@@ -586,8 +593,8 @@ class Pipeline:
                 "Fragmented MP4 has no effect on %s output; it is already playable while it grows",
                 self.output_video.suffix,
             )
-        encoder_ctx = NvidiaVideoEncoder(
-            str(self.output_video),
+        encoder_ctx = make_video_encoder(
+            file=str(self.output_video),
             device=self.device,
             metadata=metadata,
             codec=self.codec,
@@ -596,6 +603,7 @@ class Pipeline:
             sharpen_strength=self.sharpen_strength,
             output_fps=frame_rate.output_fps * self.frame_gen_multiplier,
             fmp4=self.fmp4,
+            backend=self.encode_backend,
         )
         try:
             self._run_pass(

@@ -34,6 +34,16 @@ Jasna is free. Supporters get a key that unlocks the extra models trained for th
 - Can further improve quality with optional [secondary restoration models](docs/en/models.md#secondary-restoration) — **unet-4x**, **RTX Super Resolution**, or **Topaz Video AI** — which sharpen restored regions, especially large mosaics, close-ups, and 4K video.
 - Can stream restored video to the built-in browser player or a supported Stash fork.
 
+### Video Backend (experimental)
+
+Jasna decodes with `python_vali` and encodes with `PyNvVideoCodec` by default (`--video-backend native`). An **experimental** [torchcodec](https://github.com/meta-pytorch/torchcodec) backend can replace both for 8-bit HEVC/AV1 output:
+
+```bash
+jasna --input input.mp4 --output output.mkv --video-backend auto
+```
+
+`--video-backend {native,auto,torchcodec}` (default `native`, i.e. unchanged behavior): `auto` uses torchcodec where it applies and falls back to native otherwise; `torchcodec` forces it. `--decode-backend` / `--encode-backend` override each side independently. The torchcodec encoder covers **8-bit HEVC/AV1** with the mappable NVENC settings; **10-bit, frame generation, streaming, and unmappable encoder settings always fall back to native**, and colorspace metadata is preserved either way. Requires the optional dependency (`pip install "torchcodec>=0.14.0"` from the cu130 wheel index). Details: [docs/TORCHCODEC_BACKEND_en.md](docs/TORCHCODEC_BACKEND_en.md).
+
 ## Community
 
 Join the [SLS Discord](https://discord.gg/uNwQ4mHqgv) for examples, support, and settings discussion. Please don't be too weird.
