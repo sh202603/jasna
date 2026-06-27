@@ -50,6 +50,7 @@ def decode_detect_loop(
     progress: Progressbar | None = None,
     debug_memory: PipelineDebugMemoryLogger | None = None,
     video_backend: VideoBackend | str = VideoBackend.NATIVE,
+    encode_backend_name: str = "native",
 ) -> None:
     timer = LoopTimer("decode-detect")
     try:
@@ -71,8 +72,9 @@ def decode_detect_loop(
             frame_idx = 0 if seek_ts is None else _estimate_start_frame(metadata, seek_ts)
             first_batch = seek_ts is not None
             log.info(
-                "Processing %s: %d frames @ %s fps, %dx%d",
+                "Processing %s: %d frames @ %s fps, %dx%d [decode: %s, encode: %s]",
                 input_video, metadata.num_frames, metadata.video_fps, metadata.video_width, metadata.video_height,
+                getattr(reader, "backend", "native"), encode_backend_name,
             )
 
             try:

@@ -338,6 +338,7 @@ class Pipeline:
             output_fps_multiplier=self.frame_gen_multiplier,
             backend=self.encode_backend,
         )
+        encode_backend_name = getattr(encoder_ctx, "backend", "native")
         frame_writer = _OfflineFrameWriter(encoder_ctx, encode_heartbeat)
         if self.frame_gen_multiplier > 1 and self.frame_generator is not None:
             from jasna.framegen import FrameGenWriter
@@ -391,6 +392,7 @@ class Pipeline:
                     progress=pb,
                     debug_memory=debug_memory,
                     video_backend=self.decode_backend,
+                    encode_backend_name=encode_backend_name,
                 ),
                 name="DecodeDetect", daemon=True,
             ),

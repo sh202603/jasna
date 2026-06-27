@@ -198,6 +198,8 @@ def remux_with_audio_and_metadata(video_input: Path, output_path: Path, metadata
 
 
 class NvidiaVideoEncoder:
+    backend = "native"
+
     def __init__(
         self,
         file: str,

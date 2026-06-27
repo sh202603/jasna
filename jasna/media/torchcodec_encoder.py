@@ -26,8 +26,11 @@ Notable differences from native (``media/video_encoder.py``):
 from __future__ import annotations
 
 import importlib.util
+import logging
 import os
+import queue
 import sys
+import threading
 from pathlib import Path
 
 if sys.platform == "win32":
@@ -47,12 +50,16 @@ from jasna.media import VideoMetadata
 from jasna.media.lut import GpuLutApplier, parse_cube_file
 from jasna.media.video_encoder import remux_with_audio_and_metadata
 
+log = logging.getLogger(__name__)
+
 
 class TorchcodecEncodeUnsupported(ValueError):
     """The request cannot be encoded by torchcodec (e.g. 10-bit / custom settings)."""
 
 
 class TorchcodecVideoEncoder:
+    backend = "torchcodec"
+
     def __init__(
         self,
         file: str,
@@ -103,6 +110,19 @@ class TorchcodecVideoEncoder:
         self._encoder: Encoder | None = None
         self._vstream = None
 
+        # Encoding runs on a dedicated worker thread so the synchronous
+        # torchcodec ``add_frames`` does not block the BlendEncode thread (see
+        # docs/TORCHCODEC_BACKEND_ja.md 付録A). The whole torchcodec ``Encoder``
+        # lifecycle (add_video / open_file / add_frames / close) lives on that
+        # worker to avoid cross-thread use of its internal CUDA stream.
+        self._queue: queue.Queue = queue.Queue(maxsize=8)
+        self._stop_sentinel = object()
+        self._worker: threading.Thread | None = None
+        self._ready = threading.Event()      # worker signals after open_file (or init failure)
+        self._failed = threading.Event()     # worker signals a runtime encode failure
+        self._init_error: BaseException | None = None
+        self._worker_error: BaseException | None = None
+
     def _build_encode_params(self, settings: dict[str, object]) -> tuple[str, dict[str, str]]:
         """Build the (preset, extra_options) for ``add_video`` from jasna's tuning.
 
@@ -140,34 +160,91 @@ class TorchcodecVideoEncoder:
         return preset, extra
 
     def __enter__(self):
-        self._encoder = Encoder()
-        self._vstream = self._encoder.add_video(
-            height=self.metadata.video_height,
-            width=self.metadata.video_width,
-            frame_rate=self._frame_rate,
-            device=str(self.device),
-            codec=self._nvenc_codec,
-            preset=self._preset,
-            extra_options=self._extra_options,
+        self._worker = threading.Thread(
+            target=self._encode_worker, name="TorchcodecEncoderWorker", daemon=True
         )
-        self._encoder.open_file(str(self._temp_path))
+        self._worker.start()
+        self._ready.wait()
+        if self._init_error is not None:
+            # Propagate on the caller's thread, matching the previous synchronous
+            # __enter__ (BlendEncode thread -> error_holder via blend_encode_loop).
+            raise self._init_error
         return self
+
+    def _encode_worker(self) -> None:
+        if self.device.type == "cuda":
+            torch.cuda.set_device(self.device)
+        try:
+            self._encoder = Encoder()
+            self._vstream = self._encoder.add_video(
+                height=self.metadata.video_height,
+                width=self.metadata.video_width,
+                frame_rate=self._frame_rate,
+                device=str(self.device),
+                codec=self._nvenc_codec,
+                preset=self._preset,
+                extra_options=self._extra_options,
+            )
+            self._encoder.open_file(str(self._temp_path))
+        except BaseException as e:  # surface to __enter__
+            self._init_error = e
+            self._ready.set()
+            return
+        self._ready.set()
+
+        try:
+            while True:
+                item = self._queue.get()
+                if item is self._stop_sentinel:
+                    break
+                frame, ready_event = item
+                # Wait (host-side) for the producer's blend kernels to finish:
+                # torchcodec manages its own internal CUDA stream, so we cannot
+                # inject a stream-wait the way the native encoder does.
+                ready_event.synchronize()
+                if self._lut_applier is not None:
+                    frame = self._lut_applier.apply(frame)
+                if frame.ndim == 3:
+                    frame = frame.unsqueeze(0)
+                self._vstream.add_frames(frame)
+                del frame
+        except BaseException as e:
+            self._worker_error = e
+            self._failed.set()
+            log.exception("[torchcodec-encoder-worker] crashed")
+            # Drain anything still queued so a blocked producer's put() unblocks.
+            self._drain_queue()
+            return
+
+        self._encoder.close()
+        self._encoder = None
+
+    def _drain_queue(self) -> None:
+        while True:
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                return
 
     def encode(self, frame: torch.Tensor, pts: int) -> None:
         # pts is unused: torchcodec encodes CFR at frame_rate (eligibility gates VFR
-        # out by requiring the native path for anything PTS-sensitive).
-        if self._lut_applier is not None:
-            frame = self._lut_applier.apply(frame)
-        if frame.ndim == 3:
-            frame = frame.unsqueeze(0)
-        self._vstream.add_frames(frame)
+        # out by requiring the native path for anything PTS-sensitive). Frames are
+        # added in queue order, so a single FIFO worker preserves frame order.
+        if self._failed.is_set():
+            raise self._worker_error  # type: ignore[misc]
+        ready_event = torch.cuda.Event()
+        torch.cuda.current_stream(self.device).record_event(ready_event)
+        self._queue.put((frame, ready_event))
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self._encoder is not None:
-            self._encoder.close()
-            self._encoder = None
+        if self._worker is not None:
+            self._queue.put(self._stop_sentinel)
+            self._worker.join()
+            self._worker = None
+        if self._worker_error is not None and exc_type is None:
+            raise self._worker_error
         try:
-            if exc_type is None:
+            if exc_type is None and self._worker_error is None:
                 remux_with_audio_and_metadata(
                     self._temp_path, self.output_path, self.metadata, self.codec
                 )

@@ -38,6 +38,8 @@ def _create_blocking_cuda_stream() -> int:
 
 
 class NvidiaVideoReader:
+    backend = "native"
+
     def __init__(self, file: str, batch_size: int, device: torch.device, metadata: VideoMetadata):
         self.device = device
         self.file = file

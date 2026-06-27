@@ -80,7 +80,8 @@ encode の唯一の確たるゲートは 10bit で、10bit 要求はネイティ
 `TorchcodecVideoEncoder(...)` を `NvidiaVideoEncoder` と同一コンストラクタおよび FrameWriter 契約（`__enter__` / `encode(frame, pts)` / `__exit__`）で実装する。
 コンストラクタで適格性を再チェックし、不適合なら `TorchcodecEncodeUnsupported(ValueError)` を送出する。
 
-- 増分エンコードに `torchcodec.encoders.Encoder`（複数ストリーム）を使う。`__enter__` で `add_video(height, width, frame_rate, device='cuda', codec=...)` → `open_file(中間mkv)`、`encode` で LUT 適用後に `VideoStream.add_frames(frame.unsqueeze(0))`、`__exit__` で `close()`。codec は hevc→`hevc_nvenc`、av1→`av1_nvenc`。
+- 増分エンコードに `torchcodec.encoders.Encoder`（複数ストリーム）を使う。codec は hevc→`hevc_nvenc`、av1→`av1_nvenc`。
+- 符号化はネイティブと同じく専用ワーカースレッドで行う（採用判断は付録Aを参照）。`__enter__` がワーカーを起動し、ワーカーが `Encoder()` → `add_video(height, width, frame_rate, device='cuda', codec=...)` → `open_file(中間mkv)` を実行する。`encode(frame, pts)` は呼び出し側（BlendEncode スレッド）で現在ストリームに `torch.cuda.Event` を記録し、`(frame, event)` を上限つきキューに積むだけ。ワーカーが FIFO 順に `event.synchronize()`（torchcodec は内部 CUDA ストリームを自前管理し外部注入できないため host 同期）→ LUT 適用 → `add_frames` を行い、`__exit__` の stop で `close()` する。`Encoder` のライフサイクルはすべてワーカー上に置き、内部ストリームのスレッドまたぎを避ける。torchcodec は CFR で pts を無視するため、ネイティブの pts 並べ替えバッファは持たず単一 FIFO で投入順を保つ。
 - `__exit__` は中間 mkv を `remux_with_audio_and_metadata(中間, 出力, metadata, codec)` に通す。音声、色タグ、HEVC の VUI 書換はこの remux が担い、ネイティブと同一の色処理になる。
 - タイミングは `frame_rate`（`video_fps_exact`）の CFR。ネイティブの「raw elementary + mkvmerge による明示タイムコード」と違い任意の per-frame PTS は持たないため、VFR はネイティブに残す。
 - NVENC 設定は `_build_encode_params` が jasna の既定品質（cq=25, preset p5, qmin/qmax, temporal-aq, rc-lookahead 32, spatial-aq + aq-strength 8, gop、hevc は bf=4）をマッピング可能キーで構築し、`--encoder-settings` を上書きして `add_video(preset=..., extra_options=...)` に渡す。これにより torchcodec 出力の品質がネイティブに近づく。
@@ -161,6 +162,7 @@ uv pip install "torchcodec>=0.14.0" --no-deps --index-url https://download.pytor
 - **色**：vali は明示的な BT.x 変換、range 変換、ディザを行うが、torchcodec は内部変換を使うため、デコード結果の画素はビット完全一致ではない（合成クリップの先頭フレームで平均絶対差 約 8.5）。出力の色メタデータは remux が付与するためネイティブと同一。
 - **デコード性能**：実 1080p ではネイティブが約 12% 速い（素材依存、デコードは非ボトルネック）。
 - **フレーム数（出力には波及せず）**：ネイティブ vali は raw デコードで数枚過剰に返す（ground truth 48 に対し 50、500 枚に対し 504 と可変）。torchcodec は常に正しい。実パイプラインの出力枚数は両者とも正しく、差は無い。
+- **符号化スレッド化の判断（採用）**：torchcodec の符号化はネイティブと同じく専用ワーカースレッドで実行する。理由は、同期実行だと重い検出（rfdetr）で符号化がブレンド符号化段に露出して二重ボトルネック化し、ネイティブに負けるため（付録A）。スレッド化で rfdetr はネイティブ同等（192秒）に戻る。トレードオフとして軽い検出（lada-yolo）は 100秒から114秒へ回帰するが、それでもネイティブ（124秒）には勝つ。両検出器でネイティブ以上を保てることを優先して threaded を既定とした。出力はスレッド化前後で md5 一致・SSIM 0.9904 で不変。
 
 ## テスト
 
@@ -171,3 +173,135 @@ uv pip install "torchcodec>=0.14.0" --no-deps --index-url https://download.pytor
 - `tests/test_perf_regression.py`（GPU、`-m perf`）：壁時計（前後で `torch.cuda.synchronize()`）でネイティブと torchcodec のデコード スループットを比較。
 - `tests/test_main_validation.py`：CLI ガード（torchcodec + streaming、encode torchcodec + 10bit、av1 許可）。
 - 既存テスト：decode/encode の生成シームが factory に移ったため、`test_pipeline_threads.py` と `test_pipeline_run*.py` の patch 先を `make_video_reader`/`make_video_encoder` に更新済み。
+
+## 付録A: 検出器による優劣の違い
+
+検出を軽い lada-yolo と重い rfdetr に替えて、ネイティブと torchcodec を比較した。
+測定は Linux / RTX 5080 / secondary なし / 1080p 31524 フレームで行った（本体の表は Windows / rfdetr で、OS も検出器も異なる）。
+バックエンドの優劣は検出器によって逆転する。
+
+```
+                        lada-yolo               rfdetr
+                     ネイティブ torchcodec   ネイティブ torchcodec
+総時間(壁時計)          124s      101s          192s      197s
+decode-detect 合計     123.9s    100.8s        191.8s    196.6s
+blend-encode 実作業     70.1s     101.6s        150.5s    197.3s
+  うち write           0.6s      60.2s          1.0s      112.6s
+```
+
+lada-yolo では torchcodec が約18%速く、rfdetr ではネイティブが約3%速い。
+rfdetr で `--video-backend auto` は torchcodec を選ぶため（8bit HEVC は適格）、auto も198秒でネイティブに劣る。
+
+### 内訳が backend 間で比較できない理由
+
+タイミングは CPU の壁時計で積算しており、GPU が非同期に走るため、カテゴリの境目で何を同期するかで振り分けが変わる。
+ネイティブはバッチ末にデコード用ストリームだけを、torchcodec はバッチごとにデバイス全体を同期する（`torch.cuda.synchronize(device)`）。
+このため decode と detect の内訳は backend 間で比較できず、信頼できるのは段の合計と総時間である。
+
+### なぜ lada-yolo では torchcodec が速いのか
+
+検出が軽いと、デコード検出段がボトルネックになる。
+本体のデコード単体ベンチではネイティブが約12%速い（2463 fps 対 2164 fps）のに、この段の合計は torchcodec が速い（123.9秒 対 100.8秒）。
+単体で速いネイティブが合算で負けるのは、ネイティブのデコードが検出と SM を奪い合うためである。
+ネイティブはデコード後に色変換を2パス行い、これらの SM カーネルが検出の TensorRT カーネルと競合する。
+torchcodec は色変換が軽く、検出に回る SM が増えるので、ボトルネック段が23秒縮む。
+
+### なぜ rfdetr では逆転するのか
+
+検出が重いと、この SM 競合の解消が効かない。
+rfdetr は GPU をほぼ飽和させるので、デコードが SM を空けても検出がすぐ埋め、デコード検出段の合計は torchcodec がむしろ微増する（191.8秒 対 196.6秒）。
+torchcodec が連続化のためにかけるバッチごとのコピーとデバイス全体同期は、飽和した GPU では隠れず、わずかな上乗せになる。
+
+決定打は符号化である。
+torchcodec の符号化はブレンド符号化スレッド上で同期実行され、SM を使う前処理を伴う。
+同じ符号化でも、GPU が空いている lada-yolo では60.2秒だが、飽和した rfdetr では112.6秒に膨らむ。
+このためブレンド符号化段が197.3秒まで上がり、デコード検出段と並ぶ二重ボトルネックになって、総時間がネイティブを上回る。
+
+### 優劣を決める要因
+
+ネイティブの符号化は別スレッドへ渡すだけで、検出器によらず裏に隠れる（write は約1秒）。
+torchcodec の符号化は同期実行で表に出るため、ブレンド符号化段がデコード検出段のボトルネックの下に収まるかどうかで結果が決まる。
+lada-yolo ではデコード検出段が101秒へ下がり、符号化を含むブレンド符号化段が101.6秒でぎりぎり収まったので、デコードの短縮がそのまま勝ちになった。
+rfdetr ではデコード検出段が下がらず、同期実行の符号化がブレンド符号化段を197秒へ押し上げたので、デコード側の利得が無いまま負けた。
+
+### 符号化のスレッド化とその効果（実装・実測）
+
+上の分析を受けて、torchcodec の符号化をネイティブと同じく専用ワーカースレッドへ移した（`encode()` は producer ストリームにイベントを記録してキューへ積むだけ、ワーカーが `event.synchronize()` 後に `add_frames`）。
+出力は不変で、スレッド化前後の出力は md5 完全一致、ネイティブとの SSIM も 0.9904 のままである。
+
+効果は検出器で割れた（RTX 5080 / Linux、同一セッションの A/B 計測）。
+
+```
+                     ネイティブ  torchcodec inline  torchcodec threaded
+lada-yolo  総時間       124s        100s              114s
+rfdetr     総時間       192s        197s              192s
+```
+
+rfdetr では狙いどおり、ブレンド符号化段の write が112秒から約7秒に落ち、段が decode-detect の下に収まって総時間が192秒（ネイティブと同等）になった。
+lada-yolo では逆に100秒から114秒へ回帰した。
+decode-detect 段が100.3秒から114.3秒へ上がっており（decode/detect 両方が約7秒増）、検出が軽く GPU に余裕がある場合は、ワーカーの並行エンコードが検出と SM を取り合ってボトルネック段を押し上げる。
+inline では符号化がブレンドスレッドの歩調で自然に詰まっていたぶん、かえって効率がよかったということである。
+
+トレードオフだが、threaded は両検出器でネイティブ以上を保つ（rfdetr で同等、lada-yolo で114秒 < 124秒）ため、torchcodec の既定として threaded を採用した。
+
+### 本体表との食い違い
+
+本体の「性能と検証」は Windows の rfdetr フル尺を torchcodec が速い（275秒 対 284秒）としているが、Linux では逆にネイティブが速い（192秒 対 197秒、inline 計測）。
+符号化のスレッドモデルの効き方が OS で異なる可能性があり、本体表の数値は再計測の余地がある。
+重い検出器では auto が torchcodec を選んで悲観化になりうる点も、運用上の注意になる。
+
+## 付録B: 優劣が GPU に依存する理由
+
+torchcodec の優位が出るかどうかは GPU のエンジン構成に依存する。
+ただし機序は「torchcodec のデコーダが強い」ではない。
+デコードはどちらの backend も同じ NVDEC ハードウェアを使うため、その層に差はない。
+
+### デコーダを2個動かす構成と NVDEC 数
+
+このパイプラインはデコーダを2個同時に動かす。
+デコード検出段の読み出しと、符号化段が原フレームを読み直す読み出しである。
+RTX 5080 は NVDEC を2基持つので、2つのデコーダを別々のエンジンに載せられ、デコード同士は競合しない。
+
+GeForce RTX 50系のエンジン数は次のとおり（SM は CUDA コア数を128で割った概算）。
+
+```
+GPU            NVENC  NVDEC   SM
+RTX 5090         3      2     170
+RTX 5080(測定)   2      2      84
+RTX 5070 Ti      2      1      70
+RTX 5070         1      1      48
+RTX 5060 Ti      1      1      36
+RTX 5060         1      1      30
+```
+
+RTX 5060 と RTX 5060 Ti は NVDEC が1基しかない。
+2つのデコーダが1基を共有するため、デコード同士がエンジンの取り合いを起こす。
+この制約はネイティブと torchcodec の両方にかかる。
+
+### 飽和がもたらす逆転（付録Aからの含意）
+
+rfdetr が RTX 5080 の SM を飽和させたときの挙動は、弱い GPU で軽い検出器を回したときの近似になる。
+付録Aのとおり、飽和下では torchcodec の SM 競合の解消が効かず、同期実行の符号化が表に出て（112秒）、ネイティブに負けた。
+弱い GPU は同じ負荷でも早く飽和するため、RTX 5060 では lada-yolo のような軽い検出でも rfdetr-on-5080 に近い振る舞いになりうる。
+
+### RTX 5060 系での予測
+
+弱い GPU で torchcodec が勝てるかは、SM の空きと符号化の露出の釣り合いで決まる。
+SM 競合の解消が効くのは、検出が GPU を飽和させていないときに限る（付録Aで実測）。
+RTX 5060 は SM が少なく早く飽和するので、この利得は出にくい。
+さらに NVDEC が1基で2つのデコーダが競合し、同期実行の符号化が SM を奪われて膨らむ。
+これらは torchcodec に不利な方向で重なる。
+
+したがって「デコーダが弱いと恩恵が薄い」という見立ては、方向としては当たっているが、原因はデコーダ単体の性能ではない。
+NVDEC が1基で2つのデコーダが競合し、SM 不足で検出と符号化の釣り合いが崩れることが機序である。
+弱い GPU では、軽い検出でも torchcodec の優位が縮むか消える公算が高いが、最終的な優劣は釣り合い次第で、実測しないと決まらない。
+
+### 予測を実測で確かめる
+
+1. RTX 5060 系の実機で同じ条件を回し、段ごとの時間を比較する。特に torchcodec の符号化時間がデコード検出段を超えるかを見る。
+2. GPU の各エンジンの利用率を取得し（`nvidia-smi dmon` など）、NVDEC が先に飽和するか SM が先かを判定する。
+3. 符号化のスレッド化（付録Aで実装済み）が弱い GPU でどう出るかを見る。RTX 5080 では rfdetr を改善し lada-yolo を回帰させたので、SM が少なく早く飽和する 5060 系では、軽い検出でも回帰側に振れる可能性がある。
+
+出典:
+- [Video Encode and Decode GPU Support Matrix (NVIDIA Developer)](https://developer.nvidia.com/video-encode-decode-gpu-support-matrix)
+- [NVIDIA RTX Blackwell GPU Architecture (PDF)](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)
