@@ -266,6 +266,8 @@ class Pipeline:
         effect_ranges: tuple[tuple[int, int], ...] | None = None,
     ) -> None:
         encode_heartbeat: list[float] = [time.monotonic()]
+        # Read by run_restoration_pass for the "Processing ..." log line.
+        self.encode_backend_name = getattr(encoder_ctx, "backend", "native")
         frame_writer = self._frame_writer(_OfflineFrameWriter(encoder_ctx, encode_heartbeat), metadata)
         try:
             error = run_restoration_pass(

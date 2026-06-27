@@ -107,6 +107,7 @@ def decode_detect_loop(
     output_fps: float | None,
     progress: Progressbar | None,
     video_backend: VideoBackend | str = VideoBackend.NATIVE,
+    encode_backend_name: str = "native",
 ) -> None:
     """Decode, detect and track; ``pipeline`` supplies the detector, tracker settings and VR layout."""
     timer = LoopTimer("decode-detect")
@@ -117,12 +118,13 @@ def decode_detect_loop(
                 progress.init()
             metadata = ctx.metadata
             log.info(
-                "Processing %s: %d frames @ %s fps, %dx%d",
+                "Processing %s: %d frames @ %s fps, %dx%d [decode: %s, encode: %s]",
                 ctx.input_video,
                 metadata.num_frames if output_frame_count is None else output_frame_count,
                 metadata.video_fps if output_fps is None else output_fps,
                 metadata.video_width,
                 metadata.video_height,
+                getattr(reader, "backend", "native"), getattr(pipeline, "encode_backend_name", "native"),
             )
             _detect_batches(
                 ctx, pipeline, reader, timer, end_pts=end_pts, effect_ranges=effect_ranges, progress=progress
@@ -613,6 +615,7 @@ def run_restoration_pass(
     restoration_pipeline = pipeline.restoration_pipeline
     # Preview/HLS/raw-player passes hand in objects without a backend choice: native.
     decode_backend = getattr(pipeline, "decode_backend", VideoBackend.NATIVE)
+    encode_backend_name = getattr(pipeline, "encode_backend_name", "native")
     max_clip_size = pipeline.config.max_clip_size
     secondary_workers = max(1, int(restoration_pipeline.secondary_num_workers))
 

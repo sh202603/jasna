@@ -54,6 +54,8 @@ class TorchcodecUnavailable(RuntimeError):
 
 
 class TorchcodecVideoReader:
+    backend = "torchcodec"
+
     def __init__(self, file: str, batch_size: int, device: torch.device, metadata: VideoMetadata):
         self.file = file
         self.batch_size = int(batch_size)

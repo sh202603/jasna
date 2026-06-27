@@ -749,6 +749,8 @@ class _PyAvFrameSource:
 
 
 class VideoReader:
+    backend = "native"
+
     def __init__(
         self,
         file: str,
