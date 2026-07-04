@@ -400,8 +400,14 @@ def load_sub_engines(
     model_weights_path: str,
     device: torch.device,
     fp16: bool,
-) -> tuple[dict[str, nn.Module], nn.Module, nn.Module] | None:
-    """Returns ``(loop_body_engines, preprocess, upsample)`` or *None*."""
+    load_upsample: bool = True,
+) -> tuple[dict[str, nn.Module], nn.Module, nn.Module | None] | None:
+    """Returns ``(loop_body_engines, preprocess, upsample)`` or *None*.
+
+    With ``load_upsample=False`` the upsample slot is *None* and the TRT
+    engine's load-time VRAM arena is never allocated (used when an alternate
+    upsample backend replaces it); the engine file must still exist on disk.
+    """
     paths = get_sub_engine_paths(model_weights_path, fp16)
     if not all(os.path.isfile(p) for p in paths.values()):
         return None
@@ -414,9 +420,11 @@ def load_sub_engines(
     preprocess_engine = load_torchtrt_export(
         checkpoint_path=paths["preprocess"], device=device,
     )
-    upsample_engine = load_torchtrt_export(
-        checkpoint_path=paths["upsample"], device=device,
-    )
+    upsample_engine = None
+    if load_upsample:
+        upsample_engine = load_torchtrt_export(
+            checkpoint_path=paths["upsample"], device=device,
+        )
     return loop_body_engines, preprocess_engine, upsample_engine
 
 
@@ -467,7 +475,10 @@ class BasicVSRPlusPlusNetSplit(nn.Module):
         if self._upsample_engine is not None:
             engines.append(self._upsample_engine)
         for eng in engines:
-            if hasattr(eng, "close"):
+            release = getattr(eng, "release", None)
+            if callable(release):
+                release()  # non-TRT backend (e.g. CudnnFP8Upsample)
+            elif hasattr(eng, "close"):
                 eng.close()
             else:
                 _release_torchtrt_module(eng)
@@ -765,22 +776,57 @@ class BasicVSRPlusPlusNetSplit(nn.Module):
         return self.upsample(lqs, feats)
 
 
+def _try_create_fp8_upsample(
+    generator: nn.Module,
+    device: torch.device,
+    fp16: bool,
+) -> nn.Module | None:
+    """Experimental cuDNN FP8 upsample backend (JASNA_FP8_RECON=1): ~1.6x
+    faster than the FP16 TRT engine and skips its multi-GB load-time arena.
+    Needs an FP8-capable GPU (sm89+); falls back to TRT on any failure.
+
+    The caller runs the upsample stage in ``UPSAMPLE_BATCH``-sized chunks, so
+    the cuDNN graphs are bucketed up to that fixed batch (not the clip size)."""
+    if os.environ.get("JASNA_FP8_RECON") != "1" or not fp16 or device.type != "cuda":
+        return None
+    try:
+        from jasna.restorer.fp8_upsample import CudnnFP8Upsample
+
+        return CudnnFP8Upsample(generator, device, UPSAMPLE_BATCH)
+    except Exception as e:
+        logger.warning(
+            "JASNA_FP8_RECON=1 but cuDNN FP8 upsample backend failed (%s); "
+            "falling back to TRT upsample engine", e,
+        )
+        return None
+
+
 def create_split_forward(
     model: nn.Module,
     model_weights_path: str,
     device: torch.device,
     fp16: bool,
 ) -> BasicVSRPlusPlusNetSplit | None:
-    result = load_sub_engines(model_weights_path, device, fp16)
+    generator = _get_inference_generator(model)
+    # Built before the TRT engines load so the FP8 warmup/inductor compiles run
+    # before the TRT arenas are allocated.
+    fp8_upsample = _try_create_fp8_upsample(generator, device, fp16)
+    result = load_sub_engines(
+        model_weights_path, device, fp16,
+        load_upsample=fp8_upsample is None,
+    )
     if result is None:
+        if fp8_upsample is not None:
+            fp8_upsample.release()
         return None
     loop_body_engines, preprocess_engine, upsample_engine = result
-    generator = _get_inference_generator(model)
     if _loop_body_cudagraphs_enabled():
         _warmup_capture_loop_body_graphs(
             loop_body_engines, generator.mid_channels, device,
             torch.float16 if fp16 else torch.float32,
         )
+    if fp8_upsample is not None:
+        upsample_engine = fp8_upsample
     split = BasicVSRPlusPlusNetSplit(
         generator, loop_body_engines, preprocess_engine, upsample_engine,
     )

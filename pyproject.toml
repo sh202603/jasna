@@ -27,6 +27,12 @@ dependencies = [
   "ultralytics",
   "onnx",
   "cryptography>=42",
+  # cuDNN graph-API frontend for the experimental FP8 upsample backend
+  # (--fp8-recon / JASNA_FP8_RECON=1). Runtime cuDNN >=9.17 comes with torch cu130.
+  "nvidia-cudnn-frontend",
+  # triton for the FP8 glue's torch.compile on Windows (Linux gets pytorch-triton
+  # via torch). Version tracks torch 2.12's triton (3.7.x).
+  "triton-windows>=3.7,<3.8 ; sys_platform == 'win32'",
 ]
 
 [project.scripts]

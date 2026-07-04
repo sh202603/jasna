@@ -7,6 +7,7 @@ from argparse import Namespace
 import torch
 
 from jasna.benchmark.basicvsrpp_restoration import benchmark_basicvsrpp_restoration
+from jasna.benchmark.fp8_upsample_ab import benchmark_fp8_upsample_ab
 from jasna.benchmark.lada_yolo_detection_speed import benchmark_lada_yolo_detection_speed
 from jasna.benchmark.rfdetr_detection_speed import benchmark_rfdetr_detection_speed
 from jasna.os_utils import check_required_executables, check_supported_gpu
@@ -18,6 +19,7 @@ BENCHMARK_VIDEO_DEFAULTS: list[Path] = [
 
 BENCHMARKS = [
     benchmark_basicvsrpp_restoration,
+    benchmark_fp8_upsample_ab,
     benchmark_rfdetr_detection_speed,
     benchmark_lada_yolo_detection_speed,
 ]
