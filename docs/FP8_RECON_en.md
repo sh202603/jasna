@@ -8,6 +8,7 @@ The default is off, which is exactly the previous behavior.
 
 **Environment**: the usual GPU-only jasna stack plus the `nvidia-cudnn-frontend` dependency (verified with 1.25.0), cuDNN >= 9.17 (satisfied by the 9.20 bundled with torch 2.12.0+cu130), and an FP8-capable GPU (sm89+, i.e. RTX 40 series or newer).
 All numbers in this document were measured on Linux / Python 3.13.14 / torch 2.12.0+cu130 / TensorRT 10.16.1.11 / cuDNN 9.20 / RTX 5080 (sm120, 16GB) / `--max-clip-size 90`.
+Windows is verified as well: on Windows 11 with the same RTX 5080, the same A/B benchmark passes every gate with matching numbers (speedup 1.42-1.56x, PSNR 64.1 dB, SSIM 0.99976, net VRAM saving 1976 MB, bit-deterministic), with the glue compiled through the `triton-windows` wheel. See Limitations for details.
 
 The implementation is a port from the sibling project lada-ex, branch `feat/fp8-recon` (`lada/models/basicvsrpp/fp8_recon.py`, AGPL-3.0).
 The stage lada-ex calls "reconstruction" is the same sub-network as jasna's upsample sub-engine.
@@ -61,7 +62,7 @@ The numerical design carries over the lada-ex validation unchanged.
 - **Manual NHWC pixel shuffle**: torch's native `pixel_shuffle` falls into a slow gather path on channels-last 1-byte tensors, about 4x off the floor. A manual int8-view axis permutation is used instead.
 - **T buckets and tail tiles**: clip length T is rounded up to multiples of 10, with one cuDNN graph set per bucket. The tail (the 5 layers working at 128^2/256^2 after the pixel shuffles) is frame-independent and runs in T=10 tiles, keeping the large buffers tile-sized. This is what holds the FP8 backend's resident VRAM at about 0.2 GB, versus the roughly 2.2 GB arena it replaces.
 - **Shared buffers and the padded path**: buffers are allocated once at the largest bucket and shared across buckets. Non-bucket-exact T is copied into a persistent padding buffer; the tail garbage is discarded by the output slice (no zeroing needed).
-- **torch.compile for the glue**: the entry cast and the pixel shuffle reach the memory-bandwidth floor under inductor. inductor needs triton: pytorch-triton comes with torch on Linux, and Windows uses the `triton-windows` wheel added as a dependency (3.7.x, matching torch 2.12). Without triton the glue switches to eager automatically, and a runtime compile failure also degrades permanently to eager with a warning (warmup exercises both glue paths, so failures surface at load time). The cast is compiled with `dynamic=True` to avoid per-bucket-shape recompiles.
+- **torch.compile for the glue**: the entry cast and the pixel shuffle reach the memory-bandwidth floor under inductor. inductor needs triton: pytorch-triton comes with torch on Linux, and Windows uses the `triton-windows` wheel added as a dependency (3.7.x, matching torch 2.12; verified working on a real Windows box). Without triton the glue switches to eager automatically, and a runtime compile failure also degrades permanently to eager with a warning (warmup exercises both glue paths, so failures surface at load time). The cast is compiled with `dynamic=True` to avoid per-bucket-shape recompiles.
 - **No CUDA graph capture**: measured as ineffective in lada-ex.
 
 ### Making construction failures surface immediately
@@ -104,7 +105,7 @@ There is no GUI toggle yet, but launching with the environment variable set enab
 
 Two debug variables exist:
 
-- `JASNA_FP8_RECON_NOCOMPILE=1`: disable torch.compile for the glue and run it eagerly (always eager on Windows).
+- `JASNA_FP8_RECON_NOCOMPILE=1`: disable torch.compile for the glue and run it eagerly (environments without triton are eager to begin with).
 - `JASNA_FP8_RECON_NOWARM=1`: skip warmup (lazy builds keep everything working).
 
 Activation requires all of: `JASNA_FP8_RECON=1`, fp16 mode (fp32 engine configurations are out of scope), a CUDA device, sm89+, a successful `nvidia-cudnn-frontend` import, and cuDNN actually providing FP8 kernels.
@@ -221,7 +222,7 @@ FP8 costs no determinism at all.
 ## Limitations and caveats
 
 - **The speedup is unverified on sm89 / sm90.** The cuDNN FP8 kernels exist there, but the 1.5x was measured only on sm120 (Blackwell); on Ada / Hopper the advantage over the TensorRT FP16 engine may not hold. The opt-in gate plus automatic fallback keeps this safe.
-- **Windows should work but is unverified in this repository.** The equivalent lada-ex code is verified on Windows (RTX 5060 Ti; with eager glue at the time, giving about 1.3x on the stage). This branch adds the `triton-windows` wheel and enables the compiled glue, but inductor on an actual Windows box is unverified; a compile failure degrades to eager glue automatically. `import cudnn` / triton and DLL resolution inside a frozen build (PyInstaller / Nuitka) remain an open item; if it fails, the TensorRT fallback keeps runs alive.
+- **Verified on Windows.** On Windows 11 with the same RTX 5080, the isolated A/B benchmark passes every gate (speedup 1.42-1.56x, PSNR 64.1 dB / min 63.6, SSIM 0.99976, FP8 resident 232 MB / net saving 1976 MB, bit-deterministic on both paths) and a full 1080p pipeline run with `--fp8-recon` completes normally. The inductor-compiled glue works on a real Windows box through the `triton-windows` wheel (about 20 s on the very first run including the compile, 2-3 s once the cache is warm); a compile failure still degrades to eager glue automatically. `import cudnn` / triton and DLL resolution inside a frozen build (PyInstaller / Nuitka) remain an open item; if it fails, the TensorRT fallback keeps runs alive.
 - **Startup cost grows by about 2 seconds** (about 5 s on the very first run, including the inductor compile). Relatively visible on 60-second-class clips.
 - The `forward` return value is a view of a persistent output buffer, overwritten by the next forward. The single current caller consumes it immediately in the residual addition; new callers must keep this in mind.
 - fp32 engine configurations (without `--fp16`) are out of scope; the FP8 gate never activates there.
