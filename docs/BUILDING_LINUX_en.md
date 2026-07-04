@@ -251,6 +251,8 @@ uv pip install -e .[dev,torchcodec] \
 
 This adds `torchcodec>=0.14.0`. It is **not** needed for a normal build; the default `native` backend works without it. See [TORCHCODEC_BACKEND_en.md](TORCHCODEC_BACKEND_en.md).
 
+**Note: the FP8 restoration backend needs no extra install step.** Its dependency `nvidia-cudnn-frontend` is a regular entry in `pyproject.toml` and is installed by the commands above; the cuDNN runtime (>= 9.17) already ships with the torch cu130 wheel. The feature itself is opt-in at runtime (`--fp8-recon`, FP8-capable GPU sm89+ required) and falls back to the TensorRT engine when unavailable. See [FP8_RECON_en.md](FP8_RECON_en.md).
+
 ### 8.2 ONNX packages (for YOLO detection models)
 
 If you use a **YOLO (lada-yolo-\*) detection model**, ultralytics exports it to ONNX before building the TensorRT engine, which needs three packages that are **not** pulled in automatically. (RF-DETR models do not need these: they parse a prebuilt `.onnx` via TensorRT directly.)
@@ -396,6 +398,9 @@ jasna                        # launches the GUI (no args)
 
 - **RTX Super-Res fails with `IRuntime::deserializeCudaEngine ... Serialization assertion stdVersionRead == kSERIALIZATION_VERSION failed` / `Version tag does not match`**
   The `nvidia-vfx` (nvvfx) package bundles its own TensorRT (10.9) and loads it with `RTLD_GLOBAL`, while jasna's engines are built with TensorRT 10.16 (`tensorrt_libs`). Both share the soname `libnvinfer.so.10`; if nvvfx's loads first, `torch-tensorrt` binds to 10.9 and can't read the 10.16 engines. The fix is already applied on this branch (see Appendix B.2): it pre-loads `tensorrt_libs`' `libnvinfer.so.10` with `RTLD_GLOBAL` before nvvfx is imported, so the 10.16 symbols win.
+
+- **`--fp8-recon` together with RTX Super-Res aborts with `Unable to load any of {libcudnn_graph.so.9.7.1, ...}` / `Cannot load symbol cudnnCreate`**
+  A sibling of the TensorRT clash above: nvvfx prepends its bundled libs dir to `LD_LIBRARY_PATH`, and that dir holds a bare cuDNN 9.7 dispatcher without the sub-libraries it dlopens. `cudnn-frontend` scans `LD_LIBRARY_PATH` first and would pick that crippled copy. The fix is already applied on this branch: `jasna/restorer/fp8_upsample.py` puts torch's complete cuDNN lib dir in front of `LD_LIBRARY_PATH` before `import cudnn`, so the frontend resolves the working dispatcher regardless of construction order.
 
 ---
 
