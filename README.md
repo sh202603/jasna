@@ -53,7 +53,7 @@ jasna --input input.mp4 --output output.mkv --video-backend auto
 jasna --input input.mp4 --output output.mp4 --fp8-recon
 ```
 
-The main benefit is VRAM: the TensorRT upsample engine's load-time arena (~2.2 GB at the default `--max-clip-size 90`) is never allocated, measured as 1.2–1.7 GB lower peak VRAM across 480p–4K clips. The stage itself also runs ~1.5x faster, though end-to-end fps is unchanged because the pipeline is detection-bound. Output stays visually indistinguishable from the FP16 engine and is bit-deterministic across runs. Requires an FP8-capable GPU (sm89+, i.e. RTX 40 series or newer; the speedup is validated on Blackwell only) and fp16 mode; falls back to the TensorRT engine on any failure. Details: [docs/FP8_RECON_en.md](docs/FP8_RECON_en.md).
+The main benefit is VRAM: the TensorRT upsample engine's load-time arena (~2.2 GB at the default `--max-clip-size 90`) is never allocated, measured as 1.2–1.7 GB lower peak VRAM across 480p–4K clips. The stage itself also runs ~1.5x faster, though end-to-end fps is unchanged because the pipeline is detection-bound. Output stays visually indistinguishable from the FP16 engine and is bit-deterministic across runs. Requires an FP8-capable GPU (sm89+, i.e. RTX 40 series or newer; the speedup is validated on Blackwell only) and fp16 mode; falls back to the TensorRT engine on any failure. Verified on both Linux and Windows. Details: [docs/FP8_RECON_en.md](docs/FP8_RECON_en.md).
 
 ## Community
 
