@@ -251,6 +251,8 @@ uv pip install -e .[dev,torchcodec] \
 
 これで `torchcodec>=0.14.0` が入ります。通常のビルドには不要で、既定の `native` バックエンドは torchcodec なしで動作します。詳細は [TORCHCODEC_BACKEND_ja.md](TORCHCODEC_BACKEND_ja.md)。
 
+**補足: FP8 復元バックエンドに追加のインストール手順は不要です。** 依存 `nvidia-cudnn-frontend` は `pyproject.toml` の通常依存で、上記コマンドで一緒に入ります。cuDNN ランタイム（9.17 以上）は torch cu130 wheel に同梱済みです。機能自体は実行時 opt-in（`--fp8-recon`、FP8 対応 GPU sm89 以上が必要）で、使えない環境では TensorRT エンジンにフォールバックします。詳細は [FP8_RECON_ja.md](FP8_RECON_ja.md)。
+
 ### 8.2 ONNX パッケージ（YOLO 検出モデル用）
 
 **YOLO（lada-yolo-\*）検出モデル**を使う場合、ultralytics は TensorRT エンジンをビルドする前にモデルを ONNX へエクスポートします。これには自動では入らない 3 パッケージが必要です。（RF-DETR モデルは不要。事前ビルド済み `.onnx` を TensorRT が直接パースするため）
@@ -396,6 +398,9 @@ jasna                        # GUI を起動（引数なし）
 
 - **RTX Super-Res で `IRuntime::deserializeCudaEngine ... Serialization assertion stdVersionRead == kSERIALIZATION_VERSION failed` / `Version tag does not match`**
   `nvidia-vfx`（nvvfx）パッケージは自前の TensorRT（10.9）を同梱し `RTLD_GLOBAL` で読み込みますが、jasna のエンジンは TensorRT 10.16（`tensorrt_libs`）でビルドされています。両者は soname `libnvinfer.so.10` を共有するため、nvvfx 側が先にロードされると `torch-tensorrt` が 10.9 にバインドされ、10.16 製エンジンを読めません。修正は本ブランチで適用済みです（付録 B.2 参照。nvvfx の import 前に `tensorrt_libs` の `libnvinfer.so.10` を `RTLD_GLOBAL` で先読みして 10.16 のシンボルを優先）。
+
+- **`--fp8-recon` と RTX Super-Res の併用で `Unable to load any of {libcudnn_graph.so.9.7.1, ...}` / `Cannot load symbol cudnnCreate` で中断する**
+  上の TensorRT 衝突の cuDNN 版です。nvvfx は同梱 libs ディレクトリを `LD_LIBRARY_PATH` の先頭に追記しますが、そこにはサブライブラリを持たない cuDNN 9.7 ディスパッチャだけが置かれています。`cudnn-frontend` は `LD_LIBRARY_PATH` を最初に走査するため、この不完全なコピーを掴んでしまいます。修正は本ブランチで適用済みです（`jasna/restorer/fp8_upsample.py` が `import cudnn` の前に torch 同梱の完全な cuDNN の lib ディレクトリを `LD_LIBRARY_PATH` のさらに先頭へ置き、構築順に関係なく正常なディスパッチャへ解決させます）。
 
 ---
 
