@@ -97,7 +97,7 @@ jasna --input input.mp4 --output output.mkv --video-backend auto
 jasna --input input.mp4 --output output.mp4 --fp8-recon
 ```
 
-主な利点は VRAM です。TensorRT upsample エンジンがロード時に確保するアリーナ（既定 `--max-clip-size 90` で約 2.2GB）を確保しなくなり、480p〜4K のクリップで peak VRAM が 1.2〜1.7GB 下がることを実測しています。ステージ単体は約 1.5 倍速くなりますが、パイプラインの律速は検出側なので全体 fps は変わりません。出力は FP16 エンジンと目視で区別できず、走行間でビット決定的です。FP8 対応 GPU（sm89 以上、RTX 40 系以降。速度利得の実測は Blackwell のみ）と fp16 モードが必要で、失敗時は TensorRT エンジンへ自動フォールバックします。詳細: [docs/FP8_RECON_ja.md](docs/FP8_RECON_ja.md)。
+主な利点は VRAM です。TensorRT upsample エンジンがロード時に確保するアリーナ（既定 `--max-clip-size 90` で約 2.2GB）を確保しなくなり、480p〜4K のクリップで peak VRAM が 1.2〜1.7GB 下がることを実測しています。ステージ単体は約 1.5 倍速くなりますが、パイプラインの律速は検出側なので全体 fps は変わりません。出力は FP16 エンジンと目視で区別できず、走行間でビット決定的です。FP8 対応 GPU（sm89 以上、RTX 40 系以降。速度利得の実測は Blackwell のみ）と fp16 モードが必要で、失敗時は TensorRT エンジンへ自動フォールバックします。Linux と Windows の両方で動作確認済みです。詳細: [docs/FP8_RECON_ja.md](docs/FP8_RECON_ja.md)。
 
 ## コミュニティ
 
