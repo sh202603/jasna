@@ -89,6 +89,16 @@ jasna --input input.mp4 --output output.mkv --video-backend auto
 
 `--video-backend {native,auto,torchcodec}`（既定 `native`、つまり従来挙動）: `auto` は torchcodec が使える場面で使い、それ以外はネイティブにフォールバックします。`torchcodec` は強制します。`--decode-backend` / `--encode-backend` でデコード側・エンコード側を個別に上書きできます。torchcodec エンコーダは**8-bit HEVC/AV1**とマッピング可能な NVENC 設定に対応します。**10-bit、フレーム生成、ストリーミング、マッピング不可のエンコーダ設定は常にネイティブにフォールバック**し、色空間メタデータはどちらでも保持されます。オプション依存（cu130 wheel index から `pip install "torchcodec>=0.14.0"`）が必要です。詳細: [docs/TORCHCODEC_BACKEND_ja.md](docs/TORCHCODEC_BACKEND_ja.md)。
 
+### FP8 復元バックエンド（実験的）
+
+`--fp8-recon` は BasicVSR++ の upsample ステージを、TensorRT FP16 サブエンジンの代わりに cuDNN FP8 畳み込みで実行します。
+
+```bash
+jasna --input input.mp4 --output output.mp4 --fp8-recon
+```
+
+主な利点は VRAM です。TensorRT upsample エンジンがロード時に確保するアリーナ（既定 `--max-clip-size 90` で約 2.2GB）を確保しなくなり、480p〜4K のクリップで peak VRAM が 1.2〜1.7GB 下がることを実測しています。ステージ単体は約 1.5 倍速くなりますが、パイプラインの律速は検出側なので全体 fps は変わりません。出力は FP16 エンジンと目視で区別できず、走行間でビット決定的です。FP8 対応 GPU（sm89 以上、RTX 40 系以降。速度利得の実測は Blackwell のみ）と fp16 モードが必要で、失敗時は TensorRT エンジンへ自動フォールバックします。詳細: [docs/FP8_RECON_ja.md](docs/FP8_RECON_ja.md)。
+
 ## コミュニティ
 
 [SLS Discord](https://discord.gg/5R2Rx5nBH) では、復元例、サポート、設定について話せます。あまり変な振る舞いはしないでください。

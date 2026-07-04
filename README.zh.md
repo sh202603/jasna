@@ -80,6 +80,16 @@ jasna --input input.mp4 --output output.mkv --video-backend auto
 
 `--video-backend {native,auto,torchcodec}`（默认 `native`，即原有行为）：`auto` 在适用时使用 torchcodec，否则回退到 native；`torchcodec` 强制使用。`--decode-backend` / `--encode-backend` 可分别覆盖解码侧与编码侧。torchcodec 编码器支持**8-bit HEVC/AV1**及可映射的 NVENC 设置；**10-bit、帧生成、流式传输以及无法映射的编码设置始终回退到 native**，色彩空间元数据在两种情况下都会保留。需要可选依赖（从 cu130 wheel index 执行 `pip install "torchcodec>=0.14.0"`）。详情: [docs/TORCHCODEC_BACKEND_en.md](docs/TORCHCODEC_BACKEND_en.md)。
 
+### FP8 修复后端（实验性）
+
+`--fp8-recon` 用 cuDNN FP8 卷积代替 TensorRT FP16 子引擎来运行 BasicVSR++ 的 upsample 阶段：
+
+```bash
+jasna --input input.mp4 --output output.mp4 --fp8-recon
+```
+
+主要收益在 VRAM：不再分配 TensorRT upsample 引擎加载时的内部工作区（默认 `--max-clip-size 90` 下约 2.2GB），实测 480p 至 4K 片源的 VRAM 峰值降低 1.2–1.7GB。该阶段本身快约 1.5 倍，但流水线瓶颈在检测侧，整体 fps 不变。输出与 FP16 引擎在视觉上无法区分，且多次运行按位一致。需要支持 FP8 的 GPU（sm89 及以上，即 RTX 40 系或更新；加速仅在 Blackwell 上验证）和 fp16 模式；任何失败都会自动回退到 TensorRT 引擎。详情: [docs/FP8_RECON_en.md](docs/FP8_RECON_en.md)。
+
 ## 社区
 
 加入 [SLS Discord](https://discord.gg/5R2Rx5nBH) 查看示例、获取支持，并讨论设置。请不要表现得太奇怪。
