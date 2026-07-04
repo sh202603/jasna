@@ -43,6 +43,16 @@ jasna --input input.mp4 --output output.mkv --video-backend auto
 
 `--video-backend {native,auto,torchcodec}` (default `native`, i.e. unchanged behavior): `auto` uses torchcodec where it applies and falls back to native otherwise; `torchcodec` forces it. `--decode-backend` / `--encode-backend` override each side independently. The torchcodec encoder covers **8-bit HEVC/AV1** with the mappable NVENC settings; **10-bit, frame generation, streaming, and unmappable encoder settings always fall back to native**, and colorspace metadata is preserved either way. Requires the optional dependency (`pip install "torchcodec>=0.14.0"` from the cu130 wheel index). Details: [docs/TORCHCODEC_BACKEND_en.md](docs/TORCHCODEC_BACKEND_en.md).
 
+### FP8 Restoration Backend (experimental)
+
+`--fp8-recon` runs the BasicVSR++ upsample stage as cuDNN FP8 convolutions instead of the TensorRT FP16 sub-engine:
+
+```bash
+jasna --input input.mp4 --output output.mp4 --fp8-recon
+```
+
+The main benefit is VRAM: the TensorRT upsample engine's load-time arena (~2.2 GB at the default `--max-clip-size 90`) is never allocated, measured as 1.2–1.7 GB lower peak VRAM across 480p–4K clips. The stage itself also runs ~1.5x faster, though end-to-end fps is unchanged because the pipeline is detection-bound. Output stays visually indistinguishable from the FP16 engine and is bit-deterministic across runs. Requires an FP8-capable GPU (sm89+, i.e. RTX 40 series or newer; the speedup is validated on Blackwell only) and fp16 mode; falls back to the TensorRT engine on any failure. Details: [docs/FP8_RECON_en.md](docs/FP8_RECON_en.md).
+
 ## Community
 
 Join the [SLS Discord](https://discord.gg/uNwQ4mHqgv) for examples, support, and settings discussion. Please don't be too weird.

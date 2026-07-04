@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -138,6 +139,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         action=argparse.BooleanOptionalAction,
         help=CLI_HELP["compile_basicvsrpp"],
+    )
+    restoration.add_argument(
+        "--fp8-recon",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Experimental: run the BasicVSR++ upsample stage as cuDNN FP8 convolutions "
+             "(~1.6x faster stage, skips the TRT upsample engine's VRAM arena). Requires an "
+             "FP8-capable GPU (sm89+) and --fp16; falls back to the TensorRT engine on any "
+             "failure. (default: %(default)s)",
     )
     restoration.add_argument(
         "--max-clip-size",
@@ -489,6 +499,11 @@ def main() -> None:
         value == "--codec" or value.startswith("--codec=")
         for value in sys.argv[1:]
     )
+
+    if getattr(args, "fp8_recon", False):
+        # Propagated via the environment so it reaches the restorer in every
+        # execution path (pipeline, benchmarks, GUI-launched runs).
+        os.environ["JASNA_FP8_RECON"] = "1"
 
     if args.benchmark:
         from jasna.benchmark import run_benchmark_cli
