@@ -8,6 +8,7 @@ FP8 バックエンドの構築に失敗した場合（非対応 GPU、依存欠
 
 **実行環境**：jasna 本体と同じ GPU 専用スタックに加え、依存 `nvidia-cudnn-frontend`（1.25.0 で検証）、cuDNN 9.17 以上（torch 2.12.0+cu130 同梱の 9.20 で充足）、FP8 対応 GPU（sm89 以上、RTX 40 系以降）を要する。
 本書の数値は Linux / Python 3.13.14 / torch 2.12.0+cu130 / TensorRT 10.16.1.11 / cuDNN 9.20 / RTX 5080 (sm120, 16GB) / `--max-clip-size 90` で計測した。
+Windows でも検証済みで、Windows 11 / 同一 RTX 5080 上で同じ A/B ベンチマークが同等の数値で全ゲートを通過する（速度比 1.42〜1.56 倍、PSNR 64.1 dB、SSIM 0.99976、VRAM 純減 1976 MB、ビット決定的。glue は triton-windows wheel 経由でコンパイル）。詳細は「制限と注意点」を参照。
 
 本実装は姉妹プロジェクト lada-ex の `feat/fp8-recon` ブランチ（`lada/models/basicvsrpp/fp8_recon.py`、AGPL-3.0）からの移植である。
 lada-ex で reconstruction と呼ばれるステージは、jasna の upsample サブエンジンと同一の部分ネットワークを指す。
@@ -62,7 +63,7 @@ TensorRT upsample エンジンはフォールバック先として引き続き�
 - **手動 NHWC pixel shuffle**：torch ネイティブの `pixel_shuffle` は channels-last の 1 バイトテンソルで遅い gather 経路に落ち、約 4 倍遅い。int8 ビューでの軸入れ替えによる手動実装を使う。
 - **T バケットと尾部タイル**：クリップ長 T は 10 の倍数に切り上げてバケット化し、バケットごとに cuDNN graph を持つ。尾部（pixel shuffle 以降の 128²/256² を扱う 5 層）はフレーム独立なので T=10 のタイルで回し、大きなバッファをタイルサイズに抑える。これが FP8 バックエンドの常駐 VRAM を約 0.2GB に保つ仕組みで、置き換える約 2.2GB のアリーナとの差の源泉である。
 - **共有バッファとパディング経路**：バッファは最大バケットで一度だけ確保して全バケットで共有する。バケット非整合の T は永続パディングバッファへコピーして流し、末尾の計算結果は出力スライスで捨てる（ゼロ化は不要）。
-- **glue の torch.compile**：入口キャストと pixel shuffle は inductor でメモリ帯域の下限に達する。inductor には triton が必要で、Linux は torch 同梱の pytorch-triton、Windows は依存に加えた triton-windows wheel（torch 2.12 に合わせて 3.7 系）を使う。triton が無い環境では eager に自動で切り替わり、コンパイルが実行時に失敗した場合も警告を出して eager へ恒久降格する（warmup が両 glue 経路を踏むため、失敗は起動時に顕在化する）。キャストは `dynamic=True` でコンパイルし、バケット形状ごとの再コンパイルを避ける。
+- **glue の torch.compile**：入口キャストと pixel shuffle は inductor でメモリ帯域の下限に達する。inductor には triton が必要で、Linux は torch 同梱の pytorch-triton、Windows は依存に加えた triton-windows wheel（torch 2.12 に合わせて 3.7 系。Windows 実機で動作確認済み）を使う。triton が無い環境では eager に自動で切り替わり、コンパイルが実行時に失敗した場合も警告を出して eager へ恒久降格する（warmup が両 glue 経路を踏むため、失敗は起動時に顕在化する）。キャストは `dynamic=True` でコンパイルし、バケット形状ごとの再コンパイルを避ける。
 - **CUDA graph capture は使わない**：lada-ex で効果がないことを実測済みである。
 
 ### 構築の失敗を即時に顕在化させる設計
@@ -105,7 +106,7 @@ GUI にトグルはまだ無いが、環境変数を設定して起動すれば�
 
 デバッグ用の環境変数が二つある。
 
-- `JASNA_FP8_RECON_NOCOMPILE=1`：glue の torch.compile を無効化して eager で動かす（Windows では常に eager）。
+- `JASNA_FP8_RECON_NOCOMPILE=1`：glue の torch.compile を無効化して eager で動かす（triton の無い環境は元から eager）。
 - `JASNA_FP8_RECON_NOWARM=1`：warmup をスキップする（遅延ビルドで動作は継続する）。
 
 有効化の条件は、`JASNA_FP8_RECON=1`、fp16 モード（fp32 エンジン構成は対象外）、CUDA デバイス、sm89 以上、`nvidia-cudnn-frontend` の import 成功、cuDNN の FP8 カーネル提供、のすべてである。
@@ -224,7 +225,7 @@ FP8 化は決定性を一切損なわない。
 ## 制限と注意点
 
 - **sm89 / sm90 では速度利得が未検証**である。cuDNN の FP8 カーネル自体は存在するが、1.5 倍の実測は sm120（Blackwell）のみで得ており、Ada / Hopper では TensorRT FP16 エンジンに対する優位が成立しない可能性がある。opt-in と自動フォールバックで安全側に倒してある。
-- **Windows は動作見込みだが本リポジトリでは未検証**である。lada-ex 側では同等コードが RTX 5060 Ti で動作確認済み（当時は glue が eager でステージ利得は 1.3 倍前後）。本ブランチは triton-windows wheel を依存に加えて glue の compile を有効化しているが、Windows 実機での inductor 動作は未検証で、失敗時は eager glue へ自動降格する。frozen build（PyInstaller / Nuitka）での `import cudnn` / triton と DLL 解決は未検証の開放事項で、失敗しても TensorRT フォールバックで実走は継続する。
+- **Windows でも動作確認済み**である。Windows 11 / 同一 RTX 5080 上で、ステージ単体 A/B の全ゲート通過（速度比 1.42〜1.56 倍、PSNR 64.1 dB / min 63.6、SSIM 0.99976、FP8 常駐 232 MB / 純減 1976 MB、両経路ともビット決定的）と、`--fp8-recon` 付き 1080p フルパイプライン走行の正常完了を確認した。triton-windows wheel 経由の inductor コンパイルも実機で動作する（初回はコンパイル込みで約 20 秒、キャッシュ後は 2〜3 秒。コンパイル失敗時は従来どおり eager glue へ自動降格）。frozen build（PyInstaller / Nuitka）での `import cudnn` / triton と DLL 解決は引き続き未検証の開放事項で、失敗しても TensorRT フォールバックで実走は継続する。
 - **起動コストが約 2 秒増える**（初回のみ inductor コンパイル込みで約 5 秒）。60 秒級の短尺クリップでは相対的に目立つ。
 - `forward` の戻り値は永続出力バッファのビューであり、次の forward で上書きされる。現在の唯一の呼び出し側は直後の残差加算で消費するため問題ないが、新しい呼び出し側を書く場合は注意を要する。
 - fp32 エンジン構成（`--fp16` 無効）は対象外で、FP8 ゲートは成立しない。

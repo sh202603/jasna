@@ -349,7 +349,7 @@ uv pip install -e .[dev,torchcodec] `
 
 This adds `torchcodec>=0.14.0`. It is **not** needed for a normal build; the default `native` backend works without it. See [TORCHCODEC_BACKEND_en.md](TORCHCODEC_BACKEND_en.md).
 
-**Note: the FP8 restoration backend needs no extra install step.** Its dependencies `nvidia-cudnn-frontend` and (on Windows) `triton-windows` are regular entries in `pyproject.toml` and are installed by the commands above; the cuDNN runtime (>= 9.17) already ships with the torch cu130 wheel. The feature is opt-in at runtime (`--fp8-recon`, FP8-capable GPU sm89+ required) and falls back to the TensorRT engine when unavailable. The compute-glue compiles through triton-windows; if inductor fails on a given setup, the glue degrades to eager with a warning. The sibling lada-ex implementation is verified on Windows (with eager glue), but this branch has only been measured on Linux. See [FP8_RECON_en.md](FP8_RECON_en.md).
+**Note: the FP8 restoration backend needs no extra install step.** Its dependencies `nvidia-cudnn-frontend` and (on Windows) `triton-windows` are regular entries in `pyproject.toml` and are installed by the commands above; the cuDNN runtime (>= 9.17) already ships with the torch cu130 wheel. The feature is opt-in at runtime (`--fp8-recon`, FP8-capable GPU sm89+ required) and falls back to the TensorRT engine when unavailable. The compute-glue compiles through triton-windows; if inductor fails on a given setup, the glue degrades to eager with a warning. Verified on Windows: the A/B benchmark passes every gate and a full pipeline run completes on a real Windows 11 box (RTX 5080), with the triton-windows compiled glue working. See [FP8_RECON_en.md](FP8_RECON_en.md).
 
 Smoke test:
 
