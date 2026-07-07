@@ -473,15 +473,24 @@ class Processor:
 
         from jasna.framegen import MULTIPLIER_CHOICES
         frame_gen_multiplier = MULTIPLIER_CHOICES.get(str(settings.frame_gen).lower(), 1)
+        if frame_gen_multiplier > 1 and segments:
+            # Smart rendering splices copied spans at the source frame rate;
+            # frame generation would change the rendered spans' rate, so it is
+            # skipped for segment jobs (matches the CLI guard).
+            self._log("WARNING", "Frame generation is skipped for segment jobs (incompatible with smart rendering)")
+            frame_gen_multiplier = 1
         frame_generator = None
         if frame_gen_multiplier > 1:
             from jasna.framegen import build_frame_generator
+            fg_model_path = str(getattr(settings, "frame_gen_model_path", "") or "").strip() or None
             frame_generator = build_frame_generator(
                 str(settings.frame_gen_backend).lower(),
                 device=s.device,
+                model_path=fg_model_path,
                 fp16=settings.fp16_mode,
             )
-
+        from jasna.media.backend import VideoBackend
+        video_backend = VideoBackend(str(getattr(settings, "video_backend", "native") or "native").lower())
         pipeline = None
         try:
             pipeline = build_job_pipeline(
@@ -493,6 +502,8 @@ class Processor:
                 progress_callback=progress_callback,
                 frame_gen_multiplier=frame_gen_multiplier,
                 frame_generator=frame_generator,
+                decode_backend=video_backend,
+                encode_backend=video_backend,
             )
             self._current_pipeline = pipeline
             if self._stop_event.is_set():
