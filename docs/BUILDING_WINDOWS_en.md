@@ -6,7 +6,7 @@ How to set up the Jasna build dependencies on Windows and run jasna **from sourc
 >
 > **New on this branch:** AV1 output, 8-bit (NV12) output, and BT.601/BT.2020 colorspace preservation (see [CODECS_AND_COLORSPACE_en.md](CODECS_AND_COLORSPACE_en.md)); and 2x/4x frame generation via RIFE (see [FRAME_GENERATION_en.md](FRAME_GENERATION_en.md)).
 
-> **Packaging note:** This public fork builds the native GPU dependencies and runs jasna **from source**. It does **not** ship Nuitka packaging tooling to produce a frozen/packaged binary: that tooling is private (the same arrangement as upstream). If you want a pre-packaged binary instead of running from source, use upstream Kruk2/jasna's official releases. See [Packaging / frozen builds](#10-packaging--frozen-builds).
+> **Packaging note:** This fork ships its own **experimental** Nuitka-based build script (`scripts\build_nuitka.py`) that produces a standalone frozen distribution with a single `jasna.exe` — see [FROZEN_BUILD_en.md](FROZEN_BUILD_en.md). It is independent of upstream's private packaging tooling. Overview: [Packaging / frozen builds](#10-packaging--frozen-builds).
 
 ---
 
@@ -430,9 +430,9 @@ Running **from source** picks up `model_weights\rife.pth` automatically (same re
 
 ## 10. Packaging / frozen builds
 
-There is currently **no public way to produce a packaged/frozen binary from this fork.** Upstream switched its build from PyInstaller to **Nuitka**, but it does not publish any Nuitka build script or instructions; the actual packaging tooling lives in a **private submodule (`jasna/protection`)** that is not part of this public fork. The fork's old PyInstaller build scripts (`build_exe.py`, `jasna.spec`) have been **removed**.
+This fork ships its own **experimental** Nuitka-based build script: from the venv, `python scripts\build_nuitka.py` produces a standalone frozen distribution at `dist_nuitka\jasna\` with a single `jasna.exe` (arguments -> CLI, no arguments -> GUI). Prerequisites, the build procedure, the resulting layout and troubleshooting are documented in [FROZEN_BUILD_en.md](FROZEN_BUILD_en.md).
 
-The supported public path is therefore to **run jasna from source** (Section 11). If you need a pre-packaged binary, use upstream Kruk2/jasna's official releases.
+Upstream's own packaging tooling (also Nuitka-based) lives in a **private submodule (`jasna/protection`)** and is not part of this fork; features gated on that submodule (`unet-4x`, SD1.5 inpaint, license activation) therefore do not work in this fork's frozen build either. The old PyInstaller scripts (`build_exe.py`, `jasna.spec`) remain removed.
 
 ---
 
