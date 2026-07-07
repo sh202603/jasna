@@ -143,9 +143,16 @@ def build_pipeline(
     splice_plan: "SplicePlan | None" = None,
     frame_gen_multiplier: int = 1,
     frame_generator=None,
+    decode_backend=None,
+    encode_backend=None,
 ) -> "Pipeline":
     from jasna.pipeline import Pipeline
+    from jasna.media.backend import VideoBackend
 
+    if decode_backend is None:
+        decode_backend = VideoBackend.NATIVE
+    if encode_backend is None:
+        encode_backend = VideoBackend.NATIVE
     return Pipeline(
         input_video=input_video,
         output_video=output_video,
@@ -177,4 +184,6 @@ def build_pipeline(
         working_dir=config.working_dir,
         frame_gen_multiplier=frame_gen_multiplier,
         frame_generator=frame_generator,
+        decode_backend=decode_backend,
+        encode_backend=encode_backend,
     )

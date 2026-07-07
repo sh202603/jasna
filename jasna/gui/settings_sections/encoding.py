@@ -196,6 +196,49 @@ class EncodingSection:
         self._widgets["frame_gen_backend"].pack(side="right", padx=(0, 8))
         self._widgets["frame_gen_backend"].set("RIFE")
 
+        # Frame gen model path (optional RIFE weights; empty = model_weights/rife.pth)
+        fg_model_row = ctk.CTkFrame(inner, fg_color="transparent")
+        fg_model_row.pack(fill="x", pady=(0, Sizing.PADDING_SMALL))
+        fg_model_label = ctk.CTkLabel(fg_model_row, text=t("frame_gen_model_path"), text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_NORMAL))
+        fg_model_label.pack(side="left")
+        fg_model_tip = ctk.CTkLabel(fg_model_row, text="ⓘ", text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_TINY), cursor="hand2")
+        fg_model_tip.pack(side="left", padx=4)
+        Tooltip(fg_model_tip, get_tooltip("frame_gen_model_path"))
+
+        fg_model_input_row = ctk.CTkFrame(inner, fg_color="transparent")
+        fg_model_input_row.pack(fill="x", pady=(0, Sizing.PADDING_SMALL))
+        self._widgets["frame_gen_model_path"] = ctk.CTkEntry(
+            fg_model_input_row, fg_color=Colors.BG_CARD, border_color=Colors.BORDER,
+            text_color=Colors.TEXT_PRIMARY, placeholder_text=t("frame_gen_model_path_placeholder"),
+        )
+        self._widgets["frame_gen_model_path"].pack(side="left", fill="x", expand=True, padx=(0, 4))
+
+        fg_model_browse_btn = ctk.CTkButton(
+            fg_model_input_row, text="📂", width=32, height=28,
+            fg_color=Colors.BG_CARD, hover_color=Colors.BORDER_LIGHT, text_color=Colors.TEXT_PRIMARY,
+            command=self._browse_frame_gen_model,
+        )
+        fg_model_browse_btn.pack(side="right")
+
+        # Video backend (decode/encode; experimental torchcodec)
+        row_backend = ctk.CTkFrame(inner, fg_color="transparent")
+        row_backend.pack(fill="x", pady=(0, Sizing.PADDING_SMALL))
+
+        backend_label = ctk.CTkLabel(row_backend, text=t("video_backend"), text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_NORMAL))
+        backend_label.pack(side="left")
+        backend_tip = ctk.CTkLabel(row_backend, text="ⓘ", text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_TINY), cursor="hand2")
+        backend_tip.pack(side="left", padx=4)
+        Tooltip(backend_tip, get_tooltip("video_backend"))
+        self._widgets["video_backend"] = ctk.CTkOptionMenu(
+            row_backend, values=["Native", "Auto", "TorchCodec"],
+            fg_color=Colors.BG_CARD, button_color=Colors.BG_CARD,
+            button_hover_color=Colors.BORDER_LIGHT, dropdown_fg_color=Colors.BG_CARD,
+            text_color=Colors.TEXT_PRIMARY, width=110,
+            command=lambda v: self._on_modified()
+        )
+        self._widgets["video_backend"].pack(side="right")
+        self._widgets["video_backend"].set("Native")
+
         # Custom args
         row3 = ctk.CTkFrame(inner, fg_color="transparent")
         row3.pack(fill="x")
@@ -292,6 +335,16 @@ class EncodingSection:
             self._widgets["lut_path"].delete(0, "end")
             self._widgets["lut_path"].insert(0, filepath)
 
+    def _browse_frame_gen_model(self):
+        filepath = filedialog.askopenfilename(
+            title=t("dialog_select_frame_gen_model"),
+            filetypes=[("PyTorch checkpoint", "*.pth *.pt"), ("All files", "*.*")],
+        )
+        if filepath:
+            self._widgets["frame_gen_model_path"].delete(0, "end")
+            self._widgets["frame_gen_model_path"].insert(0, filepath)
+            self._on_modified()
+
     def _browse_working_directory(self):
         directory = filedialog.askdirectory(title=t("dialog_select_working_directory"))
         if directory:
@@ -340,6 +393,10 @@ class EncodingSection:
         _fg = getattr(preset, "frame_gen", "none").lower()
         self._widgets["frame_gen"].set("Off" if _fg == "none" else _fg)
         self._widgets["frame_gen_backend"].set(getattr(preset, "frame_gen_backend", "rife").upper())
+        self._widgets["frame_gen_model_path"].delete(0, "end")
+        self._widgets["frame_gen_model_path"].insert(0, getattr(preset, "frame_gen_model_path", "") or "")
+        _backend_display = {"native": "Native", "auto": "Auto", "torchcodec": "TorchCodec"}
+        self._widgets["video_backend"].set(_backend_display.get(getattr(preset, "video_backend", "native").lower(), "Native"))
 
         self._widgets["lut_path"].delete(0, "end")
         self._widgets["lut_path"].insert(0, preset.lut_path or "")
@@ -357,6 +414,8 @@ class EncodingSection:
             "fmp4": self._widgets["fmp4"].get() == 1,
             "frame_gen": ("none" if self._widgets["frame_gen"].get() == "Off" else self._widgets["frame_gen"].get().lower()),
             "frame_gen_backend": self._widgets["frame_gen_backend"].get().lower(),
+            "frame_gen_model_path": self._widgets["frame_gen_model_path"].get().strip(),
+            "video_backend": self._widgets["video_backend"].get().lower(),
             "lut_path": self._widgets["lut_path"].get().strip(),
             "working_directory": self._widgets["working_directory"].get().strip(),
         }
