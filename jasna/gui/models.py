@@ -154,6 +154,7 @@ class AppSettings:
     min_detection_duration: int = 2
     scene_detection: bool = True
     compile_basicvsrpp: bool = True
+    fp8_recon: bool = False  # experimental cuDNN FP8 upsample (needs sm89+ and fp16; falls back to TRT)
     
     # Image restoration (SD 1.5 inpaint; used only for still-image inputs)
     image_restore_steps: int = 25
@@ -172,6 +173,8 @@ class AppSettings:
     fmp4: bool = False
     frame_gen: str = "none"  # none, 2x, 4x (frame-rate up-conversion, file-output only)
     frame_gen_backend: str = "rife"  # rife, rtx (rtx pending nvidia-vfx release)
+    frame_gen_model_path: str = ""  # optional RIFE weights; empty = <model_weights>/rife.pth
+    video_backend: str = "native"  # native, auto, torchcodec (experimental)
 
     # Post-export action
     post_export_action: str = "none"  # none, shutdown, command
