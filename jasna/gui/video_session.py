@@ -9,6 +9,7 @@ segment-editor restoration preview, plus the still-image session.
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Mapping
 
+import os
 from jasna.gui.models import AppSettings
 from jasna.session_config import SessionConfig
 from jasna.session_factory import RestorationSession
@@ -25,6 +26,7 @@ def video_session_key(settings: AppSettings) -> tuple:
         settings.fp16_mode,
         settings.max_clip_size,
         settings.compile_basicvsrpp,
+        getattr(settings, "fp8_recon", False),
         settings.denoise_strength,
         settings.denoise_step,
         settings.secondary_restoration,
@@ -125,6 +127,15 @@ def build_video_session(
     from jasna.engine_paths import unet4x_plaintext_available
     from jasna.gui.activation_worker import read_license_info
     from jasna.gui.locales import t
+
+    # The FP8 upsample backend is selected via the environment at restorer
+    # construction time (same bridge --fp8-recon uses), so set it before the
+    # engines/restorer are built. Cleared when the setting is off so a previous
+    # run's value does not leak into this session.
+    if getattr(settings, "fp8_recon", False):
+        os.environ["JASNA_FP8_RECON"] = "1"
+    else:
+        os.environ.pop("JASNA_FP8_RECON", None)
 
     config = video_session_config(settings, codec=settings.codec, encoder_settings={})
     encrypted = config.secondary_restoration == "unet-4x" and not unet4x_plaintext_available()
