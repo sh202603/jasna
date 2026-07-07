@@ -6,7 +6,7 @@ Windows で Jasna のビルド依存をセットアップし、**ソースから
 >
 > **このブランチの新機能:** AV1 出力 / 8bit(NV12) 出力 / BT.601 と BT.2020 の色空間保持（[CODECS_AND_COLORSPACE_ja.md](CODECS_AND_COLORSPACE_ja.md) 参照）、および RIFE による 2x/4x フレーム生成（[FRAME_GENERATION_ja.md](FRAME_GENERATION_ja.md) 参照）。
 
-> **パッケージングについて:** この公開フォークはネイティブ GPU 依存をビルドし、Jasna を**ソースから実行**します。frozen/パッケージ化されたバイナリを生成する **Nuitka のパッケージングツールは同梱していません**。そのツールは upstream と同様に**プライベート**です。ソース実行ではなくパッケージ済みバイナリが欲しい場合は upstream Kruk2/jasna の公式リリースを使ってください。詳細は [パッケージング / frozen ビルド](#10-パッケージング--frozen-ビルド)。
+> **パッケージングについて:** このフォークは独自の Nuitka ビルドスクリプト（`scripts\build_nuitka.py`、**実験的機能**）を同梱しており、単一の `jasna.exe` から成るスタンドアロンの凍結配布物を生成できます（[FROZEN_BUILD_ja.md](FROZEN_BUILD_ja.md) 参照）。upstream の非公開パッケージングツールには依存しません。概要は [パッケージング / frozen ビルド](#10-パッケージング--frozen-ビルド)。
 
 ---
 
@@ -430,9 +430,9 @@ uv pip install onnx onnxslim onnxruntime
 
 ## 10. パッケージング / frozen ビルド
 
-現時点で、このフォークから **パッケージ化された frozen バイナリを生成する公開手段はありません。** upstream はビルドを PyInstaller から **Nuitka** へ切り替えましたが、Nuitka のビルドスクリプトや手順は公開しておらず、実際のパッケージングツールは **プライベートな submodule（`jasna/protection`）** にあり、この公開フォークには含まれません。フォーク側の旧 PyInstaller ビルドスクリプト（`build_exe.py`, `jasna.spec`）は **削除済み** です。
+このフォークは独自の Nuitka ビルドスクリプトを同梱しています（実験的機能）。venv から `python scripts\build_nuitka.py` を実行すると、単一の `jasna.exe`（引数あり → CLI、引数なし → GUI）から成るスタンドアロンの凍結配布物が `dist_nuitka\jasna\` に生成されます。前提条件、ビルド手順、配布物のレイアウト、トラブルシューティングは [FROZEN_BUILD_ja.md](FROZEN_BUILD_ja.md) を参照してください。
 
-したがって公開でサポートされる経路は **ソースから実行**（11節）です。パッケージ済みバイナリが必要なら upstream Kruk2/jasna の公式リリースを使ってください。
+upstream 自身のパッケージングツール（同じく Nuitka ベース）は **プライベートな submodule（`jasna/protection`）** にあり、このフォークには含まれません。そのため、この submodule に依存する機能（`unet-4x`、SD1.5 inpaint、ライセンス認証）は、このフォークの凍結ビルドでも動きません。旧 PyInstaller ビルドスクリプト（`build_exe.py`, `jasna.spec`）は削除されたままです。
 
 ---
 
