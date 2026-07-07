@@ -128,6 +128,25 @@ class BasicSection:
         self._widgets["compile_basicvsrpp"].pack(side="right", padx=12, pady=8)
         self._widgets["compile_basicvsrpp"].select()
 
+        # FP8 restoration toggle (experimental cuDNN FP8 upsample backend)
+        row_fp8 = ctk.CTkFrame(inner, fg_color="transparent")
+        row_fp8.pack(fill="x", pady=(0, Sizing.PADDING_SMALL))
+
+        fp8_frame = ctk.CTkFrame(row_fp8, fg_color=Colors.BG_CARD, corner_radius=6)
+        fp8_frame.pack(fill="x")
+        fp8_label = ctk.CTkLabel(fp8_frame, text=t("fp8_recon"), text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_NORMAL))
+        fp8_label.pack(side="left", padx=12, pady=8)
+        fp8_tip = ctk.CTkLabel(fp8_frame, text="ⓘ", text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_TINY), cursor="hand2")
+        fp8_tip.pack(side="left")
+        Tooltip(fp8_tip, get_tooltip("fp8_recon"))
+        self._widgets["fp8_recon"] = create_compact_switch(
+            fp8_frame,
+            self._on_modified,
+            Colors.BG_CARD,
+        )
+        self._widgets["fp8_recon"].pack(side="right", padx=12, pady=8)
+        self._widgets["fp8_recon"].deselect()
+
         # File Conflict dropdown
         row5 = ctk.CTkFrame(inner, fg_color="transparent")
         row5.pack(fill="x", pady=(Sizing.PADDING_SMALL, 0))
@@ -187,6 +206,11 @@ class BasicSection:
         else:
             self._widgets["compile_basicvsrpp"].deselect()
 
+        if getattr(preset, "fp8_recon", False):
+            self._widgets["fp8_recon"].select()
+        else:
+            self._widgets["fp8_recon"].deselect()
+
         det_model = preset.detection_model
         det_threshold = preset.detection_score_threshold
         if det_model not in self._widgets["detection_model"].cget("values"):
@@ -207,5 +231,6 @@ class BasicSection:
             "detection_model": self._widgets["detection_model"].get(),
             "detection_score_threshold": float(self._widgets["detection_score_threshold"].get()),
             "compile_basicvsrpp": self._widgets["compile_basicvsrpp"].get() == 1,
+            "fp8_recon": self._widgets["fp8_recon"].get() == 1,
             "file_conflict": self._widgets["file_conflict"].get_value(),
         }
