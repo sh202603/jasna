@@ -90,6 +90,16 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 
 主要收益在 VRAM：不再分配 TensorRT upsample 引擎加载时的内部工作区（默认 `--max-clip-size 90` 下约 2.2GB），实测 480p 至 4K 片源的 VRAM 峰值降低 1.2–1.7GB。该阶段本身快约 1.5 倍，但流水线瓶颈在检测侧，整体 fps 不变。输出与 FP16 引擎在视觉上无法区分，且多次运行按位一致。需要支持 FP8 的 GPU（sm89 及以上，即 RTX 40 系或更新；加速仅在 Blackwell 上验证）和 fp16 模式；任何失败都会自动回退到 TensorRT 引擎。已在 Linux 和 Windows 上验证。详情: [docs/FP8_RECON_en.md](docs/FP8_RECON_en.md)。
 
+### FlashVSR 二级修复（离线，实验性）
+
+`--secondary-restoration flashvsr` 用 [FlashVSR](https://github.com/OpenImagingLab/FlashVSR) 扩散 VSR 将修复后的 256px 马赛克裁剪块放大到 1024px（4x），补回一级模型在大面积马赛克、特写和 4K 上留下的模糊纹理:
+
+```bash
+jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvsr-repo ~/FlashVSR_plus
+```
+
+FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存。它以**峰值 VRAM 在时间上互不重叠的三个子进程**运行:(1) 一级修复 → 将裁剪块序列化到磁盘 *bundle*，(2) 在其专用 venv 中执行 FlashVSR 4x，(3) 重新混合并编码最终输出。你需自备 `FlashVSR_plus` 检出、其 v1.1 权重以及一个 **uv 托管的独立 Python venv**（系统 Python 无法 JIT 编译 FlashVSR 的 Triton 注意力内核）。仅文件输出；不兼容 `--stream` / `--frame-gen`。详情: [docs/FLASHVSR_en.md](docs/FLASHVSR_en.md)。
+
 ## 社区
 
 加入 [SLS Discord](https://discord.gg/5R2Rx5nBH) 查看示例、获取支持，并讨论设置。请不要表现得太奇怪。
@@ -185,6 +195,7 @@ Jasna 和 Lada 会修复每个马赛克区域的 256x256 裁切图。因此，�
 - **unet-4x**: 支持者模型。当前测试中比 TVAI 更快，质量相近。它在 JAV 领域数据集上训练，视觉效果接近 TVAI `iris-2`。可以查看 [unet-4x / 二级修复示例（SLS Discord）](https://discord.com/channels/1196376491815092265/1199059436199759943/1516497879684874260)。使用支持者密钥解锁；见[支持本项目](#支持本项目)。如果遇到质量问题，请提交 [GitHub issue](https://github.com/Kruk2/jasna/issues)。
 - **RTX Super Resolution**: 非常快、免费、没有额外依赖。质量尚可。部分视频可能会闪烁，请先用短片段测试。
 - **TVAI**: 当前测试中质量优于 RTX Super Resolution，并与 unet-4x 接近，但非常慢。需要 [Topaz Video](https://www.topazlabs.com/topaz-video)，这是付费软件且仅支持 Windows。推荐模型: `iris-2`。
+- **FlashVSR**（`+modi`，离线，实验性）: 扩散 4x 放大器，能恢复较强的纹理细节，以离线三阶段方式运行，使其 12–16GB VRAM 不与一级流水线冲突。需自备 `FlashVSR_plus` 检出与 uv 托管的 venv。仅文件输出。见 [docs/FLASHVSR_en.md](docs/FLASHVSR_en.md)。
 
 CLI 选项:
 

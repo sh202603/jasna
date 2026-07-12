@@ -99,6 +99,16 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 
 The main benefit is VRAM: the TensorRT upsample engine's load-time arena (~2.2 GB at the default `--max-clip-size 90`) is never allocated, measured as 1.2–1.7 GB lower peak VRAM across 480p–4K clips. The stage itself also runs ~1.5x faster, though end-to-end fps is unchanged because the pipeline is detection-bound. Output stays visually indistinguishable from the FP16 engine and is bit-deterministic across runs. Requires an FP8-capable GPU (sm89+, i.e. RTX 40 series or newer; the speedup is validated on Blackwell only) and fp16 mode; falls back to the TensorRT engine on any failure. Verified on both Linux and Windows. Details: [docs/FP8_RECON_en.md](docs/FP8_RECON_en.md).
 
+### FlashVSR secondary restoration (offline, experimental)
+
+`--secondary-restoration flashvsr` upscales each restored 256px mosaic crop to 1024px (4x) with [FlashVSR](https://github.com/OpenImagingLab/FlashVSR) diffusion VSR, recovering texture the primary model leaves blurry on large mosaics, close-ups, and 4K:
+
+```bash
+jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvsr-repo ~/FlashVSR_plus
+```
+
+FlashVSR peaks at 12–16 GB VRAM on its own, so it cannot co-reside with the ~9 GB primary pipeline. It runs **offline in three subprocesses whose peak VRAM never overlaps**: (1) primary restoration → serialize crops to a disk *bundle*, (2) FlashVSR 4x under its own venv, (3) re-blend + encode the final output. You supply the `FlashVSR_plus` checkout, its v1.1 weights, and a **uv-managed standalone Python venv** (system Python can't JIT FlashVSR's Triton attention kernel). File-output only; not compatible with `--stream` / `--frame-gen`. Details: [docs/FLASHVSR_en.md](docs/FLASHVSR_en.md).
+
 ## Community
 
 Join the [SLS Discord](https://discord.gg/5R2Rx5nBH) for examples, support, and settings discussion. Please don't be too weird.
@@ -194,6 +204,7 @@ Supported secondary models:
 - **unet-4x**: supporter model. Faster than TVAI with similar quality in current testing. Trained on an in-domain JAV dataset and visually close to TVAI `iris-2`. See [unet-4x / secondary restoration examples on SLS Discord](https://discord.com/channels/1196376491815092265/1199059436199759943/1516497879684874260). Unlock it with a supporter key; see [Supporting the project](#supporting-the-project). If you hit quality problems, open a [GitHub issue](https://github.com/Kruk2/jasna/issues).
 - **RTX Super Resolution**: very fast, free, and has no extra dependencies. Quality is okay. Some videos may flicker, so test on a short clip first.
 - **TVAI**: better than RTX Super Resolution and comparable to unet-4x in current testing, but very slow. Requires [Topaz Video](https://www.topazlabs.com/topaz-video), which is paid and Windows-only. Recommended model: `iris-2`.
+- **FlashVSR** (`+modi`, offline, experimental): diffusion 4x upscaler that recovers strong texture detail, run as an offline 3-phase pass so its 12–16 GB VRAM never collides with the primary pipeline. Needs a `FlashVSR_plus` checkout + a uv-managed venv you supply. File-output only. See [docs/FLASHVSR_en.md](docs/FLASHVSR_en.md).
 
 CLI option:
 
