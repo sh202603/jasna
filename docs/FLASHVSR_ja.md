@@ -1,0 +1,176 @@
+# FlashVSR オフライン二次復元(`+modi`)
+
+`--secondary-restoration flashvsr` は、一次復元された 256px のモザイククロップを
+[FlashVSR](https://github.com/OpenImagingLab/FlashVSR)(one-step streaming
+diffusion VSR。jasna は
+[`lihaoyun6/FlashVSR_plus`](https://github.com/lihaoyun6/FlashVSR_plus) fork を使用)
+で 1024px(4x)へ拡大し、一次の BasicVSR++ では大きなモザイク領域・接写・4K
+素材でぼやけがちなテクスチャの写実性を補う。
+
+他の二次復元(unet-4x / RTX Super-Res / TVAI)と違い、FlashVSR はストリーミング
+パイプラインに inline で挟むのではなく、**オフラインで 3 つの独立プロセス**として
+走る。FlashVSR は**単体で 12–16 GB VRAM** を消費するため、jasna の一次パイプライン
+(~9 GB)と 16 GB カード上で同時常駐できない。ピーク VRAM が時間的に重ならない
+よう処理をプロセス分割することで初めて収まる。
+
+## 仕組み — オフライン 3 段
+
+`--secondary-restoration flashvsr` の 1 コマンドが 3 つのサブプロセスを順に実行する。
+各段は次段が始まる前に完了し、プロセス終了時に VRAM を全解放するため、ピーク VRAM が
+同時に存在することはない:
+
+| 段 | 環境 | ~VRAM | 内容 |
+|----|------|-------|------|
+| 1 — dump | jasna | ~9 GB | decode + detect + BasicVSR++ 一次復元。各 clip の 256px クロップ + マスク + 幾何をディスク上の **bundle** へ直列化。blend/encode は捨てる。 |
+| 2 — FlashVSR 4x | FlashVSR | 12–16 GB | 各 clip の 256px クロップを 1024px に拡大し bundle へ書き戻す。 |
+| 3 — reblend | jasna | 軽い | source を再デコードし、bundle から復元結果を再構成、1024px クロップを再 blend して最終出力を encode。 |
+
+Phase 1 / Phase 3 は `jasna --flashvsr-phase {dump,reblend}` のサブプロセスとして
+走る(`jasna/__main__.py` で multiprocessing ガードより前に分岐。`--compile-engines`
+と同じ流儀)。Phase 2 は `jasna/restorer/flashvsr_phase2_driver.py` を FlashVSR
+仮想環境の Python で実行する(jasna を import しない独立スクリプト)。
+
+**bundle** は numpy/JSON ファイルのディレクトリ(`manifest.json`、clip ごとの
+`clip_<track>_<start>.npz` と Phase 2 が書く `_fvsr.npz`)。`--flashvsr-bundle-dir`
+を指定すると永続化され、途中で失敗した実行を失敗した段から再開できる(完了済み
+clip はスキップ)。
+
+blend に必要な幾何(`scale_offsets`)は blend 時に復元フレームの実寸から導出される
+ので、FlashVSR の 4x 出力は**メタデータ改変ゼロ**で再 blend できる。
+
+## 必要なもの
+
+FlashVSR は**同梱していない**。
+[`lihaoyun6/FlashVSR_plus`](https://github.com/lihaoyun6/FlashVSR_plus) fork の
+checkout・重み・専用仮想環境を利用者が用意し、`--flashvsr-repo` で jasna に渡す。
+
+### FlashVSR checkout のセットアップ(一度だけ)
+
+RTX 5080(sm120, 16 GB)/ Linux / CUDA 13.0 で検証済みの再現手順。torch
+2.13.0+cu130 / triton 3.7.1 になる:
+
+```bash
+# 1. jasna が対象とする fork を clone。models/posi_prompt.pth もこれで入る
+#    (repo に git-track されており、ダウンロードではない)。
+git clone https://github.com/lihaoyun6/FlashVSR_plus
+cd FlashVSR_plus
+
+# 2. uv-managed の *standalone* Python venv を作る。これは必須。FlashVSR の Triton
+#    Sparse_SageAttention カーネルは実行時 JIT され Python 開発ヘッダ(Python.h)を
+#    要するが、system / conda の Python には同梱されず JIT が
+#    「fatal error: Python.h」で落ちる。uv の managed Python はヘッダを含む。
+uv venv --python 3.13 --python-preference only-managed
+
+# 3. CUDA に合う wheel index で FlashVSR の依存を venv に入れる
+#    (jasna は cu130 で検証。CUDA 12.8 なら .../whl/cu128)。
+uv pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu130
+
+# 4. 重み(~6.5 GB)は models/FlashVSR-v1.1/ に置かれる。初回実行時に HuggingFace から
+#    自動ダウンロードされるので本手順は任意。jasna の Phase 2 中にダウンロードしたく
+#    なければ先に取得しておく:
+.venv/bin/huggingface-cli download JunhaoZhuang/FlashVSR-v1.1 --local-dir models/FlashVSR-v1.1
+
+# 5. (推奨)jasna に組み込む前に FlashVSR 環境単体でスモークテスト。jasna の Phase 2
+#    が使う tiny / sage / bf16 の 4x パスそのものを叩き、手順4を省いた場合は重み
+#    ダウンロードも走る:
+.venv/bin/python run.py -i ./inputs/example0.mp4 -s 4 -v 11 -m tiny -d cuda:0 -t bf16 -a sage ./_smoke
+```
+
+補足:
+- `sageattention` pip パッケージは**不要**。`-a sage` が使うのは fork が同梱する
+  `sparse_sage` カーネルで、`sageattention` の import は guard 済み。
+- 完了後 `<repo>/models/FlashVSR-v1.1/` に
+  `diffusion_pytorch_model_streaming_dmd.safetensors`・`Wan2.1_VAE.pth`・
+  `LQ_proj_in.ckpt`・`TCDecoder.ckpt`、隣に `<repo>/models/posi_prompt.pth` が揃う
+  ——これが `--flashvsr-repo` の期待する構成。
+
+### jasna から指す
+
+- `--flashvsr-repo <path>`(必須): 上で作った `FlashVSR_plus` checkout。
+- `--flashvsr-python <path>`(既定 `<repo>/.venv/bin/python`): 手順2の uv-managed
+  venv の Python。
+- `--flashvsr-model-dir <path>`(既定 `<repo>/models/FlashVSR-v1.1`): 重み。
+
+## 使い方
+
+```bash
+jasna --input in.mp4 --output out.mkv \
+      --secondary-restoration flashvsr \
+      --flashvsr-repo ~/FlashVSR_plus \
+      --log-level info
+```
+
+### フラグ
+
+| フラグ | 既定 | 意味 |
+|--------|------|------|
+| `--flashvsr-repo` | (必須) | `FlashVSR_plus` checkout のパス。 |
+| `--flashvsr-python` | `<repo>/.venv/bin/python` | FlashVSR 環境の Python(uv-managed standalone venv)。 |
+| `--flashvsr-model-dir` | `<repo>/models/FlashVSR-v1.1` | FlashVSR 重みディレクトリ。 |
+| `--flashvsr-version` | `11` | モデル版(`10` / `11`)。 |
+| `--flashvsr-dtype` | `bf16` | 計算 dtype(`fp16` / `bf16`)。 |
+| `--flashvsr-max-clip-frames` | `32` | Phase 1 の `--max-clip-size` を上限化し、各 clip を FlashVSR tiny の VRAM に収める。 |
+| `--flashvsr-unload-dit` / `--no-flashvsr-unload-dit` | on | VAE decode 前に DiT をオフロード(VRAM 節約)。 |
+| `--flashvsr-tiled-vae` / `--no-flashvsr-tiled-vae` | on | FlashVSR の VAE decode をタイル化(VRAM 節約)。 |
+| `--flashvsr-bundle-dir` | temp | 中間 bundle をここに永続化(段階再開が可能に)。 |
+| `--flashvsr-keep-bundle` | off | 完了後も bundle を残す(`--flashvsr-bundle-dir` 指定時は暗黙的に有効)。 |
+
+FlashVSR は 4x 固定。`--flashvsr-scale` は無い。
+
+### clip 長を上限化する理由
+
+Phase 2 は FlashVSR の **tiny** モードを使う。tiny は全 latent フレームを VRAM に
+保持し、ロスレスな tensor を返す。パイロットでは 16 GB カードで 21 フレーム=~13.5 GB、
+65 フレームで near-OOM だった。そのため一次の clip 長を上限化し
+(`--flashvsr-max-clip-frames`、既定 32)、各 clip をその予算内に収める。これが
+FlashVSR モードで clip が通常より短くなる理由で、増える継ぎ目は clip 境界の crossfade
+が吸収する。上限を上げると Phase 2 で OOM の恐れがある。
+
+## ディスク容量
+
+bundle の容量は Phase 2 の**非圧縮 1024px 出力**が支配する。復元クロップ 1 枚が
+1024×1024×3 ≈ **3 MiB** で、256px 一次 dump は 1 clip 丸ごとで ~3 MiB。つまり
+bundle 容量はモザイク・クロップ枚数に比例し、動画が長いほど増える:
+
+- 目安: **モザイクを含む 1 ソースフレームあたり ~4 MB** ≒ 全編モザイクの 30fps 動画で
+  **1 分あたり ~8 GB**(モザイクが一部の時間帯だけなら比例して少ない)。
+- 実測: 6 分 / 10,661 フレーム・全編モザイク・510 clip → **~46 GB**
+  (1024px 出力 ~45 GB + 256px dump ~1.6 GB)。
+- 長尺・モザイク多めの動画では **数百 GB** に達しうる。
+
+ピークは **bundle 全量**。Phase 2 が全 clip の 1024px を書き終えてから Phase 3 が
+始まるため、全 fvsr が同時にディスク上に存在する。
+
+> ⚠️ **既定の bundle はシステム temp(`/tmp`)下に作られる。Linux では `/tmp` が
+> しばしば `tmpfs`(RAM 上)で数十 GB しかない。**大きな bundle をそこに書くと
+> `/tmp` が溢れ RAM を食い潰して失敗する。短いクリップ以外では
+> `--flashvsr-bundle-dir <path>` で bundle 全量が入る実ディスクを指すこと
+> ——目安は *モザイク分数 × 8 GB*。段階再開も可能になる。
+
+jasna は自動でこれを見張る: Phase 1 前に bundle dir が tmpfs なら警告し、空き容量と
+最悪ケース見積りを表示。さらに Phase 1 後(実 clip 数が判明後)に 1024px 出力の正確な
+サイズを計算し、**入り切らなければ高コストな Phase 2 を始める前に中断する**(bundle は
+保持されるので `--flashvsr-bundle-dir` を大きいディスクに向けて再開できる)。
+
+## 制約
+
+- **ファイル出力専用**。`--stream`・フォルダ/画像入力・`--frame-gen` とは併用不可
+  (フレーム生成は出力に対する別パスとして実行する)。
+- **encode が 2 回**。Phase 1 は完全にテスト済みのパイプラインをそのまま流すため
+  捨て出力を encode し、最終 encode は Phase 3 で行う。通常実行より encode が 1 回多い。
+- **同梱なし / サポーターモデルとは無関係**。FlashVSR は独自ライセンスのサードパーティ
+  モデル。checkout・重み・venv は利用者が用意する。jasna のサポーターモデルとは無関係。
+
+## 実装
+
+- オーケストレータ・bundle 形式・Phase 1 dump hook・Phase 3 reblend:
+  `jasna/restorer/flashvsr_offline.py`。
+- Phase 2 driver(FlashVSR venv): `jasna/restorer/flashvsr_phase2_driver.py`。
+- サブプロセス分岐: `jasna/__main__.py`(`--flashvsr-phase`)。
+- CLI 配線 / 早期分岐: `jasna/main.py`。
+- テスト: `tests/test_flashvsr_offline.py`、`tests/test_main.py`。
+
+再利用した jasna 資産: `BlendBuffer` / `crop_buffer.scale_offsets`(1024px クロップは
+無改変で再 blend)、`RestorationPipeline.build_secondary_result`
+(`[keep_start:keep_end]` スライス)、`pipeline_items`(直列化単位)、Phase 3 の
+decode/encode に `media/backend.make_video_{reader,encoder}`。
