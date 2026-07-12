@@ -339,9 +339,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--secondary-restoration",
         type=str,
         default="none",
-        choices=["none", "unet-4x", "tvai", "rtx-super-res"],
-        help=CLI_HELP["secondary_restoration"],
+        choices=["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr"],
+        help=CLI_HELP["secondary_restoration"]
+             + ' "flashvsr" runs an offline 3-phase pass (needs --flashvsr-repo).',
     )
+    from jasna.restorer.flashvsr_offline import add_flashvsr_arguments
+    add_flashvsr_arguments(secondary)
 
     sd15 = parser.add_argument_group("SD 1.5 image restoration")
     sd15.add_argument(
@@ -1153,6 +1156,15 @@ def _main() -> None:
 
         if not supports_frame_generation(args.device):
             parser.error(FRAME_GENERATION_NEEDS_RTX_40)
+
+    # FlashVSR runs as an offline 3-phase pass (each phase its own subprocess so
+    # their peak VRAM never overlaps). Dispatch here, before the heavy torch /
+    # pipeline imports — the orchestrator only spawns subprocesses.
+    if str(args.secondary_restoration).lower() == "flashvsr":
+        from jasna.restorer.flashvsr_offline import run_flashvsr_offline
+        run_flashvsr_offline(args)
+        _run_post_export_action()
+        return
 
     folder_images: list[Path] = []
     from jasna.framegen import MULTIPLIER_CHOICES
