@@ -25,6 +25,14 @@ if len(sys.argv) >= 3 and sys.argv[1] == "--compile-engines":
     _subprocess_compile(EngineCompilationRequest.from_json(sys.argv[2]))
     sys.exit(0)
 
+# FlashVSR offline phase subprocess (Phase 1 dump / Phase 3 reblend). Handled
+# before the multiprocessing PID guard below, mirroring --compile-engines, so the
+# orchestrator-spawned subprocess is not killed by the guard.
+if len(sys.argv) >= 4 and sys.argv[1] == "--flashvsr-phase":
+    from jasna.restorer.flashvsr_offline import run_phase_subprocess
+    run_phase_subprocess(sys.argv[2], sys.argv[3])
+    sys.exit(0)
+
 _JASNA_MAIN_PID = os.environ.get("JASNA_MAIN_PID")
 if _JASNA_MAIN_PID and str(os.getpid()) != _JASNA_MAIN_PID:
     if len(sys.argv) < 2 or sys.argv[1] != "--multiprocessing-fork":

@@ -139,6 +139,21 @@ class TestBuildParser:
         assert args.rtx_denoise == "medium"
         assert args.rtx_deblur == "none"
 
+    def test_flashvsr_choice_and_defaults(self):
+        args = build_parser().parse_args([
+            "--input", "a.mp4", "--output", "b.mp4",
+            "--secondary-restoration", "flashvsr",
+            "--flashvsr-repo", "/opt/FlashVSR_plus",
+        ])
+        assert args.secondary_restoration == "flashvsr"
+        assert args.flashvsr_repo == "/opt/FlashVSR_plus"
+        assert args.flashvsr_version == "11"
+        assert args.flashvsr_dtype == "bf16"
+        assert args.flashvsr_max_clip_frames == 32
+        assert args.flashvsr_unload_dit is True
+        assert args.flashvsr_tiled_vae is True
+        assert args.flashvsr_keep_bundle is False
+
     def test_post_export_command(self):
         args = build_parser().parse_args([
             "--input", "a.mp4",
@@ -262,6 +277,17 @@ class TestSecondaryRestorers:
         assert kw["quality"] == "ultra"
         assert kw["denoise"] == "high"
         assert kw["deblur"] == "low"
+
+    def test_flashvsr_secondary_dispatches_offline(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        with patch("jasna.restorer.flashvsr_offline.run_flashvsr_offline") as mock_offline:
+            pipeline_cls = _run_main(_base_argv(inp, out, rest, det, [
+                "--secondary-restoration", "flashvsr",
+                "--flashvsr-repo", str(tmp_path / "repo"),
+            ]))
+        # The offline orchestrator runs instead of the normal pipeline.
+        mock_offline.assert_called_once()
+        pipeline_cls.assert_not_called()
 
     def test_rtx_denoise_none_passes_none(self, tmp_path):
         inp, out, rest, det = _make_model_files(tmp_path)
