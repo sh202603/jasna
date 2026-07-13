@@ -317,6 +317,10 @@ class TestValidation:
         ns.output = str(tmp_path / "out.mkv")
         ns.stream = False
         ns.frame_gen = "none"
+        ns.cq = None
+        ns.codec = "hevc"
+        ns.encoder_settings = ""
+        ns.device = "cuda:0"
         for k, v in overrides.items():
             setattr(ns, k, v)
         return ns
@@ -455,6 +459,7 @@ class TestOrchestrator:
         args.codec = "hevc"
         args.bit_depth = "auto"
         args.encoder_settings = ""
+        args.cq = None
         args.working_directory = ""
         args.lut = ""
         args.batch_size = 4
