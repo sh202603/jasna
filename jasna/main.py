@@ -90,6 +90,11 @@ def _session_config_from_args(
         fmp4=bool(args.fmp4),
         disable_progress=bool(args.no_progress),
         working_dir=Path(args.working_directory) if args.working_directory else None,
+        flashvsr_repo=str(getattr(args, "flashvsr_repo", "") or ""),
+        flashvsr_python=str(getattr(args, "flashvsr_python", "") or ""),
+        flashvsr_model_dir=str(getattr(args, "flashvsr_model_dir", "") or ""),
+        flashvsr_version=str(getattr(args, "flashvsr_version", "11")),
+        flashvsr_dtype=str(getattr(args, "flashvsr_dtype", "bf16")),
     )
 
 
@@ -324,9 +329,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--secondary-restoration",
         type=str,
         default="none",
-        choices=["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr"],
+        choices=["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr", "flashvsr-inline"],
         help=CLI_HELP["secondary_restoration"]
-             + ' "flashvsr" runs an offline 3-phase pass (needs --flashvsr-repo).',
+             + ' "flashvsr" runs an offline 3-phase pass; "flashvsr-inline" runs FlashVSR '
+             'inline in the streaming pipeline (no intermediate files, needs a patched '
+             'FlashVSR repo). Both need --flashvsr-repo.',
     )
     from jasna.restorer.flashvsr_offline import add_flashvsr_arguments
     add_flashvsr_arguments(secondary)
@@ -982,6 +989,13 @@ def main() -> None:
         value == "--codec" or value.startswith("--codec=")
         for value in sys.argv[1:]
     )
+
+    if str(getattr(args, "secondary_restoration", "")).lower() == "flashvsr-inline" \
+            and not getattr(args, "fp8_recon", False):
+        # fp8-recon shrinks the primary's peak by ~0.9-1.7GB, which the inline
+        # co-residence budget assumes (FLASHVSR_INLINE_FEASIBILITY §12). Auto-enable
+        # it; the restorer falls back to TRT if the GPU can't do fp8 (sm89+/--fp16).
+        args.fp8_recon = True
 
     if getattr(args, "fp8_recon", False):
         # Propagated via the environment so it reaches the restorer in every

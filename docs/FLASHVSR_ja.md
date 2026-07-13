@@ -7,11 +7,21 @@ diffusion VSR。jasna は
 で 1024px(4x)へ拡大し、一次の BasicVSR++ では大きなモザイク領域・接写・4K
 素材でぼやけがちなテクスチャの写実性を補う。
 
-他の二次復元(unet-4x / RTX Super-Res / TVAI)と違い、FlashVSR はストリーミング
-パイプラインに inline で挟むのではなく、**オフラインで 3 つの独立プロセス**として
-走る。FlashVSR は**単体で 12–16 GB VRAM** を消費するため、jasna の一次パイプライン
-(~9 GB)と 16 GB カード上で同時常駐できない。ピーク VRAM が時間的に重ならない
-よう処理をプロセス分割することで初めて収まる。
+FlashVSR には 2 つのモードがある:
+
+- **`--secondary-restoration flashvsr`(オフライン 3 段)** — 中間ファイルを介する 3
+  プロセス構成。**12 GB 級の GPU** でも動き、パッチ不要の FlashVSR checkout で使える。
+  段階再開が可能。以下は主にこのモードの説明。
+- **`--secondary-restoration flashvsr-inline`(inline、単一パス)** — 通常のストリー
+  ミングパイプラインに FlashVSR を挟む。**中間ファイル・ディスクゲート・二重 encode
+  が無い**。**16 GB カード + tiny-long パッチ当ての FlashVSR checkout が前提**。詳細は
+  末尾の「inline モード」を参照。
+
+オフライン 3 段が存在する理由: FlashVSR の tiny モードは**単体で 12–16 GB VRAM** を
+消費するため、jasna の一次パイプラインと 16 GB カード上で同時常駐できない。ピーク
+VRAM が時間的に重ならないよう処理をプロセス分割することで初めて収まる。inline モードは
+FlashVSR の **tiny-long**(定メモリ ~11.9 GB、パッチ要)を使い、一次(fp8-recon で
+~1.6 GB)と同時常駐させることで単一パスを実現する。
 
 ## 仕組み — オフライン 3 段
 
@@ -161,7 +171,82 @@ jasna は自動でこれを見張る: Phase 1 前に bundle dir が tmpfs なら
 - **同梱なし / サポーターモデルとは無関係**。FlashVSR は独自ライセンスのサードパーティ
   モデル。checkout・重み・venv は利用者が用意する。jasna のサポーターモデルとは無関係。
 
-## 実装
+## inline モード(`--secondary-restoration flashvsr-inline`)
+
+オフライン 3 段と同じ FlashVSR checkout / 重み / venv・同じ `--flashvsr-*` フラグ
+(`repo` / `python` / `model-dir` / `version` / `dtype`)を使うが、**中間ファイルを
+一切作らず**、jasna の通常のストリーミングパイプラインの中で FlashVSR を二次復元として
+走らせる。
+
+```bash
+jasna --input in.mp4 --output out.mkv \
+      --secondary-restoration flashvsr-inline \
+      --flashvsr-repo ~/FlashVSR_plus \
+      --log-level info
+```
+
+### オフラインとの違い
+
+| | `flashvsr`(オフライン 3 段) | `flashvsr-inline` |
+|---|---|---|
+| パス | dump → FlashVSR → reblend の 3 プロセス | 単一ストリーミングパス |
+| 中間ファイル | 256px + 1024px bundle(数十 GB 級) | **無し** |
+| encode 回数 | 2(捨て + 最終) | 1 |
+| FlashVSR モード | tiny(O(T)、~12–16 GB) | **tiny-long(O(1)、~11.9 GB)** |
+| 必要 VRAM | 各段が非同時なので実質 tiny 単体分 | primary と**同時常駐**(実測 ~14.8 GB @16 GB カード) |
+| FlashVSR checkout | パッチ不要 | **tiny-long マルチチャンク修正のパッチ必須** |
+| 段階再開 | 可(bundle 永続化) | 不可(単一パス) |
+| 進捗 / キャンセル / GUI | 3 段フロー | 通常 secondary と同じ |
+
+### 前提: tiny-long パッチ
+
+inline は VRAM 定常(O(1))の **tiny-long** を使う。FlashVSR_plus の tiny-long は
+第 2 チャンクで壊れる既知バグ(`8192 vs 4096` エラー)があり、**修正パッチを当てた
+checkout が必須**。jasna は起動時に checkout を検査し、未パッチなら明示エラーで停止して
+`flashvsr`(オフライン、tiny、パッチ不要)を案内する。
+
+パッチ本体は
+[`patches/flashvsr_plus_tinylong_multichunk_fix.patch`](../patches/flashvsr_plus_tinylong_multichunk_fix.patch)
+に同梱。FlashVSR_plus checkout で当てる:
+
+```bash
+cd ~/FlashVSR_plus
+git apply /path/to/jasna/patches/flashvsr_plus_tinylong_multichunk_fix.patch
+```
+
+やっていることは 2 箇所のチャンク跨ぎキャッシュ clear を無効化するだけ
+(`src/pipelines/flashvsr_tiny_long.py` の per-chunk `LQ_proj_in.clear_cache()` と
+`TCDecoder.clean_mem()` を削除。ループ前の一度きりのリセットは残す)。
+
+### 挙動と制約
+
+- **clip 32 上限・frame-gen off を強制**(オフラインと同じ理由)。`--max-clip-size` は
+  自動的に 32 へ丸められる。
+- **fp8-recon を自動有効化**(未指定時)。一次のピークを ~0.9–1.7 GB 下げ、同時常駐の
+  予算に収める。GPU が fp8 非対応(sm89 未満 / `--fp16` 無し)なら TRT へフォールバック。
+- 同期実行。FlashVSR(~15 crop-fps)が律速なので、モザイクが多い区間はその速度に
+  律速される(モザイクの無いフレームは一次のみで高速)。FlashVSR が壁時計を支配する
+  ため、`--batch-size` を下げても速度低下はほぼ無い。
+- VRAM(**16 GB カード + デスクトップ常駐**時): 480p で combined ~14.8 GB。ただし
+  **1080p 以上は物理天井際**まで上がる(実測 ~15.8 GB ピーク)。worker の
+  `expandable_segments` と jasna の `vram_offloader`(キューフレームを system RAM へ
+  退避)が圧を吸収して落ちない ——1080p では
+  `expandable_segments: memory mapping failed with OOM` の**警告**(無害。クラッシュ
+  ではない)と大量の offload が出る。1080p 以上で余裕が欲しければ **`--batch-size 2`**
+  (または `1`)や MPS 停止(~490 MB 増)を使う。VRAM が少ない環境・未パッチ
+  checkout・1080p が恒常的にこの余裕ならオフライン(`flashvsr`)を使う。
+
+### 実装
+
+- 同期 `SecondaryRestorer`: `jasna/restorer/flashvsr_inline_secondary_restorer.py`
+  (FlashVSR venv worker を resident spawn、length-prefixed の RGB wire、
+  `close()` で終了)。
+- worker(FlashVSR venv 実行、jasna 非依存): `jasna/restorer/flashvsr_inline_worker.py`
+  (tiny-long pipe、`imageio.get_writer` を差し替えてロスレスにテンソル捕獲、
+  small clip は next_8n5 パディングで吸収し厳密に T 枚返す)。
+- CLI 配線: `jasna/main.py`。テスト: `tests/test_flashvsr_inline.py`。
+
+## 実装(オフライン)
 
 - オーケストレータ・bundle 形式・Phase 1 dump hook・Phase 3 reblend:
   `jasna/restorer/flashvsr_offline.py`。
