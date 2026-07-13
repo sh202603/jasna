@@ -74,6 +74,11 @@ class SessionConfig:
     fmp4: bool
     sharpen_strength: float
     tvai_denoise: bool
+    flashvsr_repo: str = ""
+    flashvsr_python: str = ""
+    flashvsr_model_dir: str = ""
+    flashvsr_version: str = "11"
+    flashvsr_dtype: str = "bf16"
 
     def __post_init__(self) -> None:
         if self.batch_size <= 0:
