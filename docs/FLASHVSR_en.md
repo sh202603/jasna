@@ -7,11 +7,22 @@
 recover texture realism the primary BasicVSR++ model leaves blurry on large
 mosaic regions, close-ups, and 4K sources.
 
-Unlike the other secondary restorers (unet-4x / RTX Super-Res / TVAI), FlashVSR
-runs **offline in three separate processes** rather than inline in the streaming
-pipeline. It peaks at **12–16 GB VRAM on its own**, so it cannot co-reside with
-jasna's ~9 GB primary pipeline on a 16 GB card. Splitting the work across
-processes whose peak VRAM never overlaps in time is what makes it fit.
+FlashVSR has two modes:
+
+- **`--secondary-restoration flashvsr` (offline 3-phase)** — three processes via
+  intermediate files. Works on **12 GB-class GPUs** and with an unpatched FlashVSR
+  checkout, and supports staged resume. Most of this document describes this mode.
+- **`--secondary-restoration flashvsr-inline` (inline, single pass)** — runs
+  FlashVSR inside the normal streaming pipeline with **no intermediate files, no
+  disk gate, and no double encode**. Requires a **16 GB card and a FlashVSR
+  checkout with the tiny-long patch**. See "Inline mode" at the end.
+
+Why offline 3-phase exists: FlashVSR's tiny mode peaks at **12–16 GB VRAM on its
+own**, so it cannot co-reside with jasna's primary pipeline on a 16 GB card.
+Splitting the work across processes whose peak VRAM never overlaps in time is what
+makes it fit. Inline mode instead uses FlashVSR's **tiny-long** (constant ~11.9 GB,
+requires the patch), co-residing with the primary (~1.6 GB under fp8-recon) to run
+as a single pass.
 
 ## How it works — offline 3-phase
 
@@ -168,7 +179,86 @@ before the expensive Phase 2** if it won't fit (keeping the bundle so you can po
   its own license; you supply the checkout, weights, and venv. It is unrelated to
   the jasna supporter models.
 
-## Implementation
+## Inline mode (`--secondary-restoration flashvsr-inline`)
+
+Uses the same FlashVSR checkout / weights / venv and the same `--flashvsr-*`
+flags (`repo` / `python` / `model-dir` / `version` / `dtype`) as the offline
+path, but creates **no intermediate files** and runs FlashVSR as a secondary
+restorer inside jasna's normal streaming pipeline.
+
+```bash
+jasna --input in.mp4 --output out.mkv \
+      --secondary-restoration flashvsr-inline \
+      --flashvsr-repo ~/FlashVSR_plus \
+      --log-level info
+```
+
+### Differences from offline
+
+| | `flashvsr` (offline 3-phase) | `flashvsr-inline` |
+|---|---|---|
+| Path | 3 processes: dump → FlashVSR → reblend | single streaming pass |
+| Intermediate files | 256px + 1024px bundle (tens of GB) | **none** |
+| Encodes | 2 (throwaway + final) | 1 |
+| FlashVSR mode | tiny (O(T), ~12–16 GB) | **tiny-long (O(1), ~11.9 GB)** |
+| VRAM | phases non-concurrent, so effectively tiny alone | **co-resident** with primary (~14.8 GB measured on a 16 GB card) |
+| FlashVSR checkout | no patch needed | **requires the tiny-long multi-chunk fix** |
+| Staged resume | yes (persistent bundle) | no (single pass) |
+| Progress / cancel / GUI | 3-phase flow | same as any secondary |
+
+### Prerequisite: the tiny-long patch
+
+Inline uses **tiny-long** for constant (O(1)) VRAM. FlashVSR_plus's tiny-long has a
+known bug that crashes on the second chunk (`8192 vs 4096` error), so a **patched
+checkout is required**. jasna checks the checkout at startup and stops with an
+explicit error (pointing you to the offline `flashvsr` mode, which uses tiny and
+needs no patch) if it is unpatched.
+
+The patch ships at
+[`patches/flashvsr_plus_tinylong_multichunk_fix.patch`](../patches/flashvsr_plus_tinylong_multichunk_fix.patch).
+Apply it to the FlashVSR_plus checkout:
+
+```bash
+cd ~/FlashVSR_plus
+git apply /path/to/jasna/patches/flashvsr_plus_tinylong_multichunk_fix.patch
+```
+
+All it does is disable two per-chunk cache clears (remove the per-chunk
+`LQ_proj_in.clear_cache()` and `TCDecoder.clean_mem()` in
+`src/pipelines/flashvsr_tiny_long.py`; the once-per-video reset before the loop
+stays).
+
+### Behavior and constraints
+
+- **Forces clip 32 and frame-gen off** (same reasons as offline); `--max-clip-size`
+  is rounded down to 32 automatically.
+- **Auto-enables fp8-recon** (when unset) to shrink the primary peak ~0.9–1.7 GB so
+  it fits the co-residence budget; falls back to TRT if the GPU can't do fp8
+  (sm89+ / `--fp16`).
+- Synchronous. FlashVSR (~15 crop-fps) is the rate limiter, so mosaic-heavy stretches
+  run at that speed (mosaic-free frames stay fast on the primary alone). Because
+  FlashVSR dominates wall-clock, lowering `--batch-size` costs almost nothing.
+- VRAM, on a **16 GB card with a desktop resident**: ~14.8 GB combined at 480p, but
+  **1080p+ runs right at the physical ceiling** (measured ~15.8 GB peak). It stays up
+  because the worker's `expandable_segments` allocator and jasna's `vram_offloader`
+  (which spills queued frames to system RAM) absorb the pressure — expect
+  `expandable_segments: memory mapping failed with OOM` **warnings** (benign; not a
+  crash) and heavy offloading at 1080p. For margin at 1080p+, use **`--batch-size 2`**
+  (or `1`) and/or disable MPS (frees ~490 MB). Use the offline `flashvsr` mode for
+  GPUs with less VRAM, an unpatched checkout, or if 1080p is routinely this tight.
+
+### Implementation
+
+- Synchronous `SecondaryRestorer`:
+  `jasna/restorer/flashvsr_inline_secondary_restorer.py` (spawns a resident FlashVSR
+  venv worker, length-prefixed RGB wire, `close()` to shut down).
+- Worker (runs under the FlashVSR venv, no jasna import):
+  `jasna/restorer/flashvsr_inline_worker.py` (tiny-long pipe, lossless tensor capture
+  by replacing `imageio.get_writer`, next_8n5 padding to absorb small clips and return
+  exactly T frames).
+- CLI wiring: `jasna/main.py`. Tests: `tests/test_flashvsr_inline.py`.
+
+## Implementation (offline)
 
 - Orchestrator, bundle format, Phase 1 dump hook, Phase 3 reblend:
   `jasna/restorer/flashvsr_offline.py`.
