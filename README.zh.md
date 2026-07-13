@@ -87,7 +87,7 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 
 主要收益在 VRAM：不再分配 TensorRT upsample 引擎加载时的内部工作区（默认 `--max-clip-size 90` 下约 2.2GB），实测 480p 至 4K 片源的 VRAM 峰值降低 1.2–1.7GB。该阶段本身快约 1.5 倍，但流水线瓶颈在检测侧，整体 fps 不变。输出与 FP16 引擎在视觉上无法区分，且多次运行按位一致。需要支持 FP8 的 GPU（sm89 及以上，即 RTX 40 系或更新；加速仅在 Blackwell 上验证）和 fp16 模式；任何失败都会自动回退到 TensorRT 引擎。已在 Linux 和 Windows 上验证。详情: [docs/FP8_RECON_en.md](docs/FP8_RECON_en.md)。
 
-### FlashVSR 二级修复（离线，实验性）
+### FlashVSR 二级修复（实验性）
 
 `--secondary-restoration flashvsr` 用 [FlashVSR](https://github.com/OpenImagingLab/FlashVSR) 扩散 VSR 将修复后的 256px 马赛克裁剪块放大到 1024px（4x），补回一级模型在大面积马赛克、特写和 4K 上留下的模糊纹理:
 
