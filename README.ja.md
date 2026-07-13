@@ -98,7 +98,7 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 
 主な利点は VRAM です。TensorRT upsample エンジンがロード時に確保するアリーナ（既定 `--max-clip-size 90` で約 2.2GB）を確保しなくなり、480p〜4K のクリップで peak VRAM が 1.2〜1.7GB 下がることを実測しています。ステージ単体は約 1.5 倍速くなりますが、パイプラインの律速は検出側なので全体 fps は変わりません。出力は FP16 エンジンと目視で区別できず、走行間でビット決定的です。FP8 対応 GPU（sm89 以上、RTX 40 系以降。速度利得の実測は Blackwell のみ）と fp16 モードが必要で、失敗時は TensorRT エンジンへ自動フォールバックします。Linux と Windows の両方で動作確認済みです。詳細: [docs/FP8_RECON_ja.md](docs/FP8_RECON_ja.md)。
 
-### FlashVSR セカンダリ復元（オフライン、実験的）
+### FlashVSR セカンダリ復元（実験的）
 
 `--secondary-restoration flashvsr` は、復元された 256px のモザイククロップを [FlashVSR](https://github.com/OpenImagingLab/FlashVSR) 拡散 VSR で 1024px（4x）へ拡大し、大きなモザイク・接写・4K で一次モデルがぼやけさせるテクスチャを補います:
 
