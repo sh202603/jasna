@@ -99,7 +99,7 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 
 The main benefit is VRAM: the TensorRT upsample engine's load-time arena (~2.2 GB at the default `--max-clip-size 90`) is never allocated, measured as 1.2–1.7 GB lower peak VRAM across 480p–4K clips. The stage itself also runs ~1.5x faster, though end-to-end fps is unchanged because the pipeline is detection-bound. Output stays visually indistinguishable from the FP16 engine and is bit-deterministic across runs. Requires an FP8-capable GPU (sm89+, i.e. RTX 40 series or newer; the speedup is validated on Blackwell only) and fp16 mode; falls back to the TensorRT engine on any failure. Verified on both Linux and Windows. Details: [docs/FP8_RECON_en.md](docs/FP8_RECON_en.md).
 
-### FlashVSR secondary restoration (offline, experimental)
+### FlashVSR secondary restoration (experimental)
 
 `--secondary-restoration flashvsr` upscales each restored 256px mosaic crop to 1024px (4x) with [FlashVSR](https://github.com/OpenImagingLab/FlashVSR) diffusion VSR, recovering texture the primary model leaves blurry on large mosaics, close-ups, and 4K:
 
@@ -204,7 +204,7 @@ Supported secondary models:
 - **unet-4x**: supporter model. Faster than TVAI with similar quality in current testing. Trained on an in-domain JAV dataset and visually close to TVAI `iris-2`. See [unet-4x / secondary restoration examples on SLS Discord](https://discord.com/channels/1196376491815092265/1199059436199759943/1516497879684874260). Unlock it with a supporter key; see [Supporting the project](#supporting-the-project). If you hit quality problems, open a [GitHub issue](https://github.com/Kruk2/jasna/issues).
 - **RTX Super Resolution**: very fast, free, and has no extra dependencies. Quality is okay. Some videos may flicker, so test on a short clip first.
 - **TVAI**: better than RTX Super Resolution and comparable to unet-4x in current testing, but very slow. Requires [Topaz Video](https://www.topazlabs.com/topaz-video), which is paid and Windows-only. Recommended model: `iris-2`.
-- **FlashVSR** (`+modi`, offline, experimental): diffusion 4x upscaler that recovers strong texture detail, run as an offline 3-phase pass so its 12–16 GB VRAM never collides with the primary pipeline. Needs a `FlashVSR_plus` checkout + a uv-managed venv you supply. File-output only. See [docs/FLASHVSR_en.md](docs/FLASHVSR_en.md).
+- **FlashVSR** (`+modi`, experimental): diffusion 4x upscaler that recovers strong texture detail on mosaics. Two modes: an **offline** 3-phase pass whose 12–16 GB VRAM never collides with the primary (works on 12 GB cards, uses disk bundles), and an **inline** single pass (`flashvsr-inline`) that runs FlashVSR inside the streaming pipeline with no intermediate files (needs a 16 GB card + a checkout with the tiny-long patch). Needs a `FlashVSR_plus` checkout + a uv-managed venv you supply. File-output only. See [docs/FLASHVSR_en.md](docs/FLASHVSR_en.md).
 
 CLI option:
 

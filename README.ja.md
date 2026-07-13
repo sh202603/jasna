@@ -99,7 +99,7 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 
 主な利点は VRAM です。TensorRT upsample エンジンがロード時に確保するアリーナ（既定 `--max-clip-size 90` で約 2.2GB）を確保しなくなり、480p〜4K のクリップで peak VRAM が 1.2〜1.7GB 下がることを実測しています。ステージ単体は約 1.5 倍速くなりますが、パイプラインの律速は検出側なので全体 fps は変わりません。出力は FP16 エンジンと目視で区別できず、走行間でビット決定的です。FP8 対応 GPU（sm89 以上、RTX 40 系以降。速度利得の実測は Blackwell のみ）と fp16 モードが必要で、失敗時は TensorRT エンジンへ自動フォールバックします。Linux と Windows の両方で動作確認済みです。詳細: [docs/FP8_RECON_ja.md](docs/FP8_RECON_ja.md)。
 
-### FlashVSR セカンダリ復元（オフライン、実験的）
+### FlashVSR セカンダリ復元（実験的）
 
 `--secondary-restoration flashvsr` は、復元された 256px のモザイククロップを [FlashVSR](https://github.com/OpenImagingLab/FlashVSR) 拡散 VSR で 1024px（4x）へ拡大し、大きなモザイク・接写・4K で一次モデルがぼやけさせるテクスチャを補います:
 
@@ -204,7 +204,7 @@ Jasna と Lada は各モザイク領域の 256x256 クロップを復元しま�
 - **unet-4x**: 支援者モデル。現在のテストでは TVAI より高速で同程度の品質です。JAV ドメイン内データセットで訓練されており、見た目は TVAI `iris-2` に近いです。[unet-4x / セカンダリ復元の例（SLS Discord）](https://discord.com/channels/1196376491815092265/1199059436199759943/1516497879684874260) を確認できます。支援者キーで解除します。詳しくは[プロジェクトを支援する](#プロジェクトを支援する)をご覧ください。品質問題がある場合は [GitHub issue](https://github.com/Kruk2/jasna/issues) を開いてください。
 - **RTX Super Resolution**: 非常に高速で無料、追加依存関係はありません。品質はそれなりです。一部の動画ではフリッカーが出る場合があるため、短いクリップで先に試してください。
 - **TVAI**: 現在のテストでは RTX Super Resolution より高品質で unet-4x と同程度ですが、非常に遅いです。[Topaz Video](https://www.topazlabs.com/topaz-video) が必要です。有料で Windows のみです。推奨モデルは `iris-2` です。
-- **FlashVSR**（`+modi`、オフライン、実験的）: 強いテクスチャを復元する拡散 4x アップスケーラ。12〜16GB VRAM が一次パイプラインと衝突しないよう、オフライン 3 段パスで実行します。利用者が用意する `FlashVSR_plus` checkout と uv-managed venv が必要。ファイル出力専用。参照: [docs/FLASHVSR_ja.md](docs/FLASHVSR_ja.md)。
+- **FlashVSR**（`+modi`、実験的）: モザイクのテクスチャを復元する拡散 4x アップスケーラ。2 モード: **オフライン** 3 段パス（12〜16GB VRAM が一次と衝突しないようディスク bundle 経由。12GB カードでも動作）と、**inline** 単一パス（`flashvsr-inline`、ストリーミングパイプライン内で実行し中間ファイル無し。16GB カード + tiny-long パッチ済み checkout が前提）。利用者が用意する `FlashVSR_plus` checkout と uv-managed venv が必要。ファイル出力専用。参照: [docs/FLASHVSR_ja.md](docs/FLASHVSR_ja.md)。
 
 CLI オプション:
 
