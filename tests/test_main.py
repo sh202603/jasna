@@ -1,3 +1,4 @@
+import os
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -288,6 +289,48 @@ class TestSecondaryRestorers:
         # The offline orchestrator runs instead of the normal pipeline.
         mock_offline.assert_called_once()
         pipeline_cls.assert_not_called()
+
+    def test_flashvsr_inline_choice_parses(self):
+        args = build_parser().parse_args([
+            "--input", "a.mp4", "--output", "b.mp4",
+            "--secondary-restoration", "flashvsr-inline",
+            "--flashvsr-repo", "/opt/FlashVSR_plus",
+        ])
+        assert args.secondary_restoration == "flashvsr-inline"
+
+    def test_flashvsr_inline_dispatches_normal_pipeline_and_autoenables_fp8(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        repo = tmp_path / "repo"
+        (repo / ".venv" / "bin").mkdir(parents=True)
+        (repo / ".venv" / "bin" / "python").touch()
+        (repo / "models" / "FlashVSR-v1.1").mkdir(parents=True)
+        argv = _base_argv(inp, out, rest, det, [
+            "--secondary-restoration", "flashvsr-inline",
+            "--flashvsr-repo", str(repo),
+        ])
+        with _main_patches() as pipeline_cls, \
+                patch("jasna.restorer.flashvsr_inline_secondary_restorer.FlashvsrInlineSecondaryRestorer") as mock_r, \
+                patch("jasna.restorer.flashvsr_offline.run_flashvsr_offline") as mock_offline, \
+                patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("JASNA_FP8_RECON", None)
+            with patch.object(sys, "argv", argv):
+                from jasna.main import main
+                main()
+            # capture inside the patch.dict block (it restores os.environ on exit)
+            fp8_env = os.environ.get("JASNA_FP8_RECON")
+        # Inline goes through the normal streaming pipeline, NOT the offline early-return.
+        pipeline_cls.assert_called_once()
+        mock_offline.assert_not_called()
+        mock_r.assert_called_once()
+        # fp8-recon is auto-enabled for inline (co-residence headroom).
+        assert fp8_env == "1"
+
+    def test_flashvsr_inline_requires_repo(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        with pytest.raises(ValueError, match="flashvsr-repo is required"):
+            _run_main(_base_argv(inp, out, rest, det, [
+                "--secondary-restoration", "flashvsr-inline",
+            ]))
 
     def test_rtx_denoise_none_passes_none(self, tmp_path):
         inp, out, rest, det = _make_model_files(tmp_path)
