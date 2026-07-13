@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Mapping
 
-SecondaryRestorationName = Literal["none", "unet-4x", "tvai", "rtx-super-res"]
+SecondaryRestorationName = Literal["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr-inline"]
 DenoiseStrengthName = Literal["none", "low", "medium", "high"]
 DenoiseStepName = Literal["after_primary", "after_secondary"]
 VrModeName = Literal["auto", "off", "sbs", "sbs-fisheye"]
@@ -54,3 +54,8 @@ class SessionConfig:
     retarget_high_fps: bool
     disable_progress: bool
     working_dir: Path | None
+    flashvsr_repo: str = ""
+    flashvsr_python: str = ""
+    flashvsr_model_dir: str = ""
+    flashvsr_version: str = "11"
+    flashvsr_dtype: str = "bf16"

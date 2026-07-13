@@ -61,6 +61,11 @@ def _session_config_from_args(
         retarget_high_fps=bool(args.retarget_high_fps),
         disable_progress=bool(args.no_progress),
         working_dir=Path(args.working_directory) if args.working_directory else None,
+        flashvsr_repo=str(getattr(args, "flashvsr_repo", "") or ""),
+        flashvsr_python=str(getattr(args, "flashvsr_python", "") or ""),
+        flashvsr_model_dir=str(getattr(args, "flashvsr_model_dir", "") or ""),
+        flashvsr_version=str(getattr(args, "flashvsr_version", "11")),
+        flashvsr_dtype=str(getattr(args, "flashvsr_dtype", "bf16")),
     )
 
 
@@ -187,9 +192,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--secondary-restoration",
         type=str,
         default="none",
-        choices=["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr"],
+        choices=["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr", "flashvsr-inline"],
         help=CLI_HELP["secondary_restoration"]
-             + ' "flashvsr" runs an offline 3-phase pass (needs --flashvsr-repo).',
+             + ' "flashvsr" runs an offline 3-phase pass; "flashvsr-inline" runs FlashVSR '
+             'inline in the streaming pipeline (no intermediate files, needs a patched '
+             'FlashVSR repo). Both need --flashvsr-repo.',
     )
     from jasna.restorer.flashvsr_offline import add_flashvsr_arguments
     add_flashvsr_arguments(secondary)
@@ -503,6 +510,13 @@ def main() -> None:
         for value in sys.argv[1:]
     )
 
+    if str(getattr(args, "secondary_restoration", "")).lower() == "flashvsr-inline" \
+            and not getattr(args, "fp8_recon", False):
+        # fp8-recon shrinks the primary's peak by ~0.9-1.7GB, which the inline
+        # co-residence budget assumes (FLASHVSR_INLINE_FEASIBILITY §12). Auto-enable
+        # it; the restorer falls back to TRT if the GPU can't do fp8 (sm89+/--fp16).
+        args.fp8_recon = True
+
     if getattr(args, "fp8_recon", False):
         # Propagated via the environment so it reaches the restorer in every
         # execution path (pipeline, benchmarks, GUI-launched runs).
@@ -811,6 +825,27 @@ def main() -> None:
     if restoration_model_name != "basicvsrpp":
         raise ValueError(f"Unsupported restoration model: {restoration_model_name}")
 
+    secondary_name = str(args.secondary_restoration).lower()
+    if secondary_name == "flashvsr-inline":
+        from jasna.restorer.flashvsr_offline import DEFAULT_MAX_CLIP_FRAMES
+        # tiny-long co-resides with the primary only within a bounded clip (the
+        # primary is O(clip)); frame-gen is a separate pass. Match the offline path.
+        if frame_gen_multiplier > 1:
+            raise ValueError(
+                "--secondary-restoration flashvsr-inline does not support --frame-gen "
+                "(run frame generation as a separate pass)"
+            )
+        if max_clip_size > DEFAULT_MAX_CLIP_FRAMES:
+            logging.getLogger(__name__).info(
+                "[flashvsr-inline] capping --max-clip-size %d -> %d (co-residence budget)",
+                max_clip_size, DEFAULT_MAX_CLIP_FRAMES,
+            )
+            max_clip_size = DEFAULT_MAX_CLIP_FRAMES
+            if 2 * temporal_overlap >= max_clip_size:
+                temporal_overlap = (max_clip_size - 1) // 2
+            # SessionConfig is built from args, so propagate the cap there too.
+            args.max_clip_size = max_clip_size
+            args.temporal_overlap = temporal_overlap
     if args.license_email and args.license_key:
         from jasna.protection import license_store
         license_store.set_license(args.license_email, args.license_key)

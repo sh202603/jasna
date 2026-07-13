@@ -95,7 +95,7 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvsr-repo ~/FlashVSR_plus
 ```
 
-FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存。它以**峰值 VRAM 在时间上互不重叠的三个子进程**运行:(1) 一级修复 → 将裁剪块序列化到磁盘 *bundle*，(2) 在其专用 venv 中执行 FlashVSR 4x，(3) 重新混合并编码最终输出。你需自备 `FlashVSR_plus` 检出、其 v1.1 权重以及一个 **uv 托管的独立 Python venv**（系统 Python 无法 JIT 编译 FlashVSR 的 Triton 注意力内核）。仅文件输出；不兼容 `--stream` / `--frame-gen`。详情: [docs/FLASHVSR_en.md](docs/FLASHVSR_en.md)。
+FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存。它以**峰值 VRAM 在时间上互不重叠的三个子进程**运行:(1) 一级修复 → 将裁剪块序列化到磁盘 *bundle*，(2) 在其专用 venv 中执行 FlashVSR 4x，(3) 重新混合并编码最终输出。你需自备 `FlashVSR_plus` 检出、其 v1.1 权重以及一个 **uv 托管的独立 Python venv**（系统 Python 无法 JIT 编译 FlashVSR 的 Triton 注意力内核）。仅文件输出；不兼容 `--stream` / `--frame-gen`。单趟版本 `--secondary-restoration flashvsr-inline` 在流水线内运行 FlashVSR，**无中间文件**（需 16GB 显卡以及打了 tiny-long 多块修复补丁的检出）。详情: [docs/FLASHVSR_en.md](docs/FLASHVSR_en.md)。
 
 ## 社区
 
