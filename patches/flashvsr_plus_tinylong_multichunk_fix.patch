@@ -1,0 +1,32 @@
+diff --git a/src/pipelines/flashvsr_tiny_long.py b/src/pipelines/flashvsr_tiny_long.py
+index 2a211ca..4362d9a 100644
+--- a/src/pipelines/flashvsr_tiny_long.py
++++ b/src/pipelines/flashvsr_tiny_long.py
+@@ -484,10 +484,23 @@ class FlashVSRTinyLongPipeline(BasePipeline):
+                         del noise_pred_posi, cur_frames, cur_latents, cur_LQ_frame
+                         clean_vram()
+                     
+-                    if hasattr(self.dit, "LQ_proj_in"):
+-                        self.dit.LQ_proj_in.clear_cache()
+-                        
+-                    self.TCDecoder.clean_mem()
++                    # FIX(jasna): do NOT clear the LQ projector cache between chunks.
++                    # Its causal-conv cache must stream across chunks (like the DiT KV
++                    # cache carried via pre_cache_k/v). Clearing it forced a warmup
++                    # (stream_forward returns None on clip_idx==0) on the first steady
++                    # inner iteration, so the steady chunk produced 1 LQ latent frame
++                    # instead of 2 -> `x + LQ_latents[block_id]` 8192-vs-4096 crash.
++                    # if hasattr(self.dit, "LQ_proj_in"):
++                    #     self.dit.LQ_proj_in.clear_cache()
++
++                    # FIX(jasna): do NOT clear the causal TCDecoder memory between
++                    # chunks either. `self.mem` is the decoder's cross-chunk causal
++                    # state and its warmup-trim keys on `self.mem[-8] is None`
++                    # (TCDecoder.decode_video). Clearing it made every steady chunk
++                    # decode as if fresh (re-trim + no causal context from prior
++                    # chunks), degrading steady-state frames to ~17-22 dB vs tiny.
++                    # The pre-loop clean_mem() (once per video) is the correct reset.
++                    # self.TCDecoder.clean_mem()
+                     if force_offload:
+                         self.offload_model()
+     
