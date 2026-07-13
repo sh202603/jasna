@@ -68,6 +68,34 @@ def _build_secondary_restorer(config: SessionConfig, device: "torch.device"):
             denoise=None if config.rtx_denoise == "none" else config.rtx_denoise,
             deblur=None if config.rtx_deblur == "none" else config.rtx_deblur,
         )
+    if config.secondary_restoration == "flashvsr-inline":
+        from jasna.restorer.flashvsr_inline_secondary_restorer import FlashvsrInlineSecondaryRestorer
+
+        if not str(config.flashvsr_repo).strip():
+            raise ValueError("--flashvsr-repo is required for --secondary-restoration flashvsr-inline")
+        fv_repo = Path(str(config.flashvsr_repo)).expanduser()
+        if not fv_repo.is_dir():
+            raise FileNotFoundError(f"--flashvsr-repo not found: {fv_repo}")
+        py_arg = str(config.flashvsr_python).strip()
+        fv_py = Path(py_arg).expanduser() if py_arg else fv_repo / ".venv" / "bin" / "python"
+        if not fv_py.exists():
+            raise FileNotFoundError(
+                f"FlashVSR Python not found: {fv_py}. Pass --flashvsr-python. It must be a "
+                "uv-managed standalone Python venv (system Python lacks the dev headers Triton "
+                "JIT needs)."
+            )
+        md_arg = str(config.flashvsr_model_dir).strip()
+        fv_model = Path(md_arg).expanduser() if md_arg else fv_repo / "models" / "FlashVSR-v1.1"
+        if not fv_model.is_dir():
+            raise FileNotFoundError(f"--flashvsr-model-dir not found: {fv_model}")
+        return FlashvsrInlineSecondaryRestorer(
+            repo=fv_repo,
+            model_dir=fv_model,
+            fv_python=fv_py,
+            version=str(config.flashvsr_version),
+            dtype=str(config.flashvsr_dtype),
+            device=config.device,
+        )
     raise ValueError(f"Unsupported secondary restoration: {config.secondary_restoration}")
 
 

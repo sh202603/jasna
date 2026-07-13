@@ -106,7 +106,7 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvsr-repo ~/FlashVSR_plus
 ```
 
-FlashVSR は単体で 12〜16GB VRAM を消費するため、一次パイプライン（約 9GB）と同時常駐できません。**ピーク VRAM が時間的に重ならない 3 つのサブプロセス**として動きます:(1) 一次復元 → クロップをディスクの *bundle* へ直列化、(2) 専用 venv で FlashVSR 4x、(3) 最終出力を再 blend + encode。`FlashVSR_plus` の checkout・v1.1 重み・**uv-managed の standalone Python venv**（system Python では FlashVSR の Triton アテンションカーネルを JIT できない）は利用者が用意します。ファイル出力専用で、`--stream` / `--frame-gen` とは併用不可。詳細: [docs/FLASHVSR_ja.md](docs/FLASHVSR_ja.md)。
+FlashVSR は単体で 12〜16GB VRAM を消費するため、一次パイプライン（約 9GB）と同時常駐できません。**ピーク VRAM が時間的に重ならない 3 つのサブプロセス**として動きます:(1) 一次復元 → クロップをディスクの *bundle* へ直列化、(2) 専用 venv で FlashVSR 4x、(3) 最終出力を再 blend + encode。`FlashVSR_plus` の checkout・v1.1 重み・**uv-managed の standalone Python venv**（system Python では FlashVSR の Triton アテンションカーネルを JIT できない）は利用者が用意します。ファイル出力専用で、`--stream` / `--frame-gen` とは併用不可。単一パス版 `--secondary-restoration flashvsr-inline` は、FlashVSR をストリーミングパイプラインに挟んで**中間ファイル無し**で実行します（16GB カード + tiny-long マルチチャンク修正パッチを当てた checkout が前提）。詳細: [docs/FLASHVSR_ja.md](docs/FLASHVSR_ja.md)。
 
 ## コミュニティ
 

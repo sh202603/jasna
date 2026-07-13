@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Mapping
 
-SecondaryRestorationName = Literal["none", "unet-4x", "tvai", "rtx-super-res"]
+SecondaryRestorationName = Literal["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr-inline"]
 DenoiseStrengthName = Literal["none", "low", "medium", "high"]
 DenoiseStepName = Literal["after_primary", "after_secondary"]
 VrModeName = Literal["auto", "off", "sbs", "sbs-fisheye"]
@@ -60,3 +60,8 @@ class SessionConfig:
     fmp4: bool = False
     sharpen_strength: float = 0.0
     tvai_denoise: bool = False
+    flashvsr_repo: str = ""
+    flashvsr_python: str = ""
+    flashvsr_model_dir: str = ""
+    flashvsr_version: str = "11"
+    flashvsr_dtype: str = "bf16"
