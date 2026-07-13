@@ -137,9 +137,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--secondary-restoration",
         type=str,
         default="none",
-        choices=["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr"],
+        choices=["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr", "flashvsr-inline"],
         help='Secondary restoration after primary model (default: %(default)s). '
-             '"flashvsr" runs an offline 3-phase pass (needs --flashvsr-repo).',
+             '"flashvsr" runs an offline 3-phase pass; "flashvsr-inline" runs FlashVSR '
+             'inline in the streaming pipeline (no intermediate files, needs a patched '
+             'FlashVSR repo). Both need --flashvsr-repo.',
     )
     from jasna.restorer.flashvsr_offline import add_flashvsr_arguments
     add_flashvsr_arguments(secondary)
@@ -419,6 +421,13 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    if str(getattr(args, "secondary_restoration", "")).lower() == "flashvsr-inline" \
+            and not getattr(args, "fp8_recon", False):
+        # fp8-recon shrinks the primary's peak by ~0.9-1.7GB, which the inline
+        # co-residence budget assumes (FLASHVSR_INLINE_FEASIBILITY §12). Auto-enable
+        # it; the restorer falls back to TRT if the GPU can't do fp8 (sm89+/--fp16).
+        args.fp8_recon = True
+
     if getattr(args, "fp8_recon", False):
         # Propagated via the environment so it reaches the restorer in every
         # execution path (pipeline, benchmarks, GUI-launched runs).
@@ -654,6 +663,24 @@ def main() -> None:
 
     secondary_name = str(args.secondary_restoration).lower()
 
+    if secondary_name == "flashvsr-inline":
+        from jasna.restorer.flashvsr_offline import DEFAULT_MAX_CLIP_FRAMES
+        # tiny-long co-resides with the primary only within a bounded clip (the
+        # primary is O(clip)); frame-gen is a separate pass. Match the offline path.
+        if frame_gen_multiplier > 1:
+            raise ValueError(
+                "--secondary-restoration flashvsr-inline does not support --frame-gen "
+                "(run frame generation as a separate pass)"
+            )
+        if max_clip_size > DEFAULT_MAX_CLIP_FRAMES:
+            logging.getLogger(__name__).info(
+                "[flashvsr-inline] capping --max-clip-size %d -> %d (co-residence budget)",
+                max_clip_size, DEFAULT_MAX_CLIP_FRAMES,
+            )
+            max_clip_size = DEFAULT_MAX_CLIP_FRAMES
+            if 2 * temporal_overlap >= max_clip_size:
+                temporal_overlap = (max_clip_size - 1) // 2
+
     if args.license_email and args.license_key:
         from jasna.protection import license_store
         license_store.set_license(args.license_email, args.license_key)
@@ -697,6 +724,33 @@ def main() -> None:
                 quality=str(args.rtx_quality).lower(),
                 denoise=None if rtx_denoise == "none" else rtx_denoise,
                 deblur=None if rtx_deblur == "none" else rtx_deblur,
+            )
+        elif secondary_name == "flashvsr-inline":
+            from jasna.restorer.flashvsr_inline_secondary_restorer import FlashvsrInlineSecondaryRestorer
+            if not str(args.flashvsr_repo).strip():
+                raise ValueError("--flashvsr-repo is required for --secondary-restoration flashvsr-inline")
+            fv_repo = Path(str(args.flashvsr_repo)).expanduser()
+            if not fv_repo.is_dir():
+                raise FileNotFoundError(f"--flashvsr-repo not found: {fv_repo}")
+            py_arg = str(args.flashvsr_python).strip()
+            fv_py = Path(py_arg).expanduser() if py_arg else fv_repo / ".venv" / "bin" / "python"
+            if not fv_py.exists():
+                raise FileNotFoundError(
+                    f"FlashVSR Python not found: {fv_py}. Pass --flashvsr-python. It must be a "
+                    "uv-managed standalone Python venv (system Python lacks the dev headers Triton "
+                    "JIT needs)."
+                )
+            md_arg = str(args.flashvsr_model_dir).strip()
+            fv_model = Path(md_arg).expanduser() if md_arg else fv_repo / "models" / "FlashVSR-v1.1"
+            if not fv_model.is_dir():
+                raise FileNotFoundError(f"--flashvsr-model-dir not found: {fv_model}")
+            secondary_restorer = FlashvsrInlineSecondaryRestorer(
+                repo=fv_repo,
+                model_dir=fv_model,
+                fv_python=fv_py,
+                version=str(getattr(args, "flashvsr_version", "11")),
+                dtype=str(getattr(args, "flashvsr_dtype", "bf16")),
+                device=str(args.device),
             )
         else:
             raise ValueError(f"Unsupported secondary restoration: {secondary_name}")

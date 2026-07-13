@@ -107,7 +107,7 @@ The main benefit is VRAM: the TensorRT upsample engine's load-time arena (~2.2 G
 jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvsr-repo ~/FlashVSR_plus
 ```
 
-FlashVSR peaks at 12–16 GB VRAM on its own, so it cannot co-reside with the ~9 GB primary pipeline. It runs **offline in three subprocesses whose peak VRAM never overlaps**: (1) primary restoration → serialize crops to a disk *bundle*, (2) FlashVSR 4x under its own venv, (3) re-blend + encode the final output. You supply the `FlashVSR_plus` checkout, its v1.1 weights, and a **uv-managed standalone Python venv** (system Python can't JIT FlashVSR's Triton attention kernel). File-output only; not compatible with `--stream` / `--frame-gen`. Details: [docs/FLASHVSR_en.md](docs/FLASHVSR_en.md).
+FlashVSR peaks at 12–16 GB VRAM on its own, so it cannot co-reside with the ~9 GB primary pipeline. It runs **offline in three subprocesses whose peak VRAM never overlaps**: (1) primary restoration → serialize crops to a disk *bundle*, (2) FlashVSR 4x under its own venv, (3) re-blend + encode the final output. You supply the `FlashVSR_plus` checkout, its v1.1 weights, and a **uv-managed standalone Python venv** (system Python can't JIT FlashVSR's Triton attention kernel). File-output only; not compatible with `--stream` / `--frame-gen`. A single-pass variant, `--secondary-restoration flashvsr-inline`, runs FlashVSR inside the streaming pipeline with **no intermediate files** (needs a 16 GB card and a checkout with the tiny-long multi-chunk patch). Details: [docs/FLASHVSR_en.md](docs/FLASHVSR_en.md).
 
 ## Community
 
