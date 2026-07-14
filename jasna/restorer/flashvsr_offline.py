@@ -568,6 +568,13 @@ def _cap_max_clip_size(argv: list[str], cap: int) -> list[str]:
     return out
 
 
+def default_flashvsr_python(repo: Path) -> Path:
+    """Platform default for --flashvsr-python inside the FlashVSR checkout's uv venv."""
+    if os.name == "nt":
+        return repo / ".venv" / "Scripts" / "python.exe"
+    return repo / ".venv" / "bin" / "python"
+
+
 def _validate_flashvsr_args(args: "argparse.Namespace") -> tuple[Path, Path, Path, Path]:
     """Validate the flashvsr-specific inputs; return resolved paths."""
     from jasna.media.image_io import is_image_path
@@ -589,7 +596,7 @@ def _validate_flashvsr_args(args: "argparse.Namespace") -> tuple[Path, Path, Pat
         raise FileNotFoundError(f"--flashvsr-repo not found: {repo}")
 
     python_arg = str(args.flashvsr_python).strip()
-    fv_python = Path(python_arg).expanduser() if python_arg else repo / ".venv" / "bin" / "python"
+    fv_python = Path(python_arg).expanduser() if python_arg else default_flashvsr_python(repo)
     if not fv_python.exists():
         raise FileNotFoundError(
             f"FlashVSR Python not found: {fv_python}. Pass --flashvsr-python. "
@@ -801,6 +808,11 @@ def _phase2_upscale(
     # The FlashVSR venv must import its own repo, not inherit jasna's PYTHONPATH.
     env = dict(os.environ)
     env.pop("PYTHONPATH", None)
+    if os.name == "nt":
+        # FlashVSR prints a block-character banner at pipeline init; when stdout is
+        # a pipe (GUI runs, output redirection) Windows defaults the child's text
+        # layer to cp932 and the print raises UnicodeEncodeError before inference.
+        env["PYTHONUTF8"] = "1"
     _run_checked(cmd, "Phase 2 (FlashVSR 4x)", env=env)
 
 
@@ -861,8 +873,9 @@ def add_flashvsr_arguments(group: "argparse._ArgumentGroup") -> None:
         "--flashvsr-python",
         type=str,
         default="",
-        help="Python for the FlashVSR env (default: <repo>/.venv/bin/python). MUST be a uv-managed "
-             "standalone Python venv; system Python lacks the dev headers Triton JIT needs.",
+        help="Python for the FlashVSR env (default: <repo>/.venv/bin/python; on Windows "
+             "<repo>/.venv/Scripts/python.exe). MUST be a uv-managed standalone Python venv; "
+             "system Python lacks the dev headers Triton JIT needs.",
     )
     group.add_argument(
         "--flashvsr-model-dir",

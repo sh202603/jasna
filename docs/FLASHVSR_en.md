@@ -246,6 +246,9 @@ stays).
   crash) and heavy offloading at 1080p. For margin at 1080p+, use **`--batch-size 2`**
   (or `1`) and/or disable MPS (frees ~490 MB). Use the offline `flashvsr` mode for
   GPUs with less VRAM, an unpatched checkout, or if 1080p is routinely this tight.
+- **On Windows, inline does not fit a 16 GB card** (`expandable_segments` is
+  unsupported there, so the worker's reserved VRAM balloons to ~13 GB). See
+  [Windows notes](#windows-notes).
 
 ### Implementation
 
@@ -257,6 +260,38 @@ stays).
   by replacing `imageio.get_writer`, next_8n5 padding to absorb small clips and return
   exactly T frames).
 - CLI wiring: `jasna/main.py`. Tests: `tests/test_flashvsr_inline.py`.
+
+## Windows notes
+
+Verified on Windows 11 / RTX 5080 16 GB / torch 2.13.0+cu130 (FlashVSR venv). Bottom
+line: **on a 16 GB card, only offline (`flashvsr`) is recommended; inline does not
+have the VRAM.**
+
+- **PyTorch's `expandable_segments` is unsupported on Windows** (it warns and falls
+  back to the default caching allocator). tiny-long's reserved VRAM runs **+1–2 GB**
+  above the Linux "flat ~11.9 GB" figure due to fragmentation.
+  `backend:cudaMallocAsync` does not help (measured slightly worse). jasna therefore
+  does not set `expandable_segments` for the worker on Windows.
+- **The WDDM desktop holds ~1 GB** (near zero on headless Linux), leaving
+  **~15.2 GB effective** on a 16 GB card.
+- Measured peaks (scale 4 / tiny-long / bf16 / sage / 85 frames, reserved):
+  - **256px input (jasna's real workload): ~13.0 GB** — Phase 2 has the GPU to
+    itself, so offline works on 16 GB Windows.
+  - **384px input (the bundled example0 smoke): ~15.1 GB** — razor-thin against the
+    effective free VRAM; a browser or IDE holding a few hundred MB tips it into OOM.
+    **A smoke-test OOM does not imply jasna's real workload OOMs.**
+- **An 85-frame smoke with `-m tiny` (O(T) memory) is expected to OOM on 16 GB
+  Windows.** Smoke-test with `-m tiny-long` instead (substitute it in the step-5
+  setup command).
+- The venv Python lives at `<repo>/.venv/Scripts/python.exe` (the
+  `--flashvsr-python` default resolves there on Windows).
+- When stdout goes to a pipe (redirection / some GUI launches), FlashVSR's
+  block-character startup banner raises `UnicodeEncodeError` under cp932 before
+  inference starts. jasna-spawned runs (offline Phase 2 / the inline worker) set
+  `PYTHONUTF8=1` automatically; **when invoking run.py by hand with redirected
+  output, set `$env:PYTHONUTF8=1` first**.
+- run.py does not create the output directory (a missing one fails with
+  `FileNotFoundError` after inference) — `mkdir` it beforehand.
 
 ## Implementation (offline)
 
