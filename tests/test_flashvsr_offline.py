@@ -304,8 +304,11 @@ class TestValidation:
     def _args(self, tmp_path, **overrides):
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
+        # default_flashvsr_python resolves per-platform; create both layouts.
         (repo / ".venv" / "bin").mkdir(parents=True, exist_ok=True)
         (repo / ".venv" / "bin" / "python").touch()
+        (repo / ".venv" / "Scripts").mkdir(parents=True, exist_ok=True)
+        (repo / ".venv" / "Scripts" / "python.exe").touch()
         (repo / "models" / "FlashVSR-v1.1").mkdir(parents=True, exist_ok=True)
         inp = tmp_path / "in.mp4"
         inp.touch()
@@ -432,8 +435,11 @@ class TestOrchestrator:
 
     def _make_args(self, tmp_path):
         repo = tmp_path / "repo"
+        # default_flashvsr_python resolves per-platform; create both layouts.
         (repo / ".venv" / "bin").mkdir(parents=True, exist_ok=True)
         (repo / ".venv" / "bin" / "python").touch()
+        (repo / ".venv" / "Scripts").mkdir(parents=True, exist_ok=True)
+        (repo / ".venv" / "Scripts" / "python.exe").touch()
         (repo / "models" / "FlashVSR-v1.1").mkdir(parents=True, exist_ok=True)
         inp = tmp_path / "in.mp4"
         inp.touch()
