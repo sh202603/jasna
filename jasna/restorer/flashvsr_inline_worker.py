@@ -38,6 +38,7 @@ import json
 import os
 import struct  # noqa: F401  (kept for parity; framing uses newline+raw)
 import sys
+import tempfile
 import traceback
 
 
@@ -165,7 +166,9 @@ def main() -> None:
     proto.write((json.dumps({"status": "ready"}) + "\n").encode("utf-8"))
 
     scale = int(args.scale)
-    devnull_out = os.path.join("/tmp", "flashvsr_inline_devnull.mp4")
+    # Never written (imageio.get_writer is patched above); must merely be a
+    # valid-looking path on every platform.
+    devnull_out = os.path.join(tempfile.gettempdir(), "flashvsr_inline_devnull.mp4")
 
     while True:
         header = _read_header(stdin)
