@@ -96,11 +96,30 @@ class FlashvsrInlineSecondaryRestorer:
             cmd.append("--verbose")
 
         # The FlashVSR venv must import its own repo, not inherit jasna's
-        # PYTHONPATH. expandable_segments keeps the worker's reserved VRAM tight
-        # (the co-residence discipline, §12).
+        # PYTHONPATH.
         env = dict(os.environ)
         env.pop("PYTHONPATH", None)
-        env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+        if os.name == "nt":
+            # expandable_segments is not supported on Windows (torch warns and
+            # falls back to the default caching allocator), so the worker's
+            # reserved VRAM runs ~1-2GB above the Linux flat budget from
+            # fragmentation, plus ~1GB held by the WDDM desktop. Measured on a
+            # 16GB RTX 5080: 256px clips peak ~13GB reserved, so co-residence
+            # with the primary does not fit in 16GB. Warn (larger GPUs still
+            # work) and force UTF-8: tiny-long's block-character init banner
+            # raises UnicodeEncodeError on the cp932 text layer our stdout pipe
+            # gets by default.
+            env["PYTHONUTF8"] = "1"
+            logger.warning(
+                "[flashvsr-inline] Windows: expandable_segments is unavailable, so the "
+                "FlashVSR worker peaks ~13GB reserved VRAM in addition to the primary "
+                "pipeline; 16GB GPUs will likely OOM. Prefer --secondary-restoration "
+                "flashvsr (offline 3-phase) on Windows."
+            )
+        else:
+            # expandable_segments keeps the worker's reserved VRAM tight (the
+            # co-residence discipline, §12).
+            env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
         self._lock = threading.Lock()
         self._closed = False

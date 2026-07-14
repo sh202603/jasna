@@ -301,8 +301,11 @@ class TestSecondaryRestorers:
     def test_flashvsr_inline_dispatches_normal_pipeline_and_autoenables_fp8(self, tmp_path):
         inp, out, rest, det = _make_model_files(tmp_path)
         repo = tmp_path / "repo"
+        # default_flashvsr_python resolves per-platform; create both layouts.
         (repo / ".venv" / "bin").mkdir(parents=True)
         (repo / ".venv" / "bin" / "python").touch()
+        (repo / ".venv" / "Scripts").mkdir(parents=True)
+        (repo / ".venv" / "Scripts" / "python.exe").touch()
         (repo / "models" / "FlashVSR-v1.1").mkdir(parents=True)
         argv = _base_argv(inp, out, rest, det, [
             "--secondary-restoration", "flashvsr-inline",
