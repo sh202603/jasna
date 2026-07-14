@@ -235,6 +235,8 @@ git apply /path/to/jasna/patches/flashvsr_plus_tinylong_multichunk_fix.patch
   ではない)と大量の offload が出る。1080p 以上で余裕が欲しければ **`--batch-size 2`**
   (または `1`)や MPS 停止(~490 MB 増)を使う。VRAM が少ない環境・未パッチ
   checkout・1080p が恒常的にこの余裕ならオフライン(`flashvsr`)を使う。
+- **Windows では 16 GB カードで inline は成立しない**(`expandable_segments` 非対応で
+  worker の reserved が ~13 GB に膨らむ)。詳細は「[Windows での注意事項](#windows-での注意事項)」。
 
 ### 実装
 
@@ -245,6 +247,36 @@ git apply /path/to/jasna/patches/flashvsr_plus_tinylong_multichunk_fix.patch
   (tiny-long pipe、`imageio.get_writer` を差し替えてロスレスにテンソル捕獲、
   small clip は next_8n5 パディングで吸収し厳密に T 枚返す)。
 - CLI 配線: `jasna/main.py`。テスト: `tests/test_flashvsr_inline.py`。
+
+## Windows での注意事項
+
+検証環境: Windows 11 / RTX 5080 16 GB / torch 2.13.0+cu130(FlashVSR venv)。結論:
+**16 GB カードではオフライン(`flashvsr`)のみ推奨。inline は VRAM が足りない。**
+
+- **PyTorch の `expandable_segments` は Windows 未対応**(警告を出して既定の
+  キャッシングアロケータへフォールバック)。tiny-long の reserved VRAM は Linux の
+  「フラット ~11.9 GB」より断片化で **+1〜2 GB** 膨らむ。`backend:cudaMallocAsync`
+  でも改善しない(実測でむしろ微増)。jasna は Windows では worker に
+  `expandable_segments` を設定しない。
+- **WDDM デスクトップ常駐が ~1 GB** を取る(ヘッドレス Linux ではほぼ 0)。16 GB
+  カードの実効空きは **~15.2 GB**。
+- 実測ピーク(scale 4 / tiny-long / bf16 / sage / 85 フレーム、reserved 値):
+  - **256px 入力(jasna の実ワークロード): ~13.0 GB** — Phase 2 は GPU を単独占有
+    するので、オフラインは 16 GB Windows で動く。
+  - **384px 入力(同梱 example0 での smoke): ~15.1 GB** — 空きと紙一重。ブラウザや
+    IDE が数百 MB 使っているだけで OOM する。**smoke の OOM ≠ jasna 実負荷の OOM**。
+- **`-m tiny`(O(T))での 85 フレーム smoke は 16 GB Windows では OOM して正常**。
+  smoke は `-m tiny-long` で行う(セットアップ手順 5 のコマンドの `-m tiny` を
+  読み替える)。
+- venv の Python は `<repo>/.venv/Scripts/python.exe`(`--flashvsr-python` の既定も
+  Windows ではこのパスに解決される)。
+- stdout がパイプに向く(リダイレクト / 一部の GUI 起動)と、FlashVSR の起動バナー
+  (ブロック文字)が cp932 で `UnicodeEncodeError` になり推論前に落ちる。jasna からの
+  起動(オフライン Phase 2 / inline worker)は `PYTHONUTF8=1` を自動設定するので
+  対処不要。**run.py を手で叩いて出力をリダイレクトする場合は
+  `$env:PYTHONUTF8=1` を先に設定**する。
+- run.py は出力ディレクトリを自動作成しない(存在しないと推論後の書き出しで
+  `FileNotFoundError`)。事前に `mkdir` しておく。
 
 ## 実装(オフライン)
 
