@@ -31,9 +31,9 @@ FlashVSR の **tiny-long**(定メモリ ~11.9 GB、パッチ要)を使い、一�
 
 | 段 | 環境 | ~VRAM | 内容 |
 |----|------|-------|------|
-| 1 — dump | jasna | ~9 GB | decode + detect + BasicVSR++ 一次復元。各 clip の 256px クロップ + マスク + 幾何をディスク上の **bundle** へ直列化。blend/encode は捨てる。 |
-| 2 — FlashVSR 4x | FlashVSR | 12–16 GB | 各 clip の 256px クロップを 1024px に拡大し bundle へ書き戻す。 |
-| 3 — reblend | jasna | 軽い | source を再デコードし、bundle から復元結果を再構成、1024px クロップを再 blend して最終出力を encode。 |
+| 1 (dump) | jasna | ~9 GB | decode + detect + BasicVSR++ 一次復元。各 clip の 256px クロップ + マスク + 幾何をディスク上の **bundle** へ直列化。blend/encode は捨てる。 |
+| 2 (FlashVSR 4x) | FlashVSR | 12–16 GB | 各 clip の 256px クロップを 1024px に拡大し bundle へ書き戻す。 |
+| 3 (reblend) | jasna | 軽い | source を再デコードし、bundle から復元結果を再構成、1024px クロップを再 blend して最終出力を encode。 |
 
 Phase 1 / Phase 3 は `jasna --flashvsr-phase {dump,reblend}` のサブプロセスとして
 走る(`jasna/__main__.py` で multiprocessing ガードより前に分岐。`--compile-engines`
@@ -94,7 +94,7 @@ uv pip install -r requirements.txt --index-url https://download.pytorch.org/whl/
   `LQ_proj_in.ckpt`・`TCDecoder.ckpt`、隣に `<repo>/models/posi_prompt.pth` が揃う
   ——これが `--flashvsr-repo` の期待する構成。
 
-### jasna から指す
+### jasna から指定するもの
 
 - `--flashvsr-repo <path>`(必須): 上で作った `FlashVSR_plus` checkout。
 - `--flashvsr-python <path>`(既定 `<repo>/.venv/bin/python`): 手順2の uv-managed
@@ -122,6 +122,7 @@ jasna --input in.mp4 --output out.mkv \
 | `--flashvsr-max-clip-frames` | `32` | Phase 1 の `--max-clip-size` を上限化し、各 clip を FlashVSR tiny の VRAM に収める。 |
 | `--flashvsr-unload-dit` / `--no-flashvsr-unload-dit` | on | VAE decode 前に DiT をオフロード(VRAM 節約)。 |
 | `--flashvsr-tiled-vae` / `--no-flashvsr-tiled-vae` | on | FlashVSR の VAE decode をタイル化(VRAM 節約)。 |
+| `--flashvsr-tiles` | `1` | inline 専用: DiT 推論を横短冊に分割して VRAM ピークを下げる(`2`〜`4`)。オフラインは無視する。詳細は「[strip タイリング](#strip-タイリング--flashvsr-tiles)」。 |
 | `--flashvsr-bundle-dir` | temp | 中間 bundle をここに永続化(段階再開が可能に)。 |
 | `--flashvsr-keep-bundle` | off | 完了後も bundle を残す(`--flashvsr-bundle-dir` 指定時は暗黙的に有効)。 |
 
@@ -230,13 +231,40 @@ git apply /path/to/jasna/patches/flashvsr_plus_tinylong_multichunk_fix.patch
 - VRAM(**16 GB カード + デスクトップ常駐**時): 480p で combined ~14.8 GB。ただし
   **1080p 以上は物理天井際**まで上がる(実測 ~15.8 GB ピーク)。worker の
   `expandable_segments` と jasna の `vram_offloader`(キューフレームを system RAM へ
-  退避)が圧を吸収して落ちない ——1080p では
+  退避)が圧を吸収して落ちない(1080p では
   `expandable_segments: memory mapping failed with OOM` の**警告**(無害。クラッシュ
-  ではない)と大量の offload が出る。1080p 以上で余裕が欲しければ **`--batch-size 2`**
-  (または `1`)や MPS 停止(~490 MB 増)を使う。VRAM が少ない環境・未パッチ
-  checkout・1080p が恒常的にこの余裕ならオフライン(`flashvsr`)を使う。
-- **Windows では 16 GB カードで inline は成立しない**(`expandable_segments` 非対応で
-  worker の reserved が ~13 GB に膨らむ)。詳細は「[Windows での注意事項](#windows-での注意事項)」。
+  ではない)と大量の offload が出る)。天井が近いときの第一の対策は
+  **`--flashvsr-tiles`**(次節)。補助として `--batch-size 2`(または `1`)や
+  MPS 停止(~490 MB 増)もある。VRAM が少ない環境や未パッチ checkout では
+  オフライン(`flashvsr`)を使う。
+- **Windows では `expandable_segments` が使えず worker の reserved が ~13 GB に膨らむ**
+  ため、tiles 無しの inline は物理天井に張り付く(完走はするが余裕がほぼ無い)。
+  1080p では **`--flashvsr-tiles 2` を推奨**。実測は
+  「[Windows での注意事項](#windows-での注意事項)」。
+
+### strip タイリング(`--flashvsr-tiles`)
+
+inline 専用の VRAM 対策。各 256px クロップを幅そのままに高さ方向だけ横短冊(strip)に
+分割し、短冊ごとに tiny-long を回して羽根(feather)合成する。DiT のトークン活性メモリ
+(特に block-sparse draft の attn マスク)はタイル面積の二乗で減るため、少ない計算増で
+ピーク VRAM が下がる。オフライン(`flashvsr`)は本フラグを無視する。
+
+| `--flashvsr-tiles` | 短冊 | attn マスク(対 full) | 計算量(対 full) |
+|---|---|---|---|
+| `1`(既定) | なし(単発) | 1.0 | 1.0 |
+| `2` | 2 枚(各 256w×160h) | 0.39x | ~1.25x |
+| `3` | 3 枚(各 256w×128h) | 0.25x | ~1.5x |
+| `4` | 4 枚(各 256w×96h) | 0.14x | ~1.5x |
+
+短冊は少ないほど速く品質も良い(重複計算が少なく、1 短冊の空間文脈が広い)ので、
+VRAM が許す**最小の枚数**を選ぶ。2 で収まれば 2、天井に張り付く/OOM するなら 3、
+それでも足りなければ 4。
+
+品質への影響: 短冊境界は羽根合成され、実機確認(Windows / RTX 5080、tiles 1 との
+同一フレーム比較)ではバンディング・段差・短冊間の色調ずれは検出されなかった。差分は
+拡散モデルの確率的なテクスチャ揺らぎの範囲にとどまる。なお合成の都合上、出力の最外
+1px は重み 0 になる(本家 run.py 由来の既存挙動。ブレンド時のクロップ境界は羽根が
+かかるため実害は小さい)。
 
 ### 実装
 
@@ -245,13 +273,15 @@ git apply /path/to/jasna/patches/flashvsr_plus_tinylong_multichunk_fix.patch
   `close()` で終了)。
 - worker(FlashVSR venv 実行、jasna 非依存): `jasna/restorer/flashvsr_inline_worker.py`
   (tiny-long pipe、`imageio.get_writer` を差し替えてロスレスにテンソル捕獲、
-  small clip は next_8n5 パディングで吸収し厳密に T 枚返す)。
+  small clip は next_8n5 パディングで吸収し厳密に T 枚返す。strip の分割と
+  羽根合成もここ)。
 - CLI 配線: `jasna/main.py`。テスト: `tests/test_flashvsr_inline.py`。
 
 ## Windows での注意事項
 
 検証環境: Windows 11 / RTX 5080 16 GB / torch 2.13.0+cu130(FlashVSR venv)。結論:
-**16 GB カードではオフライン(`flashvsr`)のみ推奨。inline は VRAM が足りない。**
+**16 GB カードでは、オフライン(`flashvsr`)か、inline + `--flashvsr-tiles`
+(1080p は `2` 推奨)を使う。tiles 無しの inline は完走はするが余裕がほぼ無い。**
 
 - **PyTorch の `expandable_segments` は Windows 未対応**(警告を出して既定の
   キャッシングアロケータへフォールバック)。tiny-long の reserved VRAM は Linux の
@@ -259,7 +289,22 @@ git apply /path/to/jasna/patches/flashvsr_plus_tinylong_multichunk_fix.patch
   でも改善しない(実測でむしろ微増)。jasna は Windows では worker に
   `expandable_segments` を設定しない。
 - **WDDM デスクトップ常駐が ~1 GB** を取る(ヘッドレス Linux ではほぼ 0)。16 GB
-  カードの実効空きは **~15.2 GB**。
+  カードの実効空きは **~15.2 GB**。ブラウザや IDE も開いた実デスクトップでは
+  アイドルで ~2 GB を超えることもある。
+- inline のフルパイプライン実測(フル長素材、nvidia-smi の GPU 全体ピーク、
+  アイドル ~2.1 GB の実デスクトップ常駐):
+
+  | `--flashvsr-tiles` | 1080p ピーク | 壁時計(対 tiles 1) |
+  |---|---|---|
+  | `1` | 15918 MiB | 1.00x |
+  | `2` | **14222 MiB** | 1.25x |
+  | `3` | 12490 MiB | 1.46x |
+  | `4` | 11514 MiB | 1.46x |
+
+  tiles `1` は 480p でも 1080p でも完走した(offload 0 回、OOM 警告 0 件)が、
+  ピークは物理天井(16303 MiB)まで 400 MiB を切り、常駐アプリの変動で OOM に
+  転じうる。**1080p の常用は `--flashvsr-tiles 2`**(余裕 ~2 GB、減速 +25%)。
+  短冊境界のシーム(バンディング、色調ずれ)はこの実測でも検出されなかった。
 - 実測ピーク(scale 4 / tiny-long / bf16 / sage / 85 フレーム、reserved 値):
   - **256px 入力(jasna の実ワークロード): ~13.0 GB** — Phase 2 は GPU を単独占有
     するので、オフラインは 16 GB Windows で動く。
