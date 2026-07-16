@@ -32,9 +32,9 @@ next starts, so peak VRAM is never live at the same time:
 
 | Phase | Env | ~VRAM | Work |
 |-------|-----|-------|------|
-| 1 — dump | jasna | ~9 GB | decode + detect + BasicVSR++ primary restoration; serialize every clip's 256px crops + masks + geometry to a **bundle** on disk. blend/encode is throwaway. |
-| 2 — FlashVSR 4x | FlashVSR | 12–16 GB | upscale each clip's 256px crops to 1024px, write them back into the bundle. |
-| 3 — reblend | jasna | light | re-decode the source, re-assemble the restore results from the bundle, blend the 1024px crops back in, and encode the final output. |
+| 1 (dump) | jasna | ~9 GB | decode + detect + BasicVSR++ primary restoration; serialize every clip's 256px crops + masks + geometry to a **bundle** on disk. blend/encode is throwaway. |
+| 2 (FlashVSR 4x) | FlashVSR | 12–16 GB | upscale each clip's 256px crops to 1024px, write them back into the bundle. |
+| 3 (reblend) | jasna | light | re-decode the source, re-assemble the restore results from the bundle, blend the 1024px crops back in, and encode the final output. |
 
 Phase 1 and Phase 3 run as `jasna --flashvsr-phase {dump,reblend}` subprocesses
 (dispatched in `jasna/__main__.py` before the multiprocessing guard, mirroring
@@ -124,6 +124,7 @@ jasna --input in.mp4 --output out.mkv \
 | `--flashvsr-max-clip-frames` | `32` | Caps Phase 1 `--max-clip-size` so each clip fits FlashVSR tiny-mode VRAM. |
 | `--flashvsr-unload-dit` / `--no-flashvsr-unload-dit` | on | Offload the FlashVSR DiT before VAE decode (saves VRAM). |
 | `--flashvsr-tiled-vae` / `--no-flashvsr-tiled-vae` | on | Tile the FlashVSR VAE decode (saves VRAM). |
+| `--flashvsr-tiles` | `1` | Inline only: split the DiT inference into horizontal strips (`2`–`4`) to cut peak VRAM. The offline path ignores it. See [Strip tiling](#strip-tiling---flashvsr-tiles). |
 | `--flashvsr-bundle-dir` | temp | Persist the intermediate bundle here (enables stage resume). |
 | `--flashvsr-keep-bundle` | off | Keep the bundle after completion (implied by `--flashvsr-bundle-dir`). |
 
@@ -243,12 +244,41 @@ stays).
   because the worker's `expandable_segments` allocator and jasna's `vram_offloader`
   (which spills queued frames to system RAM) absorb the pressure — expect
   `expandable_segments: memory mapping failed with OOM` **warnings** (benign; not a
-  crash) and heavy offloading at 1080p. For margin at 1080p+, use **`--batch-size 2`**
-  (or `1`) and/or disable MPS (frees ~490 MB). Use the offline `flashvsr` mode for
-  GPUs with less VRAM, an unpatched checkout, or if 1080p is routinely this tight.
-- **On Windows, inline does not fit a 16 GB card** (`expandable_segments` is
-  unsupported there, so the worker's reserved VRAM balloons to ~13 GB). See
-  [Windows notes](#windows-notes).
+  crash) and heavy offloading at 1080p. The first remedy when the ceiling is close is
+  **`--flashvsr-tiles`** (next section); `--batch-size 2` (or `1`) and disabling MPS
+  (frees ~490 MB) also help. Use the offline `flashvsr` mode for GPUs with less VRAM
+  or an unpatched checkout.
+- **On Windows, `expandable_segments` is unavailable and the worker's reserved VRAM
+  balloons to ~13 GB**, so untiled inline runs pinned to the physical ceiling (it
+  completes, but with almost no headroom). At 1080p, use **`--flashvsr-tiles 2`**.
+  Measurements: [Windows notes](#windows-notes).
+
+### Strip tiling (`--flashvsr-tiles`)
+
+An inline-only VRAM lever. Each 256px crop is split along the height only, into
+full-width horizontal strips; tiny-long runs per strip and the strips are
+feather-blended back together. The DiT's token-activation memory (most of all the
+block-sparse draft's attention mask) shrinks with the square of the tile area, so
+peak VRAM drops for a modest compute increase. The offline path (`flashvsr`)
+ignores this flag.
+
+| `--flashvsr-tiles` | Strips | Attn mask (vs full) | Compute (vs full) |
+|---|---|---|---|
+| `1` (default) | none (single shot) | 1.0 | 1.0 |
+| `2` | 2 (256w×160h each) | 0.39x | ~1.25x |
+| `3` | 3 (256w×128h each) | 0.25x | ~1.5x |
+| `4` | 4 (256w×96h each) | 0.14x | ~1.5x |
+
+Fewer strips are both faster and better (less overlap compute, wider spatial
+context per strip), so pick the **smallest count that fits your VRAM**: `2` if it
+fits, `3` when still pinned at the ceiling or OOMing, `4` as the last step.
+
+Quality: strip boundaries are feather-blended; hardware verification (Windows /
+RTX 5080, same-frame comparison against tiles 1) found no banding, no steps, and
+no per-strip color shift — differences stay within the diffusion model's
+stochastic texture variation. As with the untiled path, the outermost 1px of the
+output has zero weight (pre-existing behavior inherited from upstream run.py;
+harmless in practice since the blend feathers crop borders).
 
 ### Implementation
 
@@ -258,14 +288,14 @@ stays).
 - Worker (runs under the FlashVSR venv, no jasna import):
   `jasna/restorer/flashvsr_inline_worker.py` (tiny-long pipe, lossless tensor capture
   by replacing `imageio.get_writer`, next_8n5 padding to absorb small clips and return
-  exactly T frames).
+  exactly T frames; the strip split and feather blend also live here).
 - CLI wiring: `jasna/main.py`. Tests: `tests/test_flashvsr_inline.py`.
 
 ## Windows notes
 
 Verified on Windows 11 / RTX 5080 16 GB / torch 2.13.0+cu130 (FlashVSR venv). Bottom
-line: **on a 16 GB card, only offline (`flashvsr`) is recommended; inline does not
-have the VRAM.**
+line: **on a 16 GB card, use offline (`flashvsr`), or inline with `--flashvsr-tiles`
+(`2` recommended at 1080p). Untiled inline completes, but with almost no headroom.**
 
 - **PyTorch's `expandable_segments` is unsupported on Windows** (it warns and falls
   back to the default caching allocator). tiny-long's reserved VRAM runs **+1–2 GB**
@@ -273,7 +303,23 @@ have the VRAM.**
   `backend:cudaMallocAsync` does not help (measured slightly worse). jasna therefore
   does not set `expandable_segments` for the worker on Windows.
 - **The WDDM desktop holds ~1 GB** (near zero on headless Linux), leaving
-  **~15.2 GB effective** on a 16 GB card.
+  **~15.2 GB effective** on a 16 GB card. A real desktop with a browser and IDE open
+  can idle above ~2 GB.
+- Full-pipeline inline measurements (full-length clips, whole-GPU nvidia-smi
+  peak, real desktop idling at ~2.1 GB):
+
+  | `--flashvsr-tiles` | 1080p peak | Wall clock (vs tiles 1) |
+  |---|---|---|
+  | `1` | 15918 MiB | 1.00x |
+  | `2` | **14222 MiB** | 1.25x |
+  | `3` | 12490 MiB | 1.46x |
+  | `4` | 11514 MiB | 1.46x |
+
+  Tiles `1` completed at both 480p and 1080p (zero offloads, zero OOM warnings), but
+  the peak sits within 400 MiB of the physical ceiling (16303 MiB) — a resident app
+  opening a few tabs can tip it into OOM. **For regular 1080p use, run
+  `--flashvsr-tiles 2`** (~2 GB headroom, +25% wall clock). No strip-boundary seams
+  (banding, color shift) were detected in these runs either.
 - Measured peaks (scale 4 / tiny-long / bf16 / sage / 85 frames, reserved):
   - **256px input (jasna's real workload): ~13.0 GB** — Phase 2 has the GPU to
     itself, so offline works on 16 GB Windows.
