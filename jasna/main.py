@@ -75,6 +75,8 @@ def _session_config_from_args(
         flashvsr_model_dir=str(getattr(args, "flashvsr_model_dir", "") or ""),
         flashvsr_version=str(getattr(args, "flashvsr_version", "11")),
         flashvsr_dtype=str(getattr(args, "flashvsr_dtype", "bf16")),
+        flashvsr_tiles=int(getattr(args, "flashvsr_tiles", 1)),
+        flashvsr_log_level=str(getattr(args, "log_level", "error")),
     )
 
 
@@ -264,10 +266,9 @@ def build_parser() -> argparse.ArgumentParser:
         help=CLI_HELP["secondary_restoration"]
              + ' "flashvsr" runs an offline 3-phase pass; "flashvsr-inline" runs FlashVSR '
              'inline in the streaming pipeline (no intermediate files, needs a patched '
-             'FlashVSR repo). Both need --flashvsr-repo.',
+             'FlashVSR repo). Both need --flashvsr-repo. See the "FlashVSR" group for '
+             'its options.',
     )
-    from jasna.restorer.flashvsr_offline import add_flashvsr_arguments
-    add_flashvsr_arguments(secondary)
 
     sd15 = parser.add_argument_group("SD 1.5 image restoration")
     sd15.add_argument(
@@ -390,6 +391,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=CLI_HELP["tvai_denoise"],
     )
+
+    flashvsr = parser.add_argument_group("FlashVSR")
+    from jasna.restorer.flashvsr_offline import add_flashvsr_arguments
+    add_flashvsr_arguments(flashvsr)
 
     detection = parser.add_argument_group("Detection")
     detection.add_argument(
