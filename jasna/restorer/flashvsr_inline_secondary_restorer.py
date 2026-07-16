@@ -22,7 +22,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -34,6 +36,12 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+# Benign co-residence noise emitted by the worker's torch when expandable_segments
+# cannot memory-map under VRAM pressure (see FLASHVSR docs: harmless, not a crash).
+# Dropped from the worker's stderr only at --log-level error; genuine stderr
+# (tracebacks) is forwarded unchanged. Matched on bytes to avoid a decode step.
+_STDERR_SUPPRESS_RE = re.compile(rb"expandable_segments: memory mapping failed with OOM")
 
 # Marker left by tinylong_multichunk_fix.patch. The inline worker needs the
 # tiny-long multi-chunk fix; without it tiny-long crashes on the 2nd chunk.
@@ -75,6 +83,8 @@ class FlashvsrInlineSecondaryRestorer:
         dtype: str = "bf16",
         device: str = "cuda:0",
         scale: int = 4,
+        tiles: int = 1,
+        log_level: str = "error",
         startup_timeout_s: float = 300.0,
         verbose: bool = False,
     ) -> None:
@@ -91,6 +101,7 @@ class FlashvsrInlineSecondaryRestorer:
             "--dtype", str(dtype),
             "--device", str(device),
             "--scale", str(int(scale)),
+            "--tiles", str(int(tiles)),
         ]
         if verbose:
             cmd.append("--verbose")
@@ -123,13 +134,53 @@ class FlashvsrInlineSecondaryRestorer:
 
         self._lock = threading.Lock()
         self._closed = False
+        # At --log-level error, mute the worker's benign expandable_segments OOM
+        # warnings by piping stderr through a line filter (still forwarding real
+        # stderr like tracebacks). At info/warning/debug, inherit stderr unchanged
+        # so those warnings show.
+        self._quiet = str(log_level).lower() == "error"
+        self._stderr_thread: threading.Thread | None = None
         logger.info("[flashvsr-inline] spawning worker: %s", " ".join(cmd))
         self._proc = subprocess.Popen(
-            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None, env=env,
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE if self._quiet else None, env=env,
         )
+        if self._quiet:
+            self._stderr_thread = threading.Thread(
+                target=self._pump_stderr, name="flashvsr-inline-stderr", daemon=True
+            )
+            self._stderr_thread.start()
         self._await_ready(startup_timeout_s)
 
     # -- lifecycle -----------------------------------------------------------
+
+    def _pump_stderr(self) -> None:
+        """Forward the worker's stderr, dropping only the benign expandable_segments
+        OOM warnings. Runs on a daemon thread when --log-level error; it ends on
+        stderr EOF (worker exit)."""
+        stream = self._proc.stderr
+        if stream is None:
+            return
+        try:
+            for raw in iter(stream.readline, b""):
+                if _STDERR_SUPPRESS_RE.search(raw):
+                    continue
+                self._emit_stderr(raw)
+        except (ValueError, OSError):
+            pass  # stream closed during shutdown
+
+    @staticmethod
+    def _emit_stderr(raw: bytes) -> None:
+        try:
+            buf = getattr(sys.stderr, "buffer", None)
+            if buf is not None:
+                buf.write(raw)
+                buf.flush()
+            else:  # pytest / captured stderr has no .buffer
+                sys.stderr.write(raw.decode("utf-8", "replace"))
+                sys.stderr.flush()
+        except Exception:
+            pass
 
     def _await_ready(self, timeout_s: float) -> None:
         """Block until the worker's ``{"status":"ready"}`` handshake (or fail)."""
@@ -169,6 +220,8 @@ class FlashvsrInlineSecondaryRestorer:
             proc.wait(timeout=15)
         except subprocess.TimeoutExpired:
             self._kill()
+        if self._stderr_thread is not None:
+            self._stderr_thread.join(timeout=2)
 
     def _kill(self) -> None:
         proc = self._proc
