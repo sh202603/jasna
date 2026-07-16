@@ -79,6 +79,8 @@ class SessionConfig:
     flashvsr_model_dir: str = ""
     flashvsr_version: str = "11"
     flashvsr_dtype: str = "bf16"
+    flashvsr_tiles: int = 1
+    flashvsr_log_level: str = "error"
 
     def __post_init__(self) -> None:
         if self.batch_size <= 0:
