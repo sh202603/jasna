@@ -917,6 +917,16 @@ def add_flashvsr_arguments(group: "argparse._ArgumentGroup") -> None:
         help="Tile the FlashVSR VAE decode to save VRAM (default: %(default)s).",
     )
     group.add_argument(
+        "--flashvsr-tiles",
+        type=int,
+        default=1,
+        choices=[1, 2, 3, 4],
+        help="flashvsr-inline only: number of full-width horizontal DiT strips per "
+             "clip (tiled-dit) to cut FlashVSR peak VRAM on 16GB GPUs. 1 disables "
+             "(default). Use the largest that fits VRAM: 2 (~1.25x slower) first, then "
+             "3 or 4 (~1.5x) if it still OOMs. The offline path ignores this.",
+    )
+    group.add_argument(
         "--flashvsr-bundle-dir",
         type=str,
         default="",
