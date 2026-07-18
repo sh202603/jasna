@@ -104,7 +104,7 @@ Upstream v0.7.0 added folder input (`--input <dir> --output <dir>`, which proces
 
 ## 7. New feature (modi): torchcodec backend (experimental, with native = PyAV fallback)
 
-An experimental `torchcodec>=0.14.0` backend usable instead of native (PyAV NVDEC/NVENC since v0.8.0) — optional dependency, off by default. The default stays `native` (current behavior); select via `--video-backend {native,auto,torchcodec}` plus per-side `--decode-backend`/`--encode-backend {inherit,...}` overrides.
+An experimental `torchcodec>=0.15.0` backend usable instead of native (PyAV NVDEC/NVENC since v0.8.0) — optional dependency, off by default. The default stays `native` (current behavior); select via `--video-backend {native,auto,torchcodec}` plus per-side `--decode-backend`/`--encode-backend {inherit,...}` overrides.
 
 **Semantics changed with the v0.8.0 rebase**: the upstream native encoder now always outputs 10-bit (P010) for HEVC/AV1, so output parity with the 8-bit-nv12-only torchcodec encoder no longer holds. Therefore:
 
