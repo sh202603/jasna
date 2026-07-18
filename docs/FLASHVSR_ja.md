@@ -167,6 +167,10 @@ jasna は自動でこれを見張る: Phase 1 前に bundle dir が tmpfs なら
 
 - **ファイル出力専用**。`--stream`・フォルダ/画像入力・`--frame-gen` とは併用不可
   (フレーム生成は出力に対する別パスとして実行する)。
+- **fps リターゲット・スマートレンダリング・VR 非対応**。`--retarget-high-fps`
+  (Phase 1 の frame stride が Phase 3 の再ブレンド索引とずれる)・`--segments`・
+  VR 処理(`--vr-mode sbs`/`sbs-fisheye`、または `auto` が VR コンテンツを検出した
+  場合 — Phase 3 に VR プロジェクタがない)は起動時に拒否する。
 - **encode が 2 回**。Phase 1 は完全にテスト済みのパイプラインをそのまま流すため
   捨て出力を encode し、最終 encode は Phase 3 で行う。通常実行より encode が 1 回多い。
 - **同梱なし / サポーターモデルとは無関係**。FlashVSR は独自ライセンスのサードパーティ
