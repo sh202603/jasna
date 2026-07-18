@@ -1,329 +1,143 @@
 # Building Jasna for Windows
 
-> **⚠️ Note on the v0.8.0 rebase (2026-07-18)**: upstream v0.8.0 moved the media layer to PyAV (NVDEC/NVENC); `python_vali` / `PyNvVideoCodec` are no longer used by the runtime and **mkvmerge is no longer required**. The dependency is `av>=18,<19` (the GPU path needs PyAV 18.1.0's current_ctx API — until it is published, use a wheel built from PyAV upstream main `61e4aa8`). The instructions below date from the v0.7.2 era and are pending re-validation for v0.8.0. See `docs/CHANGES_vs_upstream_en.md` for the current deltas.
+How to set up Jasna on Windows and run it **from source**.
 
+> **Verification status (2026-07-18)**: The v0.8.0 update of this guide is a **desk revision**. Up to v0.7.2+modi these instructions were verified on real hardware (Windows 11 + RTX 5080), but the Windows verification of `v0.8.0+modi` is still ahead; sections marked ⚠️ **unverified** will be revised based on its results. The Linux side was verified on hardware the same day ([BUILDING_LINUX_en.md](BUILDING_LINUX_en.md)).
 
-How to set up the Jasna build dependencies on Windows and run jasna **from source**.
+> **This guide covers the `v0.8.0+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
 
-> **This guide covers the `v0.7.2+modi` branch.** It builds jasna against the GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**), already pinned in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0`; TensorRT 11 is not yet supported by torch-tensorrt.
+> **v0.8.0 simplified the setup considerably.** Upstream v0.8.0 moved the media layer to PyAV (NVDEC/NVENC), which removed the C++ builds of `python_vali` / `PyNvVideoCodec` entirely. All of the following prerequisites of the old guide are gone with them:
 >
-> **New on this branch:** AV1 output, 8-bit (NV12) output, and BT.601/BT.2020 colorspace preservation (see [CODECS_AND_COLORSPACE_en.md](CODECS_AND_COLORSPACE_en.md)); and 2x/4x frame generation via RIFE (see [FRAME_GENERATION_en.md](FRAME_GENERATION_en.md)).
+> - CUDA Toolkit 13.2 (and pinning `CUDA_PATH`)
+> - VS Build Tools 2022 (except when building the PyAV wheel yourself)
+> - Extracting an ffmpeg dev build to `C:\Program Files\ffmpeg8\` and the junction workaround (the `FFMPEG_ROOT` hardcode belonged to vali)
+> - The build environment variables (`DISTUTILS_USE_SDK`, `CMAKE_GENERATOR`, `CL=/utf-8`, `FFMPEG_DIR`) and `setup-build-env.ps1`
+> - The `setuptools<80` pin
+> - MKVToolNix (`mkvmerge`)
+>
+> Leftovers of these in an existing environment do no harm (`CUDA_PATH` can even help: the torchcodec backend's DLL-resolution fallback consults it). On the other hand, **the NVIDIA driver requirement rose to 610+** (the startup check rejects anything below 610 on Windows). The one special step that remains is the **PyAV wheel** (Section 4; an interim measure until PyAV 18.1.0 reaches PyPI).
+>
+> **Main additions on this branch:** 2x/4x frame generation via RIFE ([FRAME_GENERATION_en.md](FRAME_GENERATION_en.md)), the torchcodec backend ([TORCHCODEC_BACKEND_en.md](TORCHCODEC_BACKEND_en.md)), the cuDNN FP8 restoration backend ([FP8_RECON_en.md](FP8_RECON_en.md)), and FlashVSR secondary restoration ([FLASHVSR_en.md](FLASHVSR_en.md)). The AV1 / 8-bit / BT.601 and BT.2020 output features of v0.7.2+modi were absorbed into upstream v0.8.0. See [CHANGES_vs_upstream_en.md](CHANGES_vs_upstream_en.md) for the full delta.
 
-> **Packaging note:** This fork ships its own **experimental** Nuitka-based build script (`scripts\build_nuitka.py`) that produces a standalone frozen distribution with a single `jasna.exe` — see [FROZEN_BUILD_en.md](FROZEN_BUILD_en.md). It is independent of upstream's private packaging tooling. Overview: [Packaging / frozen builds](#10-packaging--frozen-builds).
+> **Packaging note:** This fork ships an experimental Nuitka build script (`scripts\build_nuitka.py`), but it is ⚠️ **not yet updated for the v0.8.0 media-layer migration** (it still assumes bundling the old `python_vali` / `PyNvVideoCodec` DLLs and is not expected to work as-is). Details: [Packaging / frozen builds](#8-packaging--frozen-builds).
 
 ---
 
 ## 1. Prerequisites
 
-> ⚠ **Important note up front about where to install ffmpeg**: `vali/src/CMakeLists.txt` hardcodes `FFMPEG_ROOT` as `C:/Program Files/ffmpeg8`, and this is **not** overridable via `-DFFMPEG_ROOT=...` (CMAKE_ARGS). The simplest path is therefore to **extract the ffmpeg dev build to `C:\Program Files\ffmpeg8\`**. If you already have ffmpeg elsewhere, or you cannot write to `C:\Program Files\`, you'll need to either create a junction or edit one line of vali's source (see Section 5.2). Decide on the install location now; discovering this mid-build forces a rebuild.
-
 | Category | Requirement | winget ID / Source | Notes |
 |---|---|---|---|
 | OS | Windows 10/11 x64 | n/a | PowerShell 7+ recommended |
-| Git | Git for Windows | `Git.Git` | Used for fetching submodules |
-| uv | Latest | `astral-sh.uv` | Manages Python automatically (see below) |
-| Python | 3.13+ | n/a (managed by uv) | uv auto-installs the required Python when you run `uv venv --python 3.13`; no need to install Python separately |
-| CUDA Toolkit | **13.2** | NVIDIA official ([developer.nvidia.com](https://developer.nvidia.com/cuda-downloads)) | Default `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2`. `CUDA_PATH` must point to 13.2 (Section 3.1). winget is discouraged because the package is large |
-| NVIDIA Driver | 591.67+ (59x series) | NVIDIA official or GeForce Experience | GPU must be compute capability 7.5+ |
-| VS Build Tools | **2022** (Desktop development with C++) | `Microsoft.VisualStudio.2022.BuildTools` | Required for the C++ builds of `vali` / `PyNvVideoCodec` |
-| ffmpeg / ffprobe | **v8 shared dev build** | `Gyan.FFmpeg.Shared` | Extract a dev build that contains `include/`, `lib/`, `bin/` to **`C:\Program Files\ffmpeg8\`** (workaround needed for other paths, as noted above). `vali` / `PyNvVideoCodec` link against this at build time (details in Section 5); the v8 CLI is also required at runtime |
-| MKVToolNix | `mkvmerge` (runtime) | [mkvtoolnix.download](https://mkvtoolnix.download/) | Needed on `PATH` when running jasna, not for building the dependencies |
+| Git | Git for Windows | `Git.Git` | For cloning the repository |
+| uv | Latest | `astral-sh.uv` | Manages Python automatically |
+| Python | 3.13 | n/a (managed by uv) | Auto-fetched by `uv venv --python 3.13` if missing. 3.14 is rejected by `requires-python = ">=3.13,<3.14"` |
+| NVIDIA Driver | **610+** | NVIDIA official or the NVIDIA App | The startup check requires 610+ on Windows. GPU must be compute capability 7.5+ |
+| ffmpeg / ffprobe | **v8** (runtime CLI) | [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases), `ffmpeg-n8.1-latest-win64-gpl-shared-*.zip` recommended (see below) | The startup check requires `ffprobe` major version 8 |
+| VS Build Tools | 2022 (Desktop development with C++) | `Microsoft.VisualStudio.2022.BuildTools` | **Only when building the PyAV wheel yourself** (Section 4 (B)) |
 
-Run any step that requires a C++ compile inside a **Developer PowerShell for VS 2022** session, or in a shell where `vcvars64.bat` has been sourced.
+The CUDA Toolkit is no longer needed. The torch / tensorrt pip wheels bundle the CUDA runtime, and the only native extension you might compile yourself is PyAV, which does not use CUDA (NVDEC/NVENC come from the linked FFmpeg).
 
-### 1.1 One-shot install via winget
+### 1.1 Choosing ffmpeg and adding it to PATH
 
-Everything except the CUDA Toolkit and NVIDIA Driver can be installed at once via winget:
+For the CLI alone (`ffmpeg.exe` / `ffprobe.exe`), gyan.dev's [release-full build](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z) suffices (it is also what the startup check's error message points to). The BtbN **shared build** is recommended because the same extraction also covers:
+
+- the FFmpeg DLLs (`avcodec-62.dll` etc. in `bin\`) that the optional torchcodec backend needs at runtime
+- the `include\` / `lib\` (with pkgconfig files) needed when building the PyAV wheel yourself (Section 4 (B))
+
+Extract it and add `bin\` to PATH:
 
 ```powershell
-winget install --id Gyan.FFmpeg.Shared              -e --source winget
-winget install --id Git.Git                         -e --source winget
-winget install --id astral-sh.uv                    -e --source winget
+$Workspace = "C:\jasna-dev"          # ← any directory of your choice
+# Download ffmpeg-n8.1-latest-win64-gpl-shared-*.zip from
+# https://github.com/BtbN/FFmpeg-Builds/releases and extract to $Workspace\ffmpeg-n8.1-shared
+
+$env:PATH = "$Workspace\ffmpeg-n8.1-shared\bin;$env:PATH"
+ffmpeg -version                      # should report ffmpeg version n8.1 (major 8)
+ffprobe -version
+```
+
+To make it permanent, add the `bin\` directory to the user `Path` environment variable (effective in new sessions).
+
+### 1.2 One-shot install via winget
+
+```powershell
+winget install --id Git.Git       -e --source winget
+winget install --id astral-sh.uv  -e --source winget
+
+# only when building the PyAV wheel yourself (Section 4 (B)):
 winget install --id Microsoft.VisualStudio.2022.BuildTools -e --source winget --silent `
   --override "--wait --quiet --add ProductLang En-us --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 ```
 
-Caveats:
-
-- **ffmpeg**: `Gyan.FFmpeg.Shared` installs to winget's default location (something like `C:\Users\<user>\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg.Shared_*\ffmpeg-*-full_build-shared\`), **not** `C:\Program Files\ffmpeg8\`. After installing, locate the actual path with `Get-ChildItem $env:LOCALAPPDATA\Microsoft\WinGet\Packages\ -Filter "Gyan.FFmpeg*" -Recurse -Directory` etc., and create a junction at `C:\Program Files\ffmpeg8\` pointing to it (Section 5.2 (A)). That's the easiest fix.
-- **Python is not required**: uv will fetch it automatically the first time you run `uv venv --python 3.13`. To pre-install explicitly, use `uv python install 3.13`.
-- **CUDA Toolkit and NVIDIA Driver must be installed manually**. CUDA requires a pinned version (13.2) which is hard to manage via the `Nvidia.CUDA` winget package, so downloading from NVIDIA directly is more reliable.
-- **MKVToolNix is not needed to build the dependencies**, but `mkvmerge` must be on `PATH` when you actually run jasna (install MKVToolNix and add it to `PATH`).
+Install the NVIDIA driver (610+) from NVIDIA directly or via the NVIDIA App.
 
 ---
 
-## 2. Clone the repositories
+## 2. Clone the repository
 
-Place the three repositories **under the same parent directory**. The rest of this guide refers to that working root via the PowerShell variable `$Workspace`. **Replace the path with your own** (the example uses `C:\jasna-dev`).
+Only `jasna` needs to be cloned. `vali` / `PyNvVideoCodec` are no longer used by the v0.8.0 runtime, so checking them out is unnecessary.
 
 ```powershell
 $Workspace = "C:\jasna-dev"          # ← any directory of your choice
 mkdir $Workspace -Force | Out-Null
 cd $Workspace
 
-git clone https://codeberg.org/Kruk2/vali.git
-git clone https://codeberg.org/Kruk2/PyNvVideoCodec.git
-git clone -b modi https://github.com/sh202603/jasna.git   # the modi branch, this fork's default (patches pre-applied)
-
-# vali has a submodule (extern/dlpack), initialize it
-cd vali
-git submodule update --init --recursive
-cd ..
+git clone -b modi https://github.com/sh202603/jasna.git   # modi branch (this fork's default)
 ```
 
-Layout:
-
-```
-<Workspace>\
-  vali\
-  PyNvVideoCodec\
-  jasna\        <- the working root from here on
-```
-
-> Whenever you run a command that uses `$Workspace` in a **new PowerShell session, re-set `$Workspace = "..."`** (the helper script in Section 3.5 can automate this).
+> In a new PowerShell session, set `$Workspace = "..."` again.
 
 ---
 
-## 3. Build environment setup (env vars + VS Build Tools)
+## 3. Create the Python virtual environment
 
-Set up the following **in the same PowerShell session** to support the C++ builds of `vali` / `PyNvVideoCodec`. Sections 4 onward should be run in that same session.
-
-### 3.0 Build env-var quick reference
-
-The full list of environment variables used in the setup. See each section for details. **The helper script in Section 3.5 sets them all at once.**
-
-| Env var | Example value | Consumer | Set in section |
-|---|---|---|---|
-| `CUDA_PATH` / `CUDA_HOME` | `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2` | nvcc, vali CMake, jasna runtime | 3.1 |
-| `PATH` (prepend) | `<CUDA_PATH>\bin;<CUDA_PATH>\libnvvp;<ffmpeg>\bin` | shell | 3.1 / 3.2 |
-| `DISTUTILS_USE_SDK` | `1` | setuptools | 3.4 |
-| `CMAKE_GENERATOR` | `Ninja` | CMake | 3.4 |
-| `CL` | `/utf-8` | MSVC `cl.exe` (required for PyNvVideoCodec build) | 3.4 |
-| `FFMPEG_DIR` | `C:/Program Files/ffmpeg8` **(★forward slashes)** | PyNvVideoCodec CMake | 5 / 7 |
-| `CMAKE_ARGS` | `-DFFMPEG_ROOT=H:/ffmpeg` | (optional: when building vali with ffmpeg in a non-default path) | 5.2 |
-
-### 3.1 Pin CUDA_PATH
-
-This project uses **CUDA 13.2**. Set `CUDA_PATH` so nvcc/vali pick up the right toolkit, and so the jasna runtime can locate the CUDA `bin/` directory for the native libraries (Section 6 / Appendix A.2).
-
-> Note: `torch==2.12.0+cu130` in `pyproject.toml` is built against the CUDA 13.0 ABI, but the CUDA 13.x line is minor-version compatible and runs fine on a 13.2 runtime.
-
-```powershell
-$env:CUDA_PATH      = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2"
-$env:CUDA_HOME      = $env:CUDA_PATH
-$env:PATH           = "$env:CUDA_PATH\bin;$env:CUDA_PATH\libnvvp;$env:PATH"
-```
-
-Verify:
-
-```powershell
-nvcc --version          # should show "release 13.2"
-Get-Command nvcc | Select-Object Source
-```
-
-To make it permanent, register it as a user env var with `setx CUDA_PATH "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2"` (takes effect in new sessions).
-
-### 3.2 Add ffmpeg to PATH (required for running jasna)
-
-When running jasna from source, the v8 `ffmpeg`/`ffprobe` CLI must be on `PATH` (there is no bundled copy). Add the ffmpeg `bin` directory:
-
-```powershell
-$env:PATH = "C:\Program Files\ffmpeg8\bin;$env:PATH"
-ffmpeg -version          # should show ffmpeg version 8.x
-```
-
-> If ffmpeg is in a non-default location, the **build-time** settings (vali / PyNvVideoCodec) are described in Section 5.
-
-### 3.3 Load the VS Build Tools environment
-
-This brings the C++ compiler (`cl.exe`) and the Windows SDK into the current shell session. Required for `pip install`-ing `vali` / `PyNvVideoCodec`.
-
-**From PowerShell (recommended):**
-
-```powershell
-& 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\Launch-VsDevShell.ps1' `
-    -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
-```
-
-> `Launch-VsDevShell.ps1` by default `cd`s into the VS source tree. `-SkipAutomaticLocation` preserves the current directory.
-
-**From cmd.exe:**
-
-```cmd
-"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
-```
-
-> If you're using a different edition (Community / Professional / Enterprise), substitute the `BuildTools` part accordingly.
-
-Verify:
-
-```powershell
-cl.exe                  # should print the Microsoft (R) C/C++ Optimizing Compiler banner
-where.exe cl.exe        # should resolve to a path under the MSVC toolset
-```
-
-### 3.4 Auxiliary build env vars
-
-These ensure scikit-build / setuptools reliably use MSVC.
-
-```powershell
-$env:DISTUTILS_USE_SDK = "1"        # tell setuptools to honor the existing MSVC environment
-$env:CMAKE_GENERATOR   = "Ninja"    # pin Ninja as the CMake generator (optional)
-$env:CL                = "/utf-8"   # avoid C4819 → C2220 on a Japanese-Windows (CP932) host (required for PyNvVideoCodec)
-```
-
-> **Why `$env:CL = "/utf-8"` matters**: On a Japanese version of Windows the system code page is CP932 (Shift-JIS). CUDA / ffmpeg headers contain UTF-8 author names with accents etc. that can't be represented in CP932, so MSVC emits the `C4819` warning. `PyNvVideoCodec` builds with `/WX` (warnings-as-errors), so the warning is promoted to `error C2220` and the build fails. Passing `/utf-8` makes MSVC interpret sources as UTF-8 and the warning never fires. The `CL` env var applies to every `cl.exe` invocation, including those launched by `nvcc` via `-Xcompiler`.
-
-### 3.5 Session loader helper script (optional)
-
-To avoid retyping the commands, save the following as **`$Workspace\setup-build-env.ps1`** and dot-source it on every build: `. $Workspace\setup-build-env.ps1` (or `cd $Workspace; . .\setup-build-env.ps1`).
-
-`$Workspace` is derived from the script's own location, so moving or copying the workspace doesn't require editing the script.
-
-```powershell
-# setup-build-env.ps1
-$Workspace                 = $PSScriptRoot          # treat the script directory as Workspace
-
-$env:CUDA_PATH             = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2"
-$env:CUDA_HOME             = $env:CUDA_PATH
-$env:DISTUTILS_USE_SDK     = "1"
-$env:CMAKE_GENERATOR       = "Ninja"
-$env:CL                    = "/utf-8"                          # MSVC character-set workaround for Japanese Windows
-$env:FFMPEG_DIR            = "C:/Program Files/ffmpeg8"        # for PyNvVideoCodec CMake; ★forward slashes required (see Section 7)
-$env:PATH                  = "$env:CUDA_PATH\bin;$env:CUDA_PATH\libnvvp;C:\Program Files\ffmpeg8\bin;$env:PATH"
-
-& 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\Launch-VsDevShell.ps1' `
-    -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
-
-# Re-export $Workspace into the calling session
-Set-Variable -Name Workspace -Value $Workspace -Scope Global
-```
-
----
-
-## 4. Create the Python virtual environment
-
-Create a `.venv` under the `jasna` repository. All subsequent `pip` / `uv pip` commands should be run with this venv activated.
+Create `.venv` under the `jasna` repository. Run all subsequent `uv pip` commands with this venv activated.
 
 ```powershell
 cd $Workspace\jasna
 uv venv --python 3.13
 .\.venv\Scripts\Activate.ps1
+python --version                     # -> Python 3.13.x
 ```
 
-Install the build-side tools first (so that `--no-build-isolation` picks them up from the venv):
-
-```powershell
-uv pip install cmake ninja scikit-build "setuptools<80" wheel numpy
-```
-
-> `setuptools` ≥ 80 no longer ships `pkg_resources` by default, and there is no standalone `pkg_resources` package on PyPI. `vali` / `PyNvVideoCodec` have `from pkg_resources import ...` in their `setup.py`, so you need to pin `setuptools<80` (currently resolves to e.g. `79.0.1`).
+uv's managed Python is fine here (a system Python was only required by the old guide's vali / PyNvVideoCodec builds, removed in v0.8.0). The old guide's tool pre-install (`cmake ninja scikit-build "setuptools<80" wheel numpy`) is obsolete too.
 
 ---
 
-## 5. Place an ffmpeg v8 shared dev build
+## 4. Install the PyAV wheel (interim, ⚠️ unverified)
 
-The next-section build of `vali` links against ffmpeg's headers and import libraries, so **a "shared dev build" with `include/` and `lib/` (in addition to `bin/`) is required**. The same `bin/` provides the v8 `ffmpeg`/`ffprobe` CLI that jasna needs on `PATH` at runtime (Section 3.2).
+The v0.8.0 GPU path uses the **current_ctx API** landing in PyAV 18.1.0 (it lets NVDEC/NVENC share the CUDA context torch already initialized), but 18.1.0 is not published yet and PyPI's av 18.0.0 lacks the API.
 
-### 5.1 Obtain and extract
+In addition, the link target must be an **FFmpeg 8 built with nv-codec-headers 12.2+**. With PyAV linked against an FFmpeg built from older nv-codec-headers, `hevc_nvenc` lacks the `lookahead_level` option and every jasna encode fails right at startup with `ValueError: hevc_nvenc did not accept encoder option(s): ['lookahead_level']` (a symptom actually hit with the distro FFmpeg on Linux; the BtbN builds satisfy the requirement).
 
-- Recommended sources: the "shared" build from [gyan.dev (Windows builds)](https://www.gyan.dev/ffmpeg/builds/) (e.g. `ffmpeg-8.x-full_build-shared.7z`), or [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases) `*-win64-lgpl-shared-8.x.zip`
-- Extract to: **`C:\Program Files\ffmpeg8\`** (as noted below, vali's CMake hardcodes this path, so other locations need a workaround)
-- Required layout after extraction:
-  ```
-  C:\Program Files\ffmpeg8\
-    bin\        # ffmpeg.exe, ffprobe.exe, avcodec-*.dll, avformat-*.dll, ...
-    include\    # libavcodec\, libavformat\, libavutil\, libswresample\, libswscale\
-    lib\        # avcodec.lib, avformat.lib, avutil.lib, swresample.lib, swscale.lib
-  ```
+### (A) If av 18.1.0 is on PyPI, use it (check this first)
 
-### 5.2 If you must use a non-default location
+If PyPI already has av 18.1.0, the rest of this section is unnecessary. The PyPI binary wheels bundle a compatible FFmpeg, so `uv pip install "av>=18.1"` is all it takes (the Section 5 install resolves it too).
 
-`vali/src/CMakeLists.txt` runs `set(FFMPEG_ROOT "C:/Program Files/ffmpeg8")` **without an `if(NOT DEFINED ...)` guard**, so passing `-DFFMPEG_ROOT=...` via CMAKE_ARGS gets overwritten. Workarounds:
+### (B) Build from PyAV main `61e4aa8` yourself (⚠️ unverified)
 
-**(A) Create a junction (recommended; requires admin)**
+The Windows version of the procedure verified on Linux (check out upstream main `61e4aa8`, which has current_ctx merged, and link against the BtbN shared build). Additional prerequisites: VS Build Tools 2022 (run inside a **Developer PowerShell for VS 2022** session) and a pkg-config-compatible tool (pkgconf; e.g. choco's `pkgconfiglite` or MSYS2's `pkgconf`).
 
 ```powershell
-# From an elevated PowerShell
-New-Item -ItemType Junction -Path "C:\Program Files\ffmpeg8" -Target "H:\ffmpeg"
+cd $Workspace
+git clone https://github.com/PyAV-Org/PyAV.git
+cd PyAV
+git checkout 61e4aa8
+
+$env:PKG_CONFIG_PATH = "$Workspace\ffmpeg-n8.1-shared\lib\pkgconfig"
+uv build --wheel                     # -> dist\av-18.0.0-*.whl
+uv pip install (Get-Item dist\av-*.whl)
 ```
 
-**(B) Edit a single line of vali's source to make it conditional**
+**FFmpeg DLL resolution (⚠️ unverified)**: On Linux the FFmpeg libraries were vendored into the wheel with auditwheel (to avoid clashing with the same-named libraries torchcodec brings in). The Windows equivalent is delvewheel. The current plan is to first run *without* vendoring, keeping the BtbN `bin\` on PATH, and see whether problems appear (this shares the very same FFmpeg 8.1 DLLs with torchcodec, so the "same-named libraries from different builds" collision that bit Linux is not expected — but that is unverified too). This section will be rewritten once the Windows verification settles it.
 
-```powershell
-cd $Workspace\vali
-(Get-Content src\CMakeLists.txt) -replace `
-  '^set\(FFMPEG_ROOT "C:/Program Files/ffmpeg8"\)$', `
-  "if(NOT DEFINED FFMPEG_ROOT)`r`n  set(FFMPEG_ROOT `"C:/Program Files/ffmpeg8`")`r`nendif()" |
-  Set-Content src\CMakeLists.txt
-
-$env:CMAKE_ARGS = "-DFFMPEG_ROOT=H:/ffmpeg"   # forward slashes
-```
-
-### 5.3 Two build-time consumers of the ffmpeg directory
-
-During the build, `vali` and `PyNvVideoCodec` each look up ffmpeg via a different variable. If you stick with the default path (`C:\Program Files\ffmpeg8`), the "Default behavior" column applies; if you place it elsewhere, **you must configure each consumer individually**.
-
-| Consumer | Variable read | Default behavior | When using a non-default path |
-|---|---|---|---|
-| **`vali` CMake** | `FFMPEG_ROOT` (CMake) | `vali/src/CMakeLists.txt` hardcodes `C:/Program Files/ffmpeg8` (no guard) | Section 5.2 (junction or edit vali's source) |
-| **`PyNvVideoCodec` CMake** | `FFMPEG_DIR` (env var) | If unset, falls back to the bundled `external/ffmpeg/` (no `lib/` → build fails) | Set `$env:FFMPEG_DIR = "C:/Program Files/ffmpeg8"` (★forward slashes; see Section 7) |
-
-> At runtime, jasna additionally needs the v8 `ffmpeg`/`ffprobe` CLI on `PATH`; add the `bin/` directory (Section 3.2).
+> **Note: the self-built wheel carries the same version number as PyPI's 18.0.0.** `uv pip show av` cannot tell them apart; if they get mixed up you see current_ctx-related errors at runtime (see Troubleshooting). The `uv pip install -e .[dev]` in Section 5 does not replace an installed av of the same version, so doing this section first keeps your wheel in place.
 
 ---
 
-## 6. Build and install vali
+## 5. Install jasna itself
 
-> **Prerequisites**: Section 3 (CUDA_PATH / VS Build Tools / env vars) + Section 4 (venv + `setuptools<80`) + Section 5 (ffmpeg dev build at `C:\Program Files\ffmpeg8\` or via junction) must be complete.
-
-```powershell
-cd $Workspace\vali
-uv pip install . --no-build-isolation
-```
-
-Verify:
-
-```powershell
-python -c "import os; os.add_dll_directory(os.path.join(os.environ['CUDA_PATH'],'bin')); import python_vali; print(python_vali.__file__)"
-```
-
----
-
-## 7. Build and install PyNvVideoCodec
-
-> **Prerequisites**: Same as Section 6 (CUDA / VS Build Tools / venv / ffmpeg dev build), plus `$env:CL = "/utf-8"` (3.4).
-
-PyNvVideoCodec's CMake reads the **environment variable `FFMPEG_DIR`**. When unset, it falls back to the bundled `external/ffmpeg/` (which only has headers and source, no `lib/`) and fails with `avcodec_library-NOTFOUND`. Always point it at your ffmpeg dev build's top directory **with forward slashes** before building:
-
-```powershell
-$env:FFMPEG_DIR = "C:/Program Files/ffmpeg8"   # ★forward slashes are required
-$env:CL         = "/utf-8"                     # required on Japanese Windows (see Section 3.4)
-cd $Workspace\PyNvVideoCodec
-uv pip install . --no-build-isolation
-```
-
-> **Forward slashes are required**: At install time, CMake embeds the `FFMPEG_DIR` value into a generated script as a quoted string. A path with backslashes (`C:\Program Files\ffmpeg8`) makes CMake see `\P` and similar as invalid escape sequences, failing with `Syntax error in cmake code`.
-
-> Note that this is a different variable name and a different mechanism from vali's `FFMPEG_ROOT` (CMake variable). PyNvVideoCodec only looks at the env var.
-
-> On Japanese Windows, without `$env:CL = "/utf-8"` you'll hit `error C2220: warning treated as error` / `warning C4819`. See Section 3.4.
-
-> If you change settings and want to rebuild, wipe the old cache first: `Remove-Item -Recurse -Force _skbuild`
-
-Verify:
-
-```powershell
-python -c "import PyNvVideoCodec; print(PyNvVideoCodec.__file__)"
-```
-
----
-
-## 8. Install jasna itself
-
-> **Prerequisites**: `python_vali` (Section 6) and `PyNvVideoCodec` (Section 7) must be installed in the venv.
-
-`pyproject.toml` depends on `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0`. These are not on the default PyPI, so you need to **point uv at the PyTorch wheel index and add two more flags**:
+`pyproject.toml` depends on `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0`, which are not on the default PyPI index. Point uv at the PyTorch wheel index with `--extra-index-url` and add two more flags:
 
 ```powershell
 cd $Workspace\jasna
@@ -333,15 +147,15 @@ uv pip install -e .[dev] `
     --prerelease=allow
 ```
 
-Why each flag is needed:
+Why each flag:
 
-- `--extra-index-url https://download.pytorch.org/whl/cu130`: source for the `torch+cu130` / `torchvision+cu130` / `torch-tensorrt+cu130` wheels
-- `--index-strategy unsafe-best-match`: required so uv can satisfy the pyproject constraint `torch-tensorrt==2.12.0` with `torch-tensorrt==2.12.0+cu130` (a local-version-bearing release) on the PyTorch index. The default first-index strategy rejects it.
-- `--prerelease=allow`: required because the transitive dep `nvidia-cuda-runtime-cu13==0.0.0a0` is a pre-release.
+- `--extra-index-url https://download.pytorch.org/whl/cu130`: source of the `torch+cu130` / `torchvision+cu130` / `torch-tensorrt+cu130` wheels
+- `--index-strategy unsafe-best-match`: needed so `torch-tensorrt==2.12.0` from `pyproject.toml` can be satisfied by `torch-tensorrt==2.12.0+cu130` (local version) on the PyTorch index; the default first-index strategy refuses
+- `--prerelease=allow`: the transitive dependency `nvidia-cuda-runtime-cu13==0.0.0a0` is a prerelease
 
 The `[dev]` extra installs `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja`.
 
-**Optional: the torchcodec backend.** For the experimental torchcodec decode/encode path (`--video-backend torchcodec`/`auto`), add the `torchcodec` extra, i.e. install `.[dev,torchcodec]` with the same flags:
+**Optional: the torchcodec backend.** To use the experimental torchcodec decode/encode path (`--video-backend torchcodec`/`auto`), add the `torchcodec` extra and install `.[dev,torchcodec]` with the same flags:
 
 ```powershell
 uv pip install -e .[dev,torchcodec] `
@@ -350,21 +164,15 @@ uv pip install -e .[dev,torchcodec] `
     --prerelease=allow
 ```
 
-This adds `torchcodec>=0.15.0`. It is **not** needed for a normal build; the default `native` backend works without it. See [TORCHCODEC_BACKEND_en.md](TORCHCODEC_BACKEND_en.md).
+This installs `torchcodec>=0.15.0`. torchcodec needs the FFmpeg DLLs at runtime, so keep the BtbN shared build's `bin\` on PATH (Section 1.1). It is not needed for a normal setup; the default `native` backend (PyAV) works without torchcodec. Details: [TORCHCODEC_BACKEND_en.md](TORCHCODEC_BACKEND_en.md).
 
-**Note: the FP8 restoration backend needs no extra install step.** Its dependencies `nvidia-cudnn-frontend` and (on Windows) `triton-windows` are regular entries in `pyproject.toml` and are installed by the commands above; the cuDNN runtime (>= 9.17) already ships with the torch cu130 wheel. The feature is opt-in at runtime (`--fp8-recon`, FP8-capable GPU sm89+ required) and falls back to the TensorRT engine when unavailable. The compute-glue compiles through triton-windows; if inductor fails on a given setup, the glue degrades to eager with a warning. Verified on Windows: the A/B benchmark passes every gate and a full pipeline run completes on a real Windows 11 box (RTX 5080), with the triton-windows compiled glue working. See [FP8_RECON_en.md](FP8_RECON_en.md).
+**Note: the FP8 restoration backend needs no extra install steps.** Its dependencies `nvidia-cudnn-frontend` and (on Windows) `triton-windows` are regular dependencies in `pyproject.toml` and come in with the command above. The cuDNN runtime (9.17+) ships inside the torch cu130 wheels. The feature is a runtime opt-in (`--fp8-recon`, needs an FP8-capable GPU, sm89+) and falls back to the TensorRT engines where unavailable. Verified on hardware (Windows 11 + RTX 5080) in the v0.7.2 era; re-verification on v0.8.0 is pending. Details: [FP8_RECON_en.md](FP8_RECON_en.md).
 
-Smoke test:
+### 5.1 Apply the mmengine patch (torch 2.6+ compatibility)
 
-```powershell
-jasna --help
-```
+Add `weights_only=False` to the `torch.load` calls inside `mmengine.runner.checkpoint`. From torch 2.6 the default flipped to `weights_only=True`, which breaks loading the existing `.pth` checkpoints without this patch.
 
-### 8.1 Apply the mmengine patch (torch 2.6+ compatibility)
-
-Adds `weights_only=False` to the `torch.load` call inside `mmengine.runner.checkpoint`. Starting with torch 2.6, the default became `weights_only=True`, so without this patch existing `.pth` checkpoints fail to load.
-
-Apply `patches/fix_loading_mmengine_weights_on_torch26_and_higher.diff` to the `site-packages` inside the venv. Use the Python `patch` package as a temporary install so you don't need `patch.exe` on the system.
+Apply `patches/fix_loading_mmengine_weights_on_torch26_and_higher.diff` to the venv's `site-packages`. So that `patch.exe` isn't required, install the Python `patch` package temporarily:
 
 ```powershell
 cd $Workspace\jasna
@@ -379,190 +187,158 @@ Verify:
 
 ```powershell
 Select-String -Path .venv\Lib\site-packages\mmengine\runner\checkpoint.py -Pattern "weights_only=False"
-# → one line should match if applied successfully
+# → one matching line means it's applied
 ```
 
-> Every time you re-run `uv pip install -e .[dev]` it will reinstall `mmengine` and clobber this patch. Re-apply afterwards.
+> This patch is wiped every time `uv pip install -e .[dev]` reinstalls `mmengine`. Re-apply it after reinstalls.
 
-### 8.2 ONNX packages (for the YOLO detection model)
+### 5.2 ONNX packages (for YOLO detection models)
 
-If you use a **YOLO (lada-yolo-\*) detection model**, ultralytics exports the model to ONNX before building the TensorRT engine. This needs three packages that are not pulled in automatically. (RF-DETR models do not need them: TensorRT parses the prebuilt `.onnx` directly.)
+When using a **YOLO-backend detection model (lada-yolo-\* and zelefans-vr-yolo-v2)**, ultralytics exports the model to ONNX before building the TensorRT engine, which needs three packages that are not installed automatically (RF-DETR models do not need them: their pre-built `.onnx` is parsed by TensorRT directly):
 
 ```powershell
-cd $Workspace\jasna
 uv pip install onnx onnxslim onnxruntime
 ```
 
-When running from source, ultralytics auto-downloads these on the first export if they are missing, but installing them ahead of time avoids a stall on the first YOLO run.
-
-> **If they are missing**, running `jasna --detection-model lada-yolo-v4 ...` aborts during engine compilation with `ERROR ONNX: export failure ... No module named 'onnx'` → `RuntimeError: Engine compilation subprocess failed`. Install the three packages into the venv to fix it.
+> **Without them**, running with `--detection-model lada-yolo-v4` aborts engine compilation with `ERROR ONNX: export failure ... No module named 'onnx'` → `RuntimeError: Engine compilation subprocess failed`. Installing the three packages into the venv resolves it.
 
 ---
 
-## 9. Place model weights and assets
+## 6. Model weights and assets
 
-Drop the following 3 files into `$Workspace\jasna\model_weights\`:
+Place these 4 files in `$Workspace\jasna\model_weights\`:
 
 - `lada_mosaic_restoration_model_generic_v1.2.pth`
 - `rfdetr-v5.onnx`
 - `lada_mosaic_detection_model_v4_fast.pt`
+- `lada_vr_mosaic_detection_model_v2_accurate.pt` (added in v0.8.0; the weights behind the VR180 YOLO detection model `zelefans-vr-yolo-v2`)
 
-When running from source, jasna resolves `model_weights\` automatically (Appendix A.1), so the files just need to live here.
+When running from source, Jasna resolves `model_weights\` automatically (Appendix A.1), so placing them there is all that's needed.
 
-The 2 test clips usually ship with the repository under `$Workspace\jasna\assets\` (`test_clip1_1080p.mp4`, `test_clip1_2160p.mp4`); if they are absent, extract them from an upstream release.
+Detection models are auto-discovered from the files present in `model_weights\`, so everything else works without the fourth file; `zelefans-vr-yolo-v2` then simply does not appear in the model list and cannot be used for VR180 detection.
 
-### 9.1 Optional: RIFE frame-interpolation model (for `--frame-gen`)
+The two test clips normally ship with the repository in `$Workspace\jasna\assets\` (`test_clip1_1080p.mp4`, `test_clip1_2160p.mp4`). If absent, extract them from an upstream release.
 
-Only needed for frame-rate up-conversion (`--frame-gen {2x,4x}`). The RIFE weights are **not bundled** (they carry non-commercial terms), so you create a TorchScript checkpoint yourself with `make_rife_torchscript.py`.
+### 6.1 Optional: RIFE frame-interpolation model (for `--frame-gen`)
 
-1. Clone Practical-RIFE and download a 4.x model package (verified with **v4.25**) so that `<repo>\train_log\` contains `RIFE_HDv3.py`, `IFNet_HDv3.py`, `flownet.pkl`:
+Needed only for frame-rate doubling (`--frame-gen {2x,4x}`). The RIFE weights are **not bundled** (non-commercial license terms), so create the TorchScript checkpoint yourself with `make_rife_torchscript.py`.
+
+1. Clone Practical-RIFE and download a 4.x model package (**verified with v4.25**) so that `<repo>\train_log\` contains `RIFE_HDv3.py`, `IFNet_HDv3.py`, `flownet.pkl`:
    ```powershell
    git clone https://github.com/hzwer/Practical-RIFE
-   # download + unzip the model package into Practical-RIFE\train_log\ per its README
+   # follow its README to download/extract the model package into Practical-RIFE\train_log\
    ```
-2. Convert to TorchScript using the project venv (run from `$Workspace\jasna`):
+2. Convert to TorchScript with the project venv (run in `$Workspace\jasna`):
    ```powershell
    .\.venv\Scripts\python.exe make_rife_torchscript.py `
        --rife-repo C:\path\to\Practical-RIFE `
        --output model_weights\rife.pth --validate
    ```
 
-Running **from source** picks up `model_weights\rife.pth` automatically (same resolver as the other weights; or point `JASNA_MODEL_WEIGHTS_DIR` at a folder containing it). Full procedure: [docs/FRAME_GENERATION_en.md](FRAME_GENERATION_en.md).
+When **running from source**, `model_weights\rife.pth` is picked up automatically (same resolver as the other weights; or point `JASNA_MODEL_WEIGHTS_DIR` at a folder containing it). Full walkthrough: [FRAME_GENERATION_en.md](FRAME_GENERATION_en.md).
+
+### 6.2 Optional: FlashVSR secondary restoration (experimental)
+
+FlashVSR (`--secondary-restoration flashvsr` / `flashvsr-inline`) needs a separate repository checkout with its own venv, and the inline mode additionally needs a bundled patch applied to that checkout. Windows is supported (inline was verified on a 16 GB Windows card in the v0.7.2 era; on v0.8.0 only Linux has been re-verified). Setup instructions: [FLASHVSR_en.md](FLASHVSR_en.md).
 
 ---
 
-## 10. Packaging / frozen builds
+## 7. Run from source / smoke test
 
-This fork ships its own **experimental** Nuitka-based build script: from the venv, `python scripts\build_nuitka.py` produces a standalone frozen distribution at `dist_nuitka\jasna\` with a single `jasna.exe` (arguments -> CLI, no arguments -> GUI). Prerequisites, the build procedure, the resulting layout and troubleshooting are documented in [FROZEN_BUILD_en.md](FROZEN_BUILD_en.md).
-
-Upstream's own packaging tooling (also Nuitka-based) lives in a **private submodule (`jasna/protection`)** and is not part of this fork; features gated on that submodule (`unet-4x`, SD1.5 inpaint, license activation) therefore do not work in this fork's frozen build either. The old PyInstaller scripts (`build_exe.py`, `jasna.spec`) remain removed.
-
----
-
-## 11. Run from source / verify
-
-With Sections 1–9 complete, run jasna directly from the source checkout in the venv:
+With Sections 1–6 done, run Jasna directly from the source checkout inside the venv:
 
 ```powershell
 cd $Workspace\jasna
-jasna --version          # -> 0.7.2+modi
-jasna --help
+python -m jasna --version    # -> 0.8.0+modi
+python -m jasna --help
 jasna --input assets\test_clip1_1080p.mp4 --output $env:TEMP\out.mp4   # process a short clip
-jasna                    # launches the GUI (no args)
+python -m jasna              # launch the GUI (no arguments)
 ```
 
-`model_weights\` is resolved automatically (Appendix A.1). Make sure the v8 `ffmpeg`/`ffprobe` CLI and `mkvmerge` are on `PATH` (Sections 3.2, 1), and that `CUDA_PATH` points at CUDA 13.2 so the native libraries can find the CUDA `bin\` directory (Appendix A.2).
+> **Launch the GUI with `python -m jasna` (no arguments).** The console script `jasna` is wired straight to `jasna.main:main` and never goes through the GUI dispatch (`jasna\__main__.py`), even with no arguments. Only the frozen build (`jasna.exe`) enters the GUI on a no-argument launch.
+
+Check:
+
+- `ffmpeg` / `ffprobe` (v8) are on `PATH` (Section 1.1). `mkvmerge` is no longer required.
+- The NVIDIA driver is **610 or newer** (the startup check rejects older ones).
+- The install path is ASCII-only (enforced at startup; watch out for extraction paths under user names containing non-ASCII characters).
+
+> **The first processing run is slow.** On first use the GPU-specific TensorRT engines are compiled (15–60 min). They are cached next to the weights inside `model_weights\` (e.g. `<model>_sub_engines\`) and reused afterwards. When migrating from v0.7.2, some engines recompile because the default max-clip-size changed (90); the loop_body engine caches keep their names and are reused.
+
+---
+
+## 8. Packaging / frozen builds
+
+This fork ships an experimental Nuitka build script (`scripts\build_nuitka.py`) that in the v0.7.2 era produced a standalone distribution with a single `jasna.exe` ([FROZEN_BUILD_en.md](FROZEN_BUILD_en.md)).
+
+⚠️ **The script has not been updated for the v0.8.0 media-layer migration.** It still assumes bundling the old `python_vali` / `PyNvVideoCodec` DLLs (CUDA NPP / nvJPEG etc.) and is not expected to work as-is. It will be updated after the Windows hardware verification.
+
+Upstream's own packaging tooling (also Nuitka-based) lives in a **private submodule (`jasna/protection`)** not included in this fork. Features depending on that submodule (`unet-4x`, SD1.5 inpaint, license activation) do not work in this fork's frozen builds.
 
 ---
 
 ## Troubleshooting
 
-### Environment / setup
+### PyAV / FFmpeg
 
-- **`uv pip install .` fails with a CMake error or `cl.exe not found`**
-  You're running in a session where Section 3.3 (the VS Build Tools load) wasn't done. Check `where.exe cl.exe` to confirm `cl.exe` is on `PATH`.
+- **Every encode fails right at startup with `ValueError: hevc_nvenc did not accept encoder option(s): ['lookahead_level']`**
+  PyAV is linked against an FFmpeg built with old nv-codec-headers. Rebuild the wheel with `PKG_CONFIG_PATH` pointing at the BtbN build (Section 4 (B)).
 
-- **CMake detects the wrong CUDA version (e.g. 13.0 when you expect 13.2)**
-  Either `CUDA_PATH` (Section 3.1) isn't set, or another version is earlier in `PATH`. Inspect `Get-Command nvcc | Select-Object Source` to see which one is being picked up.
+- **Encoder/decoder initialization fails with a current_ctx-related `TypeError` or similar**
+  av is still PyPI's 18.0.0 (the Section 4 wheel was never installed, or a dependency reinstall replaced it). Reinstall it with `uv pip install --reinstall`.
 
-- **`vali` / `PyNvVideoCodec` build fails with `ModuleNotFoundError: No module named 'pkg_resources'`**
-  `setuptools` ≥ 80 dropped `pkg_resources` from its default install, and PyPI has no standalone `pkg_resources` package (`uv pip install pkg_resources` also fails with "No solution found"). Downgrade setuptools:
-  ```powershell
-  uv pip install "setuptools<80"     # e.g. 79.0.1
-  ```
-  Then re-run `uv pip install . --no-build-isolation`. If you pinned `"setuptools<80"` up front in Section 4, this never comes up.
+- **Jasna refuses to start: wrong ffprobe version**
+  The startup check requires `ffprobe` **major version 8**. Add a v8 build's `bin\` to `PATH` (Section 1.1). The `mkvmerge` check was removed in v0.8.0.
 
-### vali build
-
-- **`vali` build fails with CMake errors like `AVCODEC_INCLUDE_DIRS / AVCODEC_LIB ... NOTFOUND`**
-  Either the ffmpeg **shared dev build** isn't extracted to `C:\Program Files\ffmpeg8\`, or only the `bin/` part is present. Lay it out per Section 5 with `include/`, `lib/`, `bin/`. `vali/src/CMakeLists.txt` hardcodes `FFMPEG_ROOT` to `C:/Program Files/ffmpeg8` and **does not honor `-DFFMPEG_ROOT=...` (`CMAKE_ARGS`)**. If you must keep ffmpeg elsewhere, use the junction or the vali source edit from Section 5.2.
-
-### PyNvVideoCodec build
-
-- **`PyNvVideoCodec` build fails with CMake errors like `avcodec_library-NOTFOUND`**
-  PyNvVideoCodec reads the **environment variable `FFMPEG_DIR`**. When unset, it falls back to the bundled `external/ffmpeg/` (no `lib/`) and fails. Per Section 7, set `$env:FFMPEG_DIR = "C:/Program Files/ffmpeg8"` before building (forward slashes required). This is a different variable from vali's `FFMPEG_ROOT` (which is a CMake variable).
-
-- **`PyNvVideoCodec` build fails at install with `Syntax error in cmake code ... Invalid character escape '\P'`**
-  `$env:FFMPEG_DIR` was set with a backslash path (`C:\Program Files\ffmpeg8`). CMake's install script treats it as a quoted string and rejects `\P` as an invalid escape. Switch to forward slashes (`"C:/Program Files/ffmpeg8"`), delete `_skbuild`, and rebuild.
-
-- **On Japanese Windows, `PyNvVideoCodec` build fails with `error C2220: warning treated as error` / `warning C4819: <can't be represented in code page (932)>`**
-  CUDA / ffmpeg headers contain UTF-8 characters (accented author names etc.) that can't be expressed in CP932; MSVC emits `C4819`, and `/WX` promotes it to an error. Set `$env:CL = "/utf-8"` before building; MSVC then interprets sources as UTF-8 and the warning vanishes. Setting it once for the whole build session (per Section 3.4) is the easy approach.
+- **The torchcodec backend cannot find the FFmpeg DLLs (`avcodec-62.dll` etc.)**
+  torchcodec needs the FFmpeg shared DLLs at runtime. Keep the BtbN shared build's `bin\` on `PATH` (Section 1.1).
 
 ### jasna install
 
 - **`uv pip install -e .[dev]` fails with `No solution found ... no version of torch==2.12.0+cu130`**
-  The PyTorch index wasn't specified. Add `--extra-index-url https://download.pytorch.org/whl/cu130`.
+  The PyTorch index is missing. Add `--extra-index-url https://download.pytorch.org/whl/cu130`.
 
 - **`uv pip install -e .[dev]` fails with `torch-tensorrt==2.12.0+cu130 ... unsatisfiable`**
-  uv's default index strategy is first-index-only, and it refuses to satisfy the pyproject constraint `torch-tensorrt==2.12.0` with the PyTorch index's `2.12.0+cu130` (a local-version release). On top of that, the transitive dep `nvidia-cuda-runtime-cu13==0.0.0a0` is a pre-release. Add `--index-strategy unsafe-best-match --prerelease=allow` (see the command in Section 8).
+  uv's default index strategy is first-index only and refuses to satisfy `torch-tensorrt==2.12.0` with the PyTorch index's `2.12.0+cu130` (local version). The transitive dependency `nvidia-cuda-runtime-cu13==0.0.0a0` is also a prerelease. Add `--index-strategy unsafe-best-match --prerelease=allow` (Section 5).
 
-### Runtime (running from source)
+### Runtime
 
-- **Jasna fails with `FileNotFoundError` for a `.pth`/`.onnx`/`.pt`**
-  A file in `model_weights\` is missing, or the resolver looked in the wrong place. Make sure the 3 weight files are in `$Workspace\jasna\model_weights\` (Section 9), or set `JASNA_MODEL_WEIGHTS_DIR` to the folder that holds them.
+- **Jasna raises `FileNotFoundError` for a `.pth`/`.onnx`/`.pt`**
+  Files missing from `model_weights\`, or the resolver is looking elsewhere. Put the 3 weights in `$Workspace\jasna\model_weights\` (Section 6), or set `JASNA_MODEL_WEIGHTS_DIR` to a folder containing them.
 
-- **Jasna refuses to start: ffmpeg/ffprobe wrong version, or mkvmerge missing**
-  Jasna requires `ffmpeg`/`ffprobe` **major version 8** and `mkvmerge` on `PATH`. Add the ffmpeg `bin\` directory (Section 3.2) and install MKVToolNix (Section 1).
+- **Startup rejects the NVIDIA driver version**
+  The Windows minimum is **610** (raised from the v0.7.2+modi era's 591.67+). Update the driver from NVIDIA.
 
-- **`import python_vali` fails with a DLL load error**
-  Confirm that `CUDA_PATH` points at CUDA 13.2. The native libs also need the CUDA `bin\` directory registered on the DLL search path; jasna does this automatically (Appendix A.2), but for a standalone import call `os.add_dll_directory(os.path.join(os.environ['CUDA_PATH'],'bin'))` first (the vali README documents this).
-
-- **The very first launch is extremely slow**
-  This is normal. The first-time TensorRT engine compilation takes 15–60 minutes. The result is cached under `~/.jasna/engines/` and subsequent launches are fast.
+- **The first launch is extremely slow**
+  Not a bug. The initial TensorRT engine compilation takes 15–60 minutes. The engines are cached next to the weights inside `model_weights\` and later runs are fast.
 
 ---
 
-## Appendix A: build/runtime changes on this branch
+## Appendix A: build/runtime modifications on this branch
 
-A breakdown of the Windows-build/runtime fixes, already applied to this branch's source (these are documented here for reference; no standalone `.patch` file is shipped).
+Changes already applied to this branch's source (reference description; no standalone `.patch` files are shipped).
 
-### A.1 Auto-resolution of the `model_weights/` directory
+### A.1 Automatic resolution of the `model_weights/` directory
 
-**Problem**: The defaults for `--detection-model-path` / `--restoration-model-path` are the relative path `Path("model_weights")`. If you run jasna from another folder, it looks under `<CWD>/model_weights/...` and dies with `FileNotFoundError`.
+**Problem**: The defaults of `--detection-model-path` / `--restoration-model-path` were the relative `Path("model_weights")`. Running Jasna from an arbitrary folder looked for `<CWD>/model_weights/...` and raised `FileNotFoundError`.
 
-**Fix**:
+**Fix**: The new `jasna/model_weights_resolver.py` searches for the `model_weights/` folder in priority order:
 
-- **New file `jasna/model_weights_resolver.py`**: searches for the `model_weights/` folder in this priority order:
-  1. **The folder named by the `JASNA_MODEL_WEIGHTS_DIR` env var**: highest priority, an explicit "use this" from the user
-  2. **A `model_weights\` folder next to the running executable**: the standard layout for a packaged install
-  3. **A `model_weights\` folder in the directory you ran the command from**: wherever `cd` put you in PowerShell
-  4. **A `model_weights\` folder beside the jasna source tree**: for developers running from a `uv pip install -e .` checkout
+1. **the folder named by the `JASNA_MODEL_WEIGHTS_DIR` environment variable**: an explicit user choice wins
+2. **`model_weights\` next to the executable**: the standard layout of a packaged install
+3. **`model_weights\` in the current directory**: wherever you are right now
+4. **`model_weights\` next to the jasna source tree**: for developers running via `uv pip install -e .`
 
-  The first one found wins. The resolved path is logged at startup with `--log-level info` (duplicate entries are suppressed).
-- **`jasna/main.py`**: `--restoration-model-path`'s default changed to `""`. When unset, resolution goes through the resolver. Help text mentions the search order.
-- **`jasna/mosaic/detection_registry.py`**: `detection_model_weights_path()` / `discover_available_detection_models()` go through the resolver.
-- **`jasna/engine_paths.py`**: `UNET4X_ONNX_PATH` is computed from the resolver.
-- **`jasna/gui/processor.py`, `jasna/gui/engine_preflight.py`**: hardcoded `Path("model_weights")` calls in the GUI replaced with resolver calls.
+The first hit wins; the chosen location is logged at startup with `--log-level info`. `main.py`, `mosaic/detection_registry.py`, `engine_paths.py`, and the GUI (`gui/processor.py`, `gui/engine_preflight.py`) go through the resolver instead of a hardcoded `Path("model_weights")`.
 
-### A.2 DLL load helper for Windows runtime
+### A.2 DLL load assistance (torchcodec backend only)
 
-**Problem**: On Windows the DLL search path is restricted, and dependent DLLs (including CUDA) might not be found when `python_vali` is loaded.
+With v0.8.0 the native path (PyAV) no longer needs DLL assistance. Today the torchcodec backend modules (`jasna/media/torchcodec_decoder.py` / `torchcodec_encoder.py`) register the torchcodec package directory and `CUDA_PATH\bin` (when set) on the DLL search path, **on Windows only**.
 
-**Fix** (`jasna/media/video_decoder.py`):
+### A.3 BasicVSR++ benchmark TRT API fix
 
-```python
-if sys.platform == "win32":
-    _vali_spec = importlib.util.find_spec("python_vali")
-    if _vali_spec and _vali_spec.origin:
-        os.add_dll_directory(str(Path(_vali_spec.origin).parent))
-    _cuda_path = os.environ.get("CUDA_PATH")
-    if _cuda_path:
-        _cuda_bin = os.path.join(_cuda_path, "bin")
-        if os.path.isdir(_cuda_bin):
-            os.add_dll_directory(_cuda_bin)
-```
-
-Before `python_vali` is loaded, register both its sibling DLL directory and the CUDA `bin/` directory on the DLL search path.
-
-### A.3 Update the BasicVSR++ benchmark to the new TRT API
-
-**Problem**: `jasna/restorer/basicvsrpp_sub_engines.py` already uses the newer `_preprocess_engine` API (which fuses feat_extract and flow into a single TRT engine), but the benchmark code in `jasna/benchmark/basicvsrpp_restoration.py` was still calling the old `_feat_extract_engine` + separate-flow API. Running `--benchmark basicvsrpp` therefore failed with `AttributeError`.
-
-**Fix** (`jasna/benchmark/basicvsrpp_restoration.py`):
-
-- Replace `split._feat_extract_engine` + a separate `compute_flow` call with a single `split._preprocess_engine` call.
-- Remove the now-unused `torch.nn.functional` import.
+Updates `jasna/benchmark/basicvsrpp_restoration.py` to the new `_preprocess_engine` API (feat_extract + flow merged into one TRT engine) so `--benchmark basicvsrpp` works. Cross-platform.
 
 ### Full diff
 
-10 files (9 modifications + 1 new), about 290 lines. For the complete content, diff this branch against upstream (`git diff upstream/main..modi`).
+The complete set of changes on this branch can be inspected by comparing against upstream (`git diff upstream/main..modi`).
