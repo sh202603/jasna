@@ -275,9 +275,11 @@ def make_video_reader(
     def _native():
         from jasna.media.video_decoder import NvidiaVideoReader
 
+        # Only pass frame_stride when active so reader fakes/mocks written
+        # against the plain contract keep working.
+        kwargs = {"frame_stride": frame_stride} if int(frame_stride) != 1 else {}
         return NvidiaVideoReader(
-            file, batch_size=batch_size, device=device, metadata=metadata,
-            frame_stride=frame_stride,
+            file, batch_size=batch_size, device=device, metadata=metadata, **kwargs
         )
 
     if int(frame_stride) != 1:
