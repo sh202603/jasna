@@ -104,7 +104,7 @@ upstream v0.7.0 がフォルダ入力（`--input <dir> --output <dir>`、画像�
 
 ## 7. 新機能（modi）: torchcodec バックエンド（実験的、native = PyAV フォールバック付き）
 
-ネイティブ（v0.8.0 以降は PyAV NVDEC/NVENC）の代わりに使える実験的な `torchcodec>=0.14.0` バックエンド（オプション依存、既定 off）。既定は `native`（従来挙動）で、`--video-backend {native,auto,torchcodec}` と、個別上書きの `--decode-backend`/`--encode-backend {inherit,...}` で選択する。
+ネイティブ（v0.8.0 以降は PyAV NVDEC/NVENC）の代わりに使える実験的な `torchcodec>=0.15.0` バックエンド（オプション依存、既定 off）。既定は `native`（従来挙動）で、`--video-backend {native,auto,torchcodec}` と、個別上書きの `--decode-backend`/`--encode-backend {inherit,...}` で選択する。
 
 **v0.8.0 リベースでの意味論変更**: 上流のネイティブエンコーダは HEVC/AV1 を常に 10-bit（P010）で出力するようになり、8-bit nv12 専用の torchcodec エンコードでは出力パリティが成立しない。そのため:
 

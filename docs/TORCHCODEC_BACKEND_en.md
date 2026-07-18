@@ -12,7 +12,7 @@ opt-in, experimental feature.
 
 **Runtime environment**: the same GPU-only stack as jasna itself (NVIDIA GPU, CUDA 13.x,
 torch 2.12.0+cu130, an ffmpeg 8 shared build on PATH) plus the optional dependency
-`torchcodec>=0.14.0` (cu130 build). The numbers in this document were measured on
+`torchcodec>=0.15.0` (cu130 build). The numbers in this document were measured on
 Windows 11 / Python 3.13.9 / torch 2.12.0+cu130 / CUDA 13.0 / RTX 5080 / ffmpeg 8.1 full-shared
 (Appendix A is the Linux side of the same dual-booted RTX 5080; the GPU is shared).
 
@@ -20,7 +20,7 @@ Windows 11 / Python 3.13.9 / torch 2.12.0+cu130 / CUDA 13.0 / RTX 5080 / ffmpeg 
 
 jasna depends on two vendored, build-heavy native libraries: `python_vali` for
 decode and `PyNvVideoCodec` for encode. The goal is to move toward
-`torchcodec>=0.14.0`, a single official PyTorch wheel.
+`torchcodec>=0.15.0`, a single official PyTorch wheel.
 
 The only case that genuinely requires native is **10-bit output** (torchcodec's GPU
 encode is 8-bit nv12 only), plus a few unmappable NVENC settings, streaming, and
@@ -29,7 +29,13 @@ and most NVENC settings map through `extra_options`. Because native is still nee
 for 10-bit, this is not a full replacement: a torchcodec path is **added** and
 anything it cannot satisfy **falls back to native**.
 
-## torchcodec 0.14.0 capabilities
+## torchcodec 0.15.0 capabilities
+
+0.15.0 is a maintenance release over 0.14.0 (premature-EOF decode fixes, faster
+forward seeks, macOS free-threaded wheels); the public encoder/decoder API and
+the capabilities below are unchanged. The table was re-verified on 0.15.0 on
+real hardware (RTX 5080: NVDEC decode, HEVC/AV1 encode with jasna's full NVENC
+option set, rejected options still rejected).
 
 | Area | Supported | Detail |
 |---|---|---|
@@ -163,7 +169,7 @@ Optional extra in `pyproject.toml` (native-only installs keep working):
 
 ```toml
 [project.optional-dependencies]
-torchcodec = ["torchcodec>=0.14.0"]   # 0.13.0 is known-buggy
+torchcodec = ["torchcodec>=0.15.0"]   # 0.13.0 is known-buggy
 ```
 
 Install it with uv from the cu130 wheel index so the build matches torch 2.12 + cu130.
@@ -179,7 +185,7 @@ uv pip install -e .[dev,torchcodec] `
 or add it to an existing environment (`--no-deps` keeps the pinned torch untouched):
 
 ```powershell
-uv pip install "torchcodec>=0.14.0" --no-deps --index-url https://download.pytorch.org/whl/cu130
+uv pip install "torchcodec>=0.15.0" --no-deps --index-url https://download.pytorch.org/whl/cu130
 ```
 
 - torchcodec dlopens FFmpeg shared libs at runtime; jasna's required **ffmpeg 8 shared

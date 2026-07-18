@@ -75,7 +75,7 @@ Jasna は既定でデコード・エンコードとも PyAV（NVDEC/NVENC）を�
 jasna --input input.mp4 --output output.mkv --video-backend auto
 ```
 
-`--video-backend {native,auto,torchcodec}`（既定 `native`、つまり従来挙動）: `auto` は**デコード**に torchcodec が使える場面で使い、それ以外はネイティブにフォールバックします。`torchcodec` は強制します。`--decode-backend` / `--encode-backend` でデコード側・エンコード側を個別に上書きできます。v0.8.0 以降、ネイティブエンコーダは HEVC/AV1 を常に 10-bit で出力するため、8-bit 専用の torchcodec エンコードでは出力が一致しません。そのため **torchcodec エンコードは強制指定（`--encode-backend torchcodec`）時のみ**動作し、対象は 8-bit ソース + マッピング可能な NVENC 設定に限られます。ストリーミング、`--segments`、`--retarget-high-fps`、フレーム生成はネイティブ側のままです。色空間メタデータはどちらでも保持されます。オプション依存（cu130 wheel index から `pip install "torchcodec>=0.14.0"`）が必要です。詳細: [docs/TORCHCODEC_BACKEND_ja.md](docs/TORCHCODEC_BACKEND_ja.md)。
+`--video-backend {native,auto,torchcodec}`（既定 `native`、つまり従来挙動）: `auto` は**デコード**に torchcodec が使える場面で使い、それ以外はネイティブにフォールバックします。`torchcodec` は強制します。`--decode-backend` / `--encode-backend` でデコード側・エンコード側を個別に上書きできます。v0.8.0 以降、ネイティブエンコーダは HEVC/AV1 を常に 10-bit で出力するため、8-bit 専用の torchcodec エンコードでは出力が一致しません。そのため **torchcodec エンコードは強制指定（`--encode-backend torchcodec`）時のみ**動作し、対象は 8-bit ソース + マッピング可能な NVENC 設定に限られます。ストリーミング、`--segments`、`--retarget-high-fps`、フレーム生成はネイティブ側のままです。色空間メタデータはどちらでも保持されます。オプション依存（cu130 wheel index から `pip install "torchcodec>=0.15.0"`）が必要です。詳細: [docs/TORCHCODEC_BACKEND_ja.md](docs/TORCHCODEC_BACKEND_ja.md)。
 
 ### FP8 復元バックエンド（実験的）
 
