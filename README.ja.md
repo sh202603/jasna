@@ -10,7 +10,7 @@ Jasna は無料です。支援者には、このプロジェクト用に訓練�
 
 > ### ⚙️ これは Jasna の `+modi` フォークです
 >
-> 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.0 をベースにした改変ビルドで、**フレーム生成**（`--frame-gen` 2x/4x）、**torchcodec 動画バックエンド**、**FP8 復元バックエンド**、**FlashVSR セカンダリ復元**などを追加しています。
+> 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1 をベースにした改変ビルドで、**フレーム生成**（`--frame-gen` 2x/4x）、**torchcodec 動画バックエンド**、**FP8 復元バックエンド**、**FlashVSR セカンダリ復元**などを追加しています。
 >
 > - **ソース（このフォーク/ブランチ）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
 > - **上流との変更点一覧:** [docs/CHANGES_vs_upstream_ja.md](docs/CHANGES_vs_upstream_ja.md)
