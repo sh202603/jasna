@@ -1,5 +1,8 @@
 # Building Jasna for Linux
 
+> **⚠️ v0.8.0 リベースに関する注記（2026-07-18）**: upstream v0.8.0 でメディア層が PyAV（NVDEC/NVENC）へ移行し、`python_vali` / `PyNvVideoCodec` はランタイムから使われなくなり、**mkvmerge も不要**になりました。依存は `av>=18,<19`（GPU パスは PyAV 18.1.0 の current_ctx API が必要 — 公開まで upstream main `61e4aa8` からビルドした wheel を使用）。本書の手順は v0.7.2 期のもので、v0.8.0 での再検証・改訂は保留中です。最新の差分は `docs/CHANGES_vs_upstream_ja.md` を参照してください。
+
+
 Linux で Jasna のビルド依存をセットアップし、**ソースから実行**する手順です。
 
 > **本ガイドは `v0.7.2+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）で、これらの依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が **10.16** 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
