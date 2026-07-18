@@ -1,10 +1,15 @@
-# Change summary: `modi` (`v0.7.2+modi`) vs upstream main
+# Change summary: `modi` (`v0.8.0+modi`) vs upstream main
 
-A summary of what this branch adds on top of upstream (`main`). `modi` is rebased onto upstream main `278ab09` (`v0.7.2`).
+A summary of what this branch adds on top of upstream (`main`). `modi` is rebased onto upstream main `abc5d6a` (`v0.8.0`).
 
 - Branch: `modi` (fork `https://github.com/sh202603/jasna.git`)
-- Version: `0.7.2+modi` (based on upstream main `278ab09` = `v0.7.2`)
-- Scope: consolidated to 6 commits over upstream main (`git diff --shortstat upstream/main..modi`).
+- Version: `0.8.0+modi` (based on upstream main `abc5d6a` = `v0.8.0`)
+
+> **New with the `v0.8.0` base** (merged 2026-07-18): upstream moved the media layer wholesale to **PyAV (NVDEC/NVENC)** (removing `python_vali` / `PyNvVideoCodec` from the runtime and **dropping the mkvmerge dependency**), and implemented **AV1/H264 encoding**, **BT.601/709/2020 x full/limited x 8/10-bit** colorspace/bit-depth handling, **software-decode fallback**, and **anamorphic (SAR) support**. It also added the **segment editor + smart rendering** (`--segments`), **restoration preview playback**, the **mask suggestion editor** (uploads frame+mask, encrypted, to upstream's Cloudflare Worker — only on an explicit Submit), **VR180 restoration** (`--vr-mode`), **high-fps retargeting** (`--retarget-high-fps`, 60->30 decimation), and many Linux GUI fixes. Driver requirement: Windows 610+ / Linux 580+; dependency `av>=18,<19` (the GPU path needs the current_ctx API slated for PyAV 18.1.0 — until it is published, use a wheel built from PyAV upstream main `61e4aa8`).
+>
+> Rebase policy: **upstream wins on overlapping features.** This fork's "flexible output" (old §2) was dropped in favor of the upstream implementation (the `--bit-depth` flag is gone; see §2), and the torchcodec backend semantics were redefined against the new media layer (§7).
+>
+> **Verification status**: post-rebase verification so far covers the GPU-less pytest suite (1523 passed; remaining failures are CUDA-required / missing-protection / headless-environment only) and CLI smoke checks. **GPU runs (native/torchcodec backends, frame-gen, FP8, FlashVSR, TRT engine recompilation) are still pending** for the next GPU session.
 
 > **Base bumped to `v0.7.2`.** The per-commit reconciliation notes below were written for the original `v0.6.2`-era rebase; those upstream fixes (decoder stream-sync, separable conv, validate-model-name, onnx export, trt load) persist in the current base (upstream force-pushed `main` at the v0.7.0 release, changing SHAs but not the features), so the convergence still holds. The `v0.7.1` base already carried upstream's **supporter models** (SD 1.5 image restoration, unet-4x) and model-encryption/Nuitka plumbing; this fork carries that code **inert** (it cannot be decrypted/run from public source; see the scope note in the README). The fork's build moved with upstream from PyInstaller to Nuitka; packaging tooling is private, so the public path is running from source (see `docs/BUILDING_*`).
 >
@@ -26,40 +31,21 @@ Build-environment and runtime updates over upstream main. All are **applied dire
   `model_weights/` auto-resolution (new `jasna/model_weights_resolver.py`). Upstream also added a frozen-binary `engine_paths.model_weights_dir()`; its call sites are routed through this resolver to unify them (keeping the superset with env override, package-parent fallback, and logging). Plus TRT benchmark API update, Windows-only DLL load helpers, PyInstaller spec tweaks, etc.
 - **YOLO detection export fix**: export the detection ONNX on CPU so a frozen (PyInstaller) binary does not hit CUDA error 100: ultralytics' GPU export initializes torch CUDA before TensorRT and breaks the init order; `CUDA_VISIBLE_DEVICES` is restored afterward. The engine is still built fp16. (`onnx` itself is now an upstream dependency.)
 - **Linux GUI / RTX-VSR fixes**
-  Fix blank modal dialogs; fix RTX Super-Res TensorRT version clash by pre-loading `libnvinfer.so.10`.
+  Fix RTX Super-Res TensorRT version clash by pre-loading `libnvinfer.so.10`. The old blank-modal-dialog workaround (deferred `grab_set`) was dropped: upstream v0.8.0's `wait_visibility()`-based X11 handling plus its Linux GUI fixes supersede it.
 - **Build guides**: `docs/BUILDING_{LINUX,WINDOWS}_{ja,en}.md`. On this branch the changes are pre-applied to the source, so you can build straight after cloning; each guide's appendix documents the change breakdown for reference.
 
 > The mmengine patch `patches/fix_loading_mmengine_weights_on_torch26_and_higher.diff` applies to the venv package and is applied separately during the build (each guide's §8.1); it is the only bundled patch.
 
 ---
 
-## 2. New feature (modi): flexible output formats
+## 2. Flexible output formats (fully absorbed by upstream v0.8.0)
 
-Extends the GPU encode output, previously fixed to HEVC / 10-bit (P010) / BT.709, to match lada-ex's flexibility.
+> **No longer a delta of this branch.** In the v0.7.2 era, modi implemented AV1 / 8-10-bit / BT.601-2020 output on its own (`--codec` / `--bit-depth`, the generic `chw_rgb_to_surface` converter, mkvmerge+ffmpeg remux). Upstream v0.8.0's PyAV-based encoder now implements the **same or more**: `--codec {hevc,h264,av1}`, the full BT.601/709/2020 x full/limited x NV12/P010 converter set (`rgb_to_nv12.py` / `rgb_to_p010.py`), inline H.273 color tagging through PyAV, full-range input support, and no mkvmerge. Per the rebase policy (upstream wins), the modi implementation was dropped. Consequences:
 
-> Upstream independently added **BT.601 support** (a narrow `chw_rgb_to_p010_bt601_limited` plus an HEVC VUI rewrite) and a **`.cube` LUT** feature. The rebase keeps this branch's generic superset (`chw_rgb_to_surface`, BT.601/709/2020 × NV12/P010) while **absorbing upstream's HEVC VUI bitstream rewrite (`-bsf:v hevc_metadata`, not applied for AV1) and the `.cube` LUT** so both coexist.
-
-- **AV1 output**: `--codec av1` (file output only; not for streaming; NVENC AV1 has B-frames disabled).
-- **8-bit (NV12) / 10-bit (P010) output**: `--bit-depth {auto,8,10}`. Default `auto` follows the source (10-bit → P010, otherwise → NV12).
-- **BT.601 / BT.709 / BT.2020 colorspace preservation**: selects the limited-range RGB→YUV matrix from the source colorspace and tags the output container with matrix + primaries + transfer (BT.2020 → `bt2020nc` / `bt2020` / `bt2020-10`).
-
-### Implementation highlights
-- `jasna/media/rgb_to_p010.py`: generalized `chw_rgb_to_surface(frame, colorspace, bit_depth)` (NV12/P010 × BT.601/709/2020).
-- `jasna/media/__init__.py`: `Colorspace` enum and `VideoMetadata.yuv_colorspace` (carries BT.2020, which av's Colorspace cannot represent); extended ffprobe colorspace detection.
-- `jasna/media/video_encoder.py`: derive `fmt`/`profile`/B-frames/temp extension (`.hevc`/`.obu`) from codec + bit depth; remux tags matrix/primaries/transfer correctly. The output container is chosen by the output extension (`.mkv` Matroska, `.mp4`/`.mov` MP4/MOV, AV1-in-MP4 supported): mkvmerge builds an intermediate, then ffmpeg does the final remux (audio mux, `-c:v copy`, `+faststart` for `.mp4`/`.mov`).
-- `jasna/pipeline.py` / `jasna/streaming_pipeline.py`: change the early guard from "reject non-BT.709" to "reject full range only" (BT.601/709/2020 all allowed). Full range is detected when ffprobe's `color_range` is `pc` or `jpeg` (ffprobe reports `pc`, so the `pc` token must not be missed -- fixed).
-- CLI (`jasna/main.py`) and GUI (`jasna/gui/`) gain `--codec` / `--bit-depth`.
-- Docs: `docs/CODECS_AND_COLORSPACE_{ja,en}.md`, plus a one-line note in each README.
-- Tests: new `tests/test_rgb_to_surface.py` and added AV1/NV12/BT.601/BT.2020 + validation cases.
-
-### Hardware verification (ffmpeg 8 / mkvmerge v97)
-HEVC 8/10-bit (709), BT.601, BT.2020, AV1 (8/10-bit), and `--bit-depth` overrides (both directions) all verified -- output codec/pix_fmt/color tags checked with ffprobe, decode OK. Additionally verified: **10-bit BT.601/709/2020 to P010**, the **`Main 10` profile for 10-bit HEVC**, **AV1-in-MP4 output to `.mp4`**, and **rejection of full-range (`pc`) input**. Unit tests all pass (added `test_color_range_pc`, a regression test for full-range `pc` detection). The matrix above (`--codec` × `--bit-depth` × BT.601/709/2020, both `--bit-depth` overrides, and full-range rejection) is confirmed on **both Windows and Linux** (RTX 5060 Ti), via the **CLI, GUI continuous processing, and the frozen (PyInstaller) binary** (incl. lada-yolo detection + RTX Super-Res, and BT.2020 with no visible color breakage in VLC).
-
-### Known limitations
-- AV1 is file output only (no streaming).
-- HDR transfer characteristics (PQ/HLG) are not preserved (matrix + primaries only).
-- Full-range (JPEG/PC range) input is not supported (rejected on detection).
-- AV1 muxing goes OBU -> mkvmerge (intermediate) -> ffmpeg remux (final); older mkvmerge may need IVF wrapping or a direct ffmpeg mux.
+- **The `--bit-depth` flag is gone.** Bit depth follows the codec per upstream's spec (hevc/av1 -> 10-bit P010, h264 -> 8-bit NV12; only `--segments` smart-render fragments follow an 8-bit source via `match_input_bit_depth`).
+- modi's `Colorspace` enum / `VideoMetadata.yuv_colorspace` / `chw_rgb_to_surface` / mkvmerge-based remux were removed (upstream represents BT.2020 natively with `av>=18`).
+- The old `docs/CODECS_AND_COLORSPACE_{ja,en}.md` and `tests/test_rgb_to_surface.py` were deleted (superseded by upstream's `test_rgb_to_nv12.py` / `test_rgb_to_p010.py` / `test_video_encoder_mux.py`).
+- The only modi delta remaining in this area is the **frame-gen output-fps wiring** (see §4).
 
 ---
 
@@ -73,15 +59,15 @@ Upstream's `create_blend_mask` (`jasna/tracking/blending.py`) ran two dense `con
 
 ## 4. New feature (modi): frame-rate up-conversion (frame generation)
 
-Raises the output frame rate by inserting AI-interpolated frames: `--frame-gen {none,2x,4x}` (file output only; not for streaming, like AV1).
+Raises the output frame rate by inserting AI-interpolated frames: `--frame-gen {none,2x,4x}` (file output only; not for streaming, and rejected together with `--segments` smart rendering, whose copied spans would no longer match the output frame rate).
 
 - **Why a new stage, not a secondary restorer**: the secondary restorers (`unet-4x` / `tvai` / `rtx-super-res`) process 256×256 mosaic crops and never change the frame count. Frame generation operates on full-resolution output frames and *increases* the frame count + PTS, so it is wired in as a thin decorator (`FrameGenWriter`) around the pipeline's `FrameWriter`; the rest of the pipeline and the encoder are untouched.
 - **Backend** (`--frame-gen-backend {rife,rtx}`), pluggable via the `FrameGenerator` protocol:
   - `rife` (default): neural interpolation (RIFE), runs today on CUDA. Loads a TorchScript checkpoint (recommended, self-contained) or a state_dict into the vendored RIFE 4.6 `IFNet` (`jasna/models/rife/`). Weights via `--frame-gen-model-path` or `model_weights/rife.pth`.
   - `rtx`: **NVIDIA RTX Video Frame Generation**, announced as a Python wheel + ComfyUI node alongside RTX Spark, but not yet shipped in `nvidia-vfx` (1.2.0 exposes only `VideoSuperRes`). The adapter (`jasna/framegen/rtx_frame_generator.py`) probes for the future effect and raises a clear error until it is released; activating it is then a one-line inference call.
-- **PTS math** (`FrameGenWriter`): for each consecutive pair, emit the real frame then `M-1` interpolated frames at `pts_k = prev_pts + round((curr_pts - prev_pts) * k / M)`. Output timing is PTS-driven (mkvmerge timecodes), so inserting timestamps is what produces the 2x/4x rate; audio keeps the original timecodes, so duration and sync are preserved. Total frames: `(N-1)*M + 1`. Non-monotonic PTS intervals skip interpolation. NVENC `fps`/`gop` are scaled by the multiplier for correct GOP/rate-control (`NvidiaVideoEncoder(output_fps_multiplier=...)`).
+- **PTS math** (`FrameGenWriter`): for each consecutive pair, emit the real frame then `M-1` interpolated frames at `pts_k = prev_pts + round((curr_pts - prev_pts) * k / M)`. Output timing is PTS-driven, so inserting timestamps is what produces the 2x/4x rate; audio keeps the original timecodes, so duration and sync are preserved. Total frames: `(N-1)*M + 1`. Non-monotonic PTS intervals skip interpolation. Encoder fps/GOP are corrected by passing **source fps x multiplier** into the upstream v0.8.0 encoder's `output_fps` parameter (the old `output_fps_multiplier` parameter is gone; the multiplier also applies on top of the `--retarget-high-fps` decimated rate).
 - CLI (`jasna/main.py`) and GUI (`jasna/gui/`) gain `--frame-gen` / `--frame-gen-backend`. The GUI encoding settings also expose the RIFE weights path (the `--frame-gen-model-path` equivalent).
-- Standalone `jasna-framegen` CLI (`jasna/framegen_cli.py`, new `console_script`): applies **only** frame generation (2x/4x) to an already-restored video, with no detection and no restoration. A thin driver reusing the same NVDEC/NVENC + mkvmerge path and `FrameGenWriter`; imports nothing from `jasna.pipeline` or `jasna.protection` (guarded by `tests/test_framegen_cli_protection_free.py`). Enables a two-pass workflow (restore with the official binary → up-convert here). Supports folder input/output with `--output-pattern` ({original} template), reusing `media_files.classify_folder` / `folder_output_path`; videos only (images skipped), one shared generator across the batch. Tests: `tests/test_framegen_cli_{driver,device,folder,folder_device,protection_free}.py`.
+- Standalone `jasna-framegen` CLI (`jasna/framegen_cli.py`, new `console_script`): applies **only** frame generation (2x/4x) to an already-restored video, with no detection and no restoration. A thin driver reusing the same NVDEC/NVENC path and `FrameGenWriter`; imports nothing from `jasna.pipeline` or `jasna.protection` (guarded by `tests/test_framegen_cli_protection_free.py`). Enables a two-pass workflow (restore with the official binary → up-convert here). Supports folder input/output with `--output-pattern` ({original} template), reusing `media_files.classify_folder` / `folder_output_path`; videos only (images skipped), one shared generator across the batch. Tests: `tests/test_framegen_cli_{driver,device,folder,folder_device,protection_free}.py`.
 - Converter: `make_rife_torchscript.py` (Practical-RIFE -> TorchScript; delegates to `Model.inference` so the per-version `scale_list` is correct; fp16 trace is the default on CUDA with automatic fp32 fallback; verified with RIFE 4.25). Procedure: `docs/FRAME_GENERATION_{en,ja}.md`.
 - Tests: `tests/test_frame_gen_writer.py` (PTS/count, GPU-free) and `tests/test_rife_frame_generator.py` (padding + interpolate shapes + TorchScript load + fp16 default/fp32 fallback, CUDA-gated).
 - Hardware-verified (RTX, Windows, run from source): a 30 fps / 10661-frame input -> `--frame-gen 2x` gives 60 fps / 21321 frames (= `(N-1)*2+1`) with `ffprobe` confirming unchanged duration and audio sync.
@@ -116,11 +102,17 @@ Upstream v0.7.0 added folder input (`--input <dir> --output <dir>`, which proces
 
 - **Frame generation across a batch**: the RIFE generator is built once and shared across every video in the batch, but `FrameGenWriter.close()` used to close that *borrowed* generator after the first video (freeing the model → `_model = None`), so the second video crashed with `'NoneType' object is not callable`. The writer now leaves the generator alone; whoever built it (the CLI folder loop / the GUI job runner) owns its lifecycle and closes it once after the batch, mirroring how the pipeline treats the borrowed restoration pipeline. Verified: a 2-video folder with `--frame-gen 2x` now processes both files, each `(N-1)*2+1` frames.
 
-## 7. New feature (modi): torchcodec backend (experimental, with vali / PyNvVideoCodec fallback)
+## 7. New feature (modi): torchcodec backend (experimental, with native = PyAV fallback)
 
-An experimental `torchcodec>=0.14.0` backend that can replace `python_vali` (decode) and `PyNvVideoCodec` (encode) (optional dependency, off by default). The default stays `native` (current behavior); select via `--video-backend {native,auto,torchcodec}` plus per-side `--decode-backend`/`--encode-backend {inherit,...}` overrides. `auto` uses torchcodec where it applies and falls back to native otherwise.
+An experimental `torchcodec>=0.14.0` backend usable instead of native (PyAV NVDEC/NVENC since v0.8.0) — optional dependency, off by default. The default stays `native` (current behavior); select via `--video-backend {native,auto,torchcodec}` plus per-side `--decode-backend`/`--encode-backend {inherit,...}` overrides.
 
-torchcodec decode covers every input as 8-bit RGB, and encode covers 8-bit HEVC/AV1 (`*_nvenc`). Colorspace (BT.601/709/2020) is applied by the existing remux, and NVENC settings map the supported keys (cq/qmin/qmax/gop/lookahead/temporalaq/aq/nonrefp/maxbitrate/vbvbufsize and preset) into `extra_options`. **Only 10-bit, unmappable settings, frame-gen, and streaming stay on native.** Decode speed is content-dependent (torchcodec faster on synthetic clips, native ~12% faster on real 1080p, but decode is not the bottleneck). Implemented in `jasna/media/backend.py` (selection layer), `torchcodec_decoder.py`, and `torchcodec_encoder.py`. The GUI exposes this as a "Video Backend" dropdown in the encoding settings (applied to both decode and encode). See `docs/TORCHCODEC_BACKEND_{ja,en}.md` for the design and capability matrix.
+**Semantics changed with the v0.8.0 rebase**: the upstream native encoder now always outputs 10-bit (P010) for HEVC/AV1, so output parity with the 8-bit-nv12-only torchcodec encoder no longer holds. Therefore:
+
+- **decode**: as before, `auto` prefers torchcodec and falls back to native on failure. The `--retarget-high-fps` frame stride is native-reader-only (forcing torchcodec with it errors; auto goes native).
+- **encode**: **never selected by `auto`** (to avoid silently changing the output bit depth). It runs only when forced via `--encode-backend torchcodec`, and only for **8-bit sources + HEVC/AV1 + mappable NVENC settings** (output is 8-bit; streaming / `--segments` / frame-gen / fps changes are rejected). Colorspace (BT.601/709/2020) is tagged by the encoder's built-in ffmpeg copy-remux using the H.273 code points (plus the `hevc_metadata` BSF VUI rewrite for HEVC); the old mkvmerge-era helper dependency is gone.
+- The **observable backend** from b2471d5 (startup log shows `[decode: ..., encode: ...]`; readers/encoders carry a `backend` attribute) and the **dedicated encode worker thread** are kept.
+
+The NVENC settings mapping (cq/qmin/qmax/gop/lookahead/temporalaq/aq/nonrefp/maxbitrate/vbvbufsize and preset -> `extra_options`) is unchanged. Implemented in `jasna/media/backend.py` (selection layer), `torchcodec_decoder.py`, and `torchcodec_encoder.py`. The GUI exposes this as a "Video Backend" dropdown in the encoding settings (applied to both decode and encode). See `docs/TORCHCODEC_BACKEND_{ja,en}.md` for the design and capability matrix (this section is authoritative for the v0.8.0 semantics changes).
 
 ## 8. New feature (modi): cuDNN FP8 restoration backend (experimental, with TensorRT fallback)
 
