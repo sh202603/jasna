@@ -8,7 +8,7 @@ Jasna 是免费的。支持者会获得一个密钥，用于解锁为本项目�
 
 > ### ⚙️ 这是 Jasna 的 `+modi` 分支
 >
-> 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.0 的改版构建，新增**帧生成**（`--frame-gen` 2x/4x）、**torchcodec 视频后端**、**FP8 修复后端**、**FlashVSR 二级修复**等改进。
+> 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1 的改版构建，新增**帧生成**（`--frame-gen` 2x/4x）、**torchcodec 视频后端**、**FP8 修复后端**、**FlashVSR 二级修复**等改进。
 >
 > - **源码（本分支）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
 > - **与上游的完整变更:** [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)
