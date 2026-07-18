@@ -659,8 +659,6 @@ class JasnaApp(ctk.CTk, TkinterDnD.DnDWrapper):
         dialog.resizable(False, False)
         dialog.configure(fg_color=Colors.BG_MAIN)
         dialog.transient(self)
-        dialog.wait_visibility()  # X11: window must be viewable before grab_set, else TclError
-        dialog.grab_set()
 
         ctk.CTkLabel(
             dialog,
@@ -706,6 +704,11 @@ class JasnaApp(ctk.CTk, TkinterDnD.DnDWrapper):
         x = self.winfo_x() + (self.winfo_width() - w) // 2
         y = self.winfo_y() + (self.winfo_height() - h) // 2
         dialog.geometry(f"{w}x{h}+{x}+{y}")
+
+        # Defer lift()/grab_set() so the widgets are painted first; on
+        # Linux/X11 an early grab_set() can leave a CTkToplevel rendered blank.
+        dialog.after(200, dialog.lift)
+        dialog.after(250, dialog.grab_set)
         return dialog
 
 
