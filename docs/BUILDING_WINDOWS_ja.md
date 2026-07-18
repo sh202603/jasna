@@ -350,7 +350,7 @@ uv pip install -e .[dev,torchcodec] `
     --prerelease=allow
 ```
 
-これで `torchcodec>=0.14.0` が入る。通常のビルドには不要で、既定の `native` バックエンドは torchcodec なしで動作する。詳細は [TORCHCODEC_BACKEND_ja.md](TORCHCODEC_BACKEND_ja.md)。
+これで `torchcodec>=0.15.0` が入る。通常のビルドには不要で、既定の `native` バックエンドは torchcodec なしで動作する。詳細は [TORCHCODEC_BACKEND_ja.md](TORCHCODEC_BACKEND_ja.md)。
 
 **補足: FP8 復元バックエンドに追加のインストール手順は不要。** 依存 `nvidia-cudnn-frontend` と（Windows では）`triton-windows` は `pyproject.toml` の通常依存で、上記コマンドで一緒に入る。cuDNN ランタイム（9.17 以上）は torch cu130 wheel に同梱済み。機能は実行時 opt-in（`--fp8-recon`、FP8 対応 GPU sm89 以上が必要）で、使えない環境では TensorRT エンジンにフォールバックする。compute glue は triton-windows 経由でコンパイルされ、inductor が動かない環境では警告を出して eager に降格する。Windows 実機（Windows 11 / RTX 5080）で A/B ベンチマークの全ゲート通過とフルパイプライン走行を確認済みで、triton-windows 経由の compile glue も動作する。詳細は [FP8_RECON_ja.md](FP8_RECON_ja.md)。
 

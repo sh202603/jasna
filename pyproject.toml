@@ -78,11 +78,13 @@ dev = [
   "delvewheel; sys_platform == 'win32'",
 ]
 # Optional torchcodec backend (opt-in via --video-backend auto|torchcodec).
-# 0.13.0 is buggy/unusable; pin >=0.14.0. Install the cu130 build alongside
-# torch 2.12, e.g. from https://download.pytorch.org/whl/cu130 . Native-only
-# installs work without this extra.
+# 0.13.0 is buggy/unusable; pin >=0.15.0 (maintenance release over 0.14.0:
+# decode EOF fixes, faster forward seeks; encoder/decoder API and NVENC
+# capability limits unchanged). Install the cu130 build alongside torch 2.12,
+# e.g. from https://download.pytorch.org/whl/cu130 . Native-only installs work
+# without this extra.
 torchcodec = [
-  "torchcodec>=0.14.0",
+  "torchcodec>=0.15.0",
 ]
 
 [tool.setuptools]
