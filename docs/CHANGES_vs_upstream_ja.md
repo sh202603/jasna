@@ -34,7 +34,7 @@ upstream main に対するビルド環境とランタイムの更新。いずれ
   RTX Super-Res の TensorRT バージョン衝突（`libnvinfer.so.10` の先読み）修正。旧来のモーダルダイアログ空表示対策（遅延 `grab_set`）は、upstream v0.8.0 の `wait_visibility()` ベースの X11 対応 + Linux GUI 修正群で置換されたため drop。
 - **ビルドガイド整備**: `docs/BUILDING_{LINUX,WINDOWS}_{ja,en}.md`。本ブランチはソース適用済みのためクローン後そのままビルド可。各ガイドの付録は変更内容の内訳を参照用に記述。
 
-> mmengine 用の `patches/fix_loading_mmengine_weights_on_torch26_and_higher.diff` は venv 内パッケージへ当てるもので、ビルド手順（各ガイド §8.1）で別途適用します（これが唯一同梱されるパッチ）。
+> mmengine 用の `patches/fix_loading_mmengine_weights_on_torch26_and_higher.diff` は venv 内パッケージへ当てるもので、ビルド手順（各ガイド §5.1）で別途適用します（これが唯一同梱されるパッチ）。
 
 ---
 
