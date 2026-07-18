@@ -252,7 +252,7 @@ uv pip install -e .[dev,torchcodec] \
     --prerelease=allow
 ```
 
-This adds `torchcodec>=0.14.0`. It is **not** needed for a normal build; the default `native` backend works without it. See [TORCHCODEC_BACKEND_en.md](TORCHCODEC_BACKEND_en.md).
+This adds `torchcodec>=0.15.0`. It is **not** needed for a normal build; the default `native` backend works without it. See [TORCHCODEC_BACKEND_en.md](TORCHCODEC_BACKEND_en.md).
 
 **Note: the FP8 restoration backend needs no extra install step.** Its dependency `nvidia-cudnn-frontend` is a regular entry in `pyproject.toml` and is installed by the commands above; the cuDNN runtime (>= 9.17) already ships with the torch cu130 wheel. The feature itself is opt-in at runtime (`--fp8-recon`, FP8-capable GPU sm89+ required) and falls back to the TensorRT engine when unavailable. See [FP8_RECON_en.md](FP8_RECON_en.md).
 
