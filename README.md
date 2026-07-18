@@ -6,12 +6,21 @@ Jasna is a JAV mosaic restoration tool with a simple GUI, a CLI, a GPU-only proc
 
 Jasna is free. Supporters get a key that unlocks the extra models trained for this project: the **unet-4x** secondary upscaler and the experimental **SD 1.5 image restoration** model. See [Supporting the project](#supporting-the-project).
 
+> ### ⚙️ This is the `+modi` fork of Jasna
+>
+> A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.0, adding **frame generation** (`--frame-gen` 2x/4x), an experimental **torchcodec video backend**, an experimental **FP8 restoration backend**, and **FlashVSR secondary restoration**, among other improvements.
+>
+> - **Source (this fork/branch):** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
+> - **Full list of changes vs upstream:** [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)
+> - **Scope — public (free) features only.** The supporter models (**unet-4x** and **SD 1.5 image restoration**) ship as encrypted checkpoints unlocked by a supporter key, and the decryption code lives in a private submodule that is **not part of this public fork** — so those models **cannot be downloaded, decrypted, or run here**. The upstream code for them rides along but stays inert. If you want the supporter models, use upstream [**Kruk2/jasna**](https://github.com/Kruk2/jasna) and become a supporter. Everything else (detection, video restoration, RTX/TVAI secondary, the segment editor, VR180, post-export actions, frame generation) works normally.
+
 <img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
 
 
 ## Contents
 
 - [What Jasna Does](#what-jasna-does)
+- [`+modi` Additions](#modi-additions)
 - [Community](#community)
 - [Requirements](#requirements)
 - [Quick Start](#quick-start)
@@ -35,15 +44,38 @@ Jasna is free. Supporters get a key that unlocks the extra models trained for th
 - Includes a native GUI video player with full-screen playback and seeking through restored frames without creating an output file.
 - Can stream restored video to the built-in browser player or a supported Stash fork.
 
+## `+modi` Additions
+
+These features are exclusive to the `+modi` fork. See [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md) for the full list of changes against upstream.
+
+### Frame Generation (frame-rate up-conversion)
+
+`--frame-gen {2x,4x}` raises the output frame rate by inserting AI-interpolated frames (RIFE) between the source frames. File output only (not `--stream`, not `--segments`); audio timecodes are kept, so duration and sync are preserved. Runs fp16 by default — measured ~1.9x faster than fp32 (1080p 2x, RTX 5060 Ti) with visually identical output.
+
+```bash
+jasna --input input.mp4 --output output.mkv --frame-gen 2x
+```
+
+Backend via `--frame-gen-backend {rife,rtx}` (`rife` is the default and available now; `rtx` is pending NVIDIA's `nvidia-vfx` release).
+
+A standalone `jasna-framegen` command applies **only** frame generation to an already-restored video (no detection/restoration) — handy for a two-pass workflow (restore first, e.g. with the official binary, then up-convert). It also supports folder input/output with an `--output-pattern` naming template (videos only):
+
+```bash
+jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x
+jasna-framegen --input in_dir --output out_dir --factor 2x --output-pattern "{original}_2x.mkv"
+```
+
+Details: [docs/FRAME_GENERATION_en.md](docs/FRAME_GENERATION_en.md).
+
 ### Video Backend (experimental)
 
-Jasna decodes with `python_vali` and encodes with `PyNvVideoCodec` by default (`--video-backend native`). An **experimental** [torchcodec](https://github.com/meta-pytorch/torchcodec) backend can replace both for 8-bit HEVC/AV1 output:
+Jasna decodes and encodes through PyAV (NVDEC/NVENC) by default (`--video-backend native`). An **experimental** [torchcodec](https://github.com/meta-pytorch/torchcodec) backend is available as an alternative:
 
 ```bash
 jasna --input input.mp4 --output output.mkv --video-backend auto
 ```
 
-`--video-backend {native,auto,torchcodec}` (default `native`, i.e. unchanged behavior): `auto` uses torchcodec where it applies and falls back to native otherwise; `torchcodec` forces it. `--decode-backend` / `--encode-backend` override each side independently. The torchcodec encoder covers **8-bit HEVC/AV1** with the mappable NVENC settings; **10-bit, frame generation, streaming, and unmappable encoder settings always fall back to native**, and colorspace metadata is preserved either way. Requires the optional dependency (`pip install "torchcodec>=0.14.0"` from the cu130 wheel index). Details: [docs/TORCHCODEC_BACKEND_en.md](docs/TORCHCODEC_BACKEND_en.md).
+`--video-backend {native,auto,torchcodec}` (default `native`, i.e. unchanged behavior): `auto` uses torchcodec for **decode** where available and falls back to native otherwise; `torchcodec` forces it. `--decode-backend` / `--encode-backend` override each side independently. Since v0.8.0 the native encoder always outputs 10-bit HEVC/AV1, which torchcodec's 8-bit NVENC cannot match, so **torchcodec encode runs only when forced** (`--encode-backend torchcodec`), and only for 8-bit sources with mappable NVENC settings; streaming, `--segments`, `--retarget-high-fps`, and frame generation stay on native. Colorspace metadata is preserved either way. Requires the optional dependency (`pip install "torchcodec>=0.14.0"` from the cu130 wheel index). Details: [docs/TORCHCODEC_BACKEND_en.md](docs/TORCHCODEC_BACKEND_en.md).
 
 ### FP8 Restoration Backend (experimental)
 

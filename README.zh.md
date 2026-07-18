@@ -8,11 +8,11 @@ Jasna 是免费的。支持者会获得一个密钥，用于解锁为本项目�
 
 > ### ⚙️ 这是 Jasna 的 `+modi` 分支
 >
-> 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) 的改版构建，新增**帧生成**（`--frame-gen` 2x/4x）和**灵活输出**（HEVC/AV1、8/10-bit、BT.601/709/2020 色彩空间）等改进。
+> 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.0 的改版构建，新增**帧生成**（`--frame-gen` 2x/4x）、**torchcodec 视频后端**、**FP8 修复后端**、**FlashVSR 二级修复**等改进。
 >
 > - **源码（本分支）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
 > - **与上游的完整变更:** [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)
-> - **范围 — 仅公开（免费）功能。** 支持者模型（**unet-4x** 和 **SD 1.5 图像修复**）以加密检查点形式提供，需用支持者密钥解锁，而解密代码位于**不属于本公开分支**的私有子模块中 —— 因此这些模型**无法在此下载、解密或运行**。它们的上游代码随附但保持 inert（不激活）。如需支持者模型，请使用上游 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) 并成为支持者。其他一切（检测、视频修复、RTX/TVAI 二级修复、导出后操作、AV1、帧生成）均正常工作。
+> - **范围 — 仅公开（免费）功能。** 支持者模型（**unet-4x** 和 **SD 1.5 图像修复**）以加密检查点形式提供，需用支持者密钥解锁，而解密代码位于**不属于本公开分支**的私有子模块中 —— 因此这些模型**无法在此下载、解密或运行**。它们的上游代码随附但保持 inert（不激活）。如需支持者模型，请使用上游 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) 并成为支持者。其他一切（检测、视频修复、RTX/TVAI 二级修复、区间编辑器、VR180、导出后操作、帧生成）均正常工作。
 
 <img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
 
@@ -42,22 +42,11 @@ Jasna 是免费的。支持者会获得一个密钥，用于解锁为本项目�
 - 可使用可选的[二级修复模型](docs/zh/models.md) — **unet-4x**、**RTX Super Resolution** 或 **Topaz Video AI** — 进一步提升质量，让修复区域更清晰，尤其是大面积马赛克、特写和 4K 视频。
 - 内置原生 GUI 视频播放器，无需生成输出文件即可全屏播放和跳转修复画面。
 - 可将修复后的视频串流到内置浏览器播放器，或支持的 Stash 分支。
-- **`+modi`:** 可输出 HEVC 或 AV1、8/10-bit，并保留 BT.601/709/2020 色彩空间。
 - **`+modi`:** 通过 AI 帧生成（RIFE）实现 2x/4x 帧率提升。
 
 ## `+modi` 新增功能
 
 这些功能为 `+modi` 分支专有。完整变更列表见 [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)。
-
-### 灵活输出（编码器 / 位深 / 色彩空间）
-
-此前固定为 HEVC / 10-bit (P010) / BT.709 的输出阶段，现已支持 **AV1**、**8-bit (NV12)** 或 **10-bit**，并保留源的 **BT.601 / BT.709 / BT.2020** 色彩空间。流水线在 GPU 上端到端保持零拷贝。
-
-```bash
-jasna --input input.mp4 --output output.mkv --codec av1 --bit-depth 10
-```
-
-`--codec {hevc,av1}`、`--bit-depth {auto,8,10}`。详情: [docs/CODECS_AND_COLORSPACE_en.md](docs/CODECS_AND_COLORSPACE_en.md)。
 
 ### 帧生成（帧率提升）
 
@@ -71,13 +60,13 @@ jasna --input input.mp4 --output output.mkv --frame-gen 2x
 
 ### 视频后端（实验性）
 
-Jasna 默认用 `python_vali` 解码、`PyNvVideoCodec` 编码（`--video-backend native`）。一个**实验性**的 [torchcodec](https://github.com/meta-pytorch/torchcodec) 后端可在 8-bit HEVC/AV1 输出时替换两者：
+Jasna 默认通过 PyAV（NVDEC/NVENC）解码与编码（`--video-backend native`）。可选用一个**实验性**的 [torchcodec](https://github.com/meta-pytorch/torchcodec) 后端作为替代：
 
 ```bash
 jasna --input input.mp4 --output output.mkv --video-backend auto
 ```
 
-`--video-backend {native,auto,torchcodec}`（默认 `native`，即原有行为）：`auto` 在适用时使用 torchcodec，否则回退到 native；`torchcodec` 强制使用。`--decode-backend` / `--encode-backend` 可分别覆盖解码侧与编码侧。torchcodec 编码器支持**8-bit HEVC/AV1**及可映射的 NVENC 设置；**10-bit、帧生成、流式传输以及无法映射的编码设置始终回退到 native**，色彩空间元数据在两种情况下都会保留。需要可选依赖（从 cu130 wheel index 执行 `pip install "torchcodec>=0.14.0"`）。详情: [docs/TORCHCODEC_BACKEND_en.md](docs/TORCHCODEC_BACKEND_en.md)。
+`--video-backend {native,auto,torchcodec}`（默认 `native`，即原有行为）：`auto` 在可用时将 torchcodec 用于**解码**，否则回退到 native；`torchcodec` 强制使用。`--decode-backend` / `--encode-backend` 可分别覆盖解码侧与编码侧。自 v0.8.0 起，native 编码器对 HEVC/AV1 始终输出 10-bit，而 torchcodec 的 NVENC 仅支持 8-bit，两者输出无法一致，因此 **torchcodec 编码仅在强制指定（`--encode-backend torchcodec`）时运行**，且仅限 8-bit 源与可映射的 NVENC 设置；流式传输、`--segments`、`--retarget-high-fps` 与帧生成保持 native。色彩空间元数据在两种情况下都会保留。需要可选依赖（从 cu130 wheel index 执行 `pip install "torchcodec>=0.14.0"`）。详情: [docs/TORCHCODEC_BACKEND_en.md](docs/TORCHCODEC_BACKEND_en.md)。
 
 ### FP8 修复后端（实验性）
 
