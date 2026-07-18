@@ -9,6 +9,14 @@
 Jasna restores mosaics in videos and images. It is free, has a simple app
 and a command line, and runs on your GPU.
 
+> ### ⚙️ This is the `+modi` fork of Jasna
+>
+> A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.0, adding **frame generation** (`--frame-gen` 2x/4x), an experimental **torchcodec video backend**, an experimental **FP8 restoration backend**, and **FlashVSR secondary restoration**, among other improvements.
+>
+> - **Source (this fork/branch):** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
+> - **Full list of changes vs upstream:** [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)
+> - **Scope — public (free) features only.** The supporter models (**unet-4x** and **SD 1.5 image restoration**) ship as encrypted checkpoints unlocked by a supporter key, and the decryption code lives in a private submodule that is **not part of this public fork** — so those models **cannot be downloaded, decrypted, or run here**. The upstream code for them rides along but stays inert. If you want the supporter models, use upstream [**Kruk2/jasna**](https://github.com/Kruk2/jasna) and become a supporter. Everything else (detection, video restoration, RTX/TVAI secondary, the segment editor, VR180, post-export actions, frame generation) works normally.
+
 <img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
 
 ## Contents
