@@ -17,7 +17,8 @@ Design constraints (see ``docs/TORCHCODEC_BACKEND_*.md``):
   into the factory bodies so the selection predicates stay cheap and
   unit-testable without a GPU installed.
 
-torchcodec 0.14.0 capability limits that drive the predicates:
+torchcodec 0.15.0 capability limits that drive the predicates (unchanged since
+0.14.0; re-verified on 0.15.0):
 
 - Decode: covers essentially every input (jasna only needs 8-bit RGB for its
   models), so the decoder predicate is availability plus ``frame_stride == 1``
@@ -110,7 +111,7 @@ def select_decoder_backend(
 
 
 # jasna encoder-setting key -> ffmpeg nvenc `extra_options` key. Validated against
-# torchcodec 0.14.0 (which rejects rc/tune/b_ref_mode/multipass/tier). "preset" goes
+# torchcodec 0.15.0 (which rejects rc/tune/b_ref_mode/multipass/tier). "preset" goes
 # to the dedicated add_video param and "aq" expands to spatial-aq + aq-strength, so
 # both are mappable but handled specially in the encoder (not via this dict).
 NVENC_EXTRA_KEYMAP = {
