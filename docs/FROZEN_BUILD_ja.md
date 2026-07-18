@@ -18,7 +18,7 @@ upstream はパッケージングを PyInstaller から Nuitka へ切り替え�
 ## 1. 前提条件
 
 - [BUILDING_WINDOWS_ja.md](BUILDING_WINDOWS_ja.md) の手順でソース実行できる環境が整っていること。
-  venv に全ランタイム依存に加えて `[dev]` extra（`uv pip install -e .[dev]`）が入っていれば、`nuitka>=2.4` が使える。
+  venv に全ランタイム依存に加えて `[dev]` extra（`uv pip install -e .[dev,nvidia]`）が入っていれば、`nuitka>=2.4` が使える。
   Nuitka は jasna を C にコンパイルするため、Visual Studio Build Tools（MSVC）も必要である。
 - CUDA Toolkit 13.x がインストールされ、`CUDA_PATH` が設定されていること。
   NPP と nvJPEG のランタイム DLL（`nppc64_13.dll` から `nvjpeg64_13.dll` までの 6 本）を `%CUDA_PATH%\bin\x64` から配布物へコピーするためである。

@@ -30,7 +30,7 @@ Windows で Jasna のセットアップを行い、**ソースから実行**す�
 | OS | Windows 10/11 x64 | n/a | PowerShell 7+ 推奨 |
 | Git | Git for Windows | `Git.Git` | リポジトリ取得用 |
 | uv | 最新版 | `astral-sh.uv` | Python の自動管理を含む |
-| Python | 3.13 | n/a (uv が自動管理) | `uv venv --python 3.13` 実行時に未インストールなら自動取得。`requires-python = ">=3.13,<3.14"` のため 3.14 は不可 |
+| Python | 3.13 | n/a (uv が自動管理) | `uv venv --python 3.13` 実行時に未インストールなら自動取得。v0.8.1 で `requires-python` は `>=3.12` に緩和されたが、本ガイドの検証は 3.13 のみ（3.14 は cu130 GPU スタックとの組み合わせが未検証） |
 | NVIDIA Driver | **610+** | NVIDIA 公式 or NVIDIA App | 起動チェックが Windows では 610 以上を要求。GPU は compute capability 7.5+ |
 | ffmpeg / ffprobe | **v8**（実行時 CLI） | [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases) の `ffmpeg-n8.1-latest-win64-gpl-shared-*.zip` 推奨（下記） | 起動チェックが `ffprobe` のメジャーバージョン 8 を要求 |
 | VS Build Tools | 2022 (Desktop development with C++) | `Microsoft.VisualStudio.2022.BuildTools` | **PyAV wheel を自前ビルドする場合のみ**（4節 (B)） |
@@ -146,17 +146,17 @@ python -c "import av; from av.video.frame import CudaContext; print(av.ffmpeg_ve
 
 delvewheel は DLL をハッシュ付き名で `av.libs\` に同梱するため、torchcodec が実行時にロードする FFmpeg DLL とはプロセス内で別コピーになりますが、Windows は DLL ごとにシンボル空間が独立しており、Linux で問題になった同名ライブラリの衝突は起きません（スモークテスト一式で確認済み）。
 
-> **注意: 自前ビルドの wheel はバージョン番号が PyPI の 18.0.0 と同じです。** `uv pip show av` では区別できず、取り違えると実行時に current_ctx 関連のエラーになります（トラブルシューティング参照）。5節の `uv pip install -e .[dev]` は同版の av を置き換えない（実測確認済み）ため、本節を先に済ませておけばそのまま維持されます。導入済みかは `Test-Path .venv\Lib\site-packages\av.libs`（delvewheel 同梱の証拠）で判別できます。
+> **注意: 自前ビルドの wheel はバージョン番号が PyPI の 18.0.0 と同じです。** `uv pip show av` では区別できず、取り違えると実行時に current_ctx 関連のエラーになります（トラブルシューティング参照）。5節の `uv pip install -e .[dev,nvidia]` は同版の av を置き換えない（実測確認済み）ため、本節を先に済ませておけばそのまま維持されます。導入済みかは `Test-Path .venv\Lib\site-packages\av.libs`（delvewheel 同梱の証拠）で判別できます。
 
 ---
 
 ## 5. jasna 本体のインストール
 
-`pyproject.toml` の依存に `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` が含まれる。これらは標準の PyPI には存在しないため、**PyTorch の wheel インデックスを `--extra-index-url` で指定し、さらに 2 つのフラグが必要**:
+v0.8.1 で GPU スタックは extras に分割された（`nvidia` = NVIDIA スタック、`amd` = ROCm 用）。NVIDIA ビルドでは `nvidia` extra が `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx` を入れる。これらは標準の PyPI には存在しないため、**PyTorch の wheel インデックスを `--extra-index-url` で指定し、さらに 2 つのフラグが必要**:
 
 ```powershell
 cd $Workspace\jasna
-uv pip install -e .[dev] `
+uv pip install -e .[dev,nvidia] `
     --extra-index-url https://download.pytorch.org/whl/cu130 `
     --index-strategy unsafe-best-match `
     --prerelease=allow
@@ -168,12 +168,12 @@ uv pip install -e .[dev] `
 - `--index-strategy unsafe-best-match`: `pyproject.toml` の `torch-tensorrt==2.12.0` を PyTorch インデックス上の `torch-tensorrt==2.12.0+cu130`（ローカルバージョン付き）で満たすために必要。デフォルトの first-index 戦略では拒否される
 - `--prerelease=allow`: `torch-tensorrt` の推移依存 `nvidia-cuda-runtime-cu13==0.0.0a0` がプレリリース版のため必要
 
-`[dev]` で `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja` が入る。
+`[dev]` で `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja` が入る。`[nvidia]` で GPU スタック（torch cu130 / TensorRT / torch-tensorrt / nvidia-vfx。v0.8.1 で必須依存から分割）が入る — **指定を忘れると torch が入らず起動しない**。
 
-**オプション: torchcodec バックエンド。** 実験的な torchcodec のデコード/エンコード経路（`--video-backend torchcodec`/`auto`）を使う場合は、`torchcodec` extra を追加し、同じフラグで `.[dev,torchcodec]` を入れる:
+**オプション: torchcodec バックエンド。** 実験的な torchcodec のデコード/エンコード経路（`--video-backend torchcodec`/`auto`）を使う場合は、`torchcodec` extra を追加し、同じフラグで `.[dev,nvidia,torchcodec]` を入れる:
 
 ```powershell
-uv pip install -e .[dev,torchcodec] `
+uv pip install -e .[dev,nvidia,torchcodec] `
     --extra-index-url https://download.pytorch.org/whl/cu130 `
     --index-strategy unsafe-best-match `
     --prerelease=allow
@@ -205,7 +205,7 @@ Select-String -Path .venv\Lib\site-packages\mmengine\runner\checkpoint.py -Patte
 # → 行が 1 件ヒットすれば適用済み
 ```
 
-> このパッチは `uv pip install -e .[dev]` で `mmengine` を入れ直すたびに上書きされて消える。再インストール後は再度当てる。
+> このパッチは `uv pip install -e .[dev,nvidia]` で `mmengine` を入れ直すたびに上書きされて消える。再インストール後は再度当てる。
 
 ### 5.2 ONNX パッケージ（YOLO 検出モデル用）
 
@@ -316,10 +316,10 @@ upstream 自身のパッケージングツール（同じく Nuitka ベース）
 
 ### jasna インストール
 
-- **`uv pip install -e .[dev]` が `No solution found ... no version of torch==2.12.0+cu130` で失敗する**
+- **`uv pip install -e .[dev,nvidia]` が `No solution found ... no version of torch==2.12.0+cu130` で失敗する**
   PyTorch インデックスが未指定。`--extra-index-url https://download.pytorch.org/whl/cu130` を追加する。
 
-- **`uv pip install -e .[dev]` が `torch-tensorrt==2.12.0+cu130 ... unsatisfiable` で失敗する**
+- **`uv pip install -e .[dev,nvidia]` が `torch-tensorrt==2.12.0+cu130 ... unsatisfiable` で失敗する**
   uv のデフォルト index 戦略は first-index 限定で、`torch-tensorrt==2.12.0` を PyTorch インデックスの `2.12.0+cu130`（ローカルバージョン付き）で満たすことを拒否する。さらに推移依存 `nvidia-cuda-runtime-cu13==0.0.0a0` はプレリリース。`--index-strategy unsafe-best-match --prerelease=allow` を追加する（5節）。
 
 ### ランタイム
