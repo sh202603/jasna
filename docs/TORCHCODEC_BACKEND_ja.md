@@ -10,20 +10,22 @@ torchcodec が扱えるケースだけ torchcodec を使い、扱えないケー
 既定は `native` で、これは従来と完全に同一の挙動になる。
 torchcodec はオプトインの実験的機能である。
 
-**実行環境**：jasna 本体と同じ GPU 専用スタック（NVIDIA GPU、CUDA 13.x、torch 2.12.0+cu130、ffmpeg 8 の共有ビルドを PATH）に加え、optional 依存 `torchcodec>=0.14.0`（cu130 ビルド）を要する。
+**実行環境**：jasna 本体と同じ GPU 専用スタック（NVIDIA GPU、CUDA 13.x、torch 2.12.0+cu130、ffmpeg 8 の共有ビルドを PATH）に加え、optional 依存 `torchcodec>=0.15.0`（cu130 ビルド）を要する。
 本書の数値は Windows 11 / Python 3.13.9 / torch 2.12.0+cu130 / CUDA 13.0 / RTX 5080 / ffmpeg 8.1 full-shared で計測した（付録 A は同一 RTX 5080 の Linux 側。デュアルブートで GPU は共通）。
 
 ## 背景と目的
 
 jasna は decode を `python_vali`、encode を `PyNvVideoCodec` という二つの vendored ネイティブ依存に依存している。
 どちらもビルドが重い。
-これを PyTorch 公式の単一 wheel で完結する `torchcodec>=0.14.0` に寄せたい。
+これを PyTorch 公式の単一 wheel で完結する `torchcodec>=0.15.0` に寄せたい。
 
 ネイティブのみが担う必要があるのは、実質 **10bit 出力**（torchcodec の GPU エンコードは 8bit nv12 固定）と、一部のマッピング不可な NVENC 設定、streaming、frame-gen に絞られる。
 AV1 は `av1_nvenc` で出せ、色は既存の remux が付与し、NVENC 設定の多くは `extra_options` でマッピングできる。
 10bit などでネイティブが必要なため、全面置換ではなく torchcodec 経路を**追加**し、非対応はネイティブへ**フォールバック**する方式を採る。
 
-## torchcodec 0.14.0 の能力
+## torchcodec 0.15.0 の能力
+
+0.15.0 は 0.14.0 に対するメンテナンスリリース（decode の premature EOF 修正、前方シークの高速化、macOS free-threaded wheel 追加）で、encoder/decoder の公開 API と下表の能力に変更はない。下表の内容は 0.15.0 の実機（RTX 5080、NVDEC デコード + jasna の全 NVENC 設定での HEVC/AV1 エンコード、拒否オプションの拒否継続）で再検証済み。
 
 | 区分 | 可否 | 詳細 |
 |---|---|---|
@@ -119,7 +121,7 @@ frame-gen は常に CFR エンコードがネイティブのため、`jasna-fram
 
 ```toml
 [project.optional-dependencies]
-torchcodec = ["torchcodec>=0.14.0"]   # 0.13.0 は既知バグで不可
+torchcodec = ["torchcodec>=0.15.0"]   # 0.13.0 は既知バグで不可
 ```
 
 torch 2.12 + cu130 と整合させるため、uv で cu130 wheel index から入れる。jasna 本体と一緒に extra で入れる方法（ビルドガイドと同じフラグ）:
@@ -134,7 +136,7 @@ uv pip install -e .[dev,torchcodec] `
 既存環境に torchcodec だけ追加する場合（`--no-deps` で pinned torch を乱さない）:
 
 ```powershell
-uv pip install "torchcodec>=0.14.0" --no-deps --index-url https://download.pytorch.org/whl/cu130
+uv pip install "torchcodec>=0.15.0" --no-deps --index-url https://download.pytorch.org/whl/cu130
 ```
 
 - torchcodec は実行時に FFmpeg の共有ライブラリを dlopen する。jasna が要求する **ffmpeg 8 共有ビルド**（`avcodec-62`/`avformat-62`/`avutil-60`）が PATH にあれば解決できる。

@@ -64,7 +64,7 @@ Jasna 默认通过 PyAV（NVDEC/NVENC）解码与编码（`--video-backend nativ
 jasna --input input.mp4 --output output.mkv --video-backend auto
 ```
 
-`--video-backend {native,auto,torchcodec}`（默认 `native`，即原有行为）：`auto` 在可用时将 torchcodec 用于**解码**，否则回退到 native；`torchcodec` 强制使用。`--decode-backend` / `--encode-backend` 可分别覆盖解码侧与编码侧。自 v0.8.0 起，native 编码器对 HEVC/AV1 始终输出 10-bit，而 torchcodec 的 NVENC 仅支持 8-bit，两者输出无法一致，因此 **torchcodec 编码仅在强制指定（`--encode-backend torchcodec`）时运行**，且仅限 8-bit 源与可映射的 NVENC 设置；流式传输、`--segments`、`--retarget-high-fps` 与帧生成保持 native。色彩空间元数据在两种情况下都会保留。需要可选依赖（从 cu130 wheel index 执行 `pip install "torchcodec>=0.14.0"`）。详情: [docs/TORCHCODEC_BACKEND_en.md](docs/TORCHCODEC_BACKEND_en.md)。
+`--video-backend {native,auto,torchcodec}`（默认 `native`，即原有行为）：`auto` 在可用时将 torchcodec 用于**解码**，否则回退到 native；`torchcodec` 强制使用。`--decode-backend` / `--encode-backend` 可分别覆盖解码侧与编码侧。自 v0.8.0 起，native 编码器对 HEVC/AV1 始终输出 10-bit，而 torchcodec 的 NVENC 仅支持 8-bit，两者输出无法一致，因此 **torchcodec 编码仅在强制指定（`--encode-backend torchcodec`）时运行**，且仅限 8-bit 源与可映射的 NVENC 设置；流式传输、`--segments`、`--retarget-high-fps` 与帧生成保持 native。色彩空间元数据在两种情况下都会保留。需要可选依赖（从 cu130 wheel index 执行 `pip install "torchcodec>=0.15.0"`）。详情: [docs/TORCHCODEC_BACKEND_en.md](docs/TORCHCODEC_BACKEND_en.md)。
 
 ### FP8 修复后端（实验性）
 
