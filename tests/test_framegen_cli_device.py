@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 import types
+from fractions import Fraction
 from unittest.mock import MagicMock, patch
 
 import torch
@@ -74,6 +75,7 @@ def test_cli_threads_device_and_multiplier(tmp_path):
 
     meta = MagicMock()
     meta.num_frames = 1
+    meta.video_fps_exact = Fraction(24, 1)
 
     with (
         patch("jasna.framegen_cli.check_ascii_install_path", return_value=(True, "/fake")),
@@ -107,6 +109,7 @@ def test_cli_threads_device_and_multiplier(tmp_path):
     assert captured["encoder_device"] == want
     assert captured["gen_device"] == want
     assert captured["gen_backend"] == "rife"
-    # output_fps_multiplier must equal the factor (4x) for correct NVENC fps/GOP.
-    assert captured["output_fps_multiplier"] == 4
+    # The encoder must receive the source fps multiplied by the factor (4x)
+    # for correct NVENC fps/GOP.
+    assert captured["output_fps"] == Fraction(96, 1)
     assert len(captured.get("encoded", [])) == 1
