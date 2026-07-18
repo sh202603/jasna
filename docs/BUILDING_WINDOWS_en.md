@@ -1,5 +1,8 @@
 # Building Jasna for Windows
 
+> **⚠️ Note on the v0.8.0 rebase (2026-07-18)**: upstream v0.8.0 moved the media layer to PyAV (NVDEC/NVENC); `python_vali` / `PyNvVideoCodec` are no longer used by the runtime and **mkvmerge is no longer required**. The dependency is `av>=18,<19` (the GPU path needs PyAV 18.1.0's current_ctx API — until it is published, use a wheel built from PyAV upstream main `61e4aa8`). The instructions below date from the v0.7.2 era and are pending re-validation for v0.8.0. See `docs/CHANGES_vs_upstream_en.md` for the current deltas.
+
+
 How to set up the Jasna build dependencies on Windows and run jasna **from source**.
 
 > **This guide covers the `v0.7.2+modi` branch.** It builds jasna against the GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**), already pinned in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0`; TensorRT 11 is not yet supported by torch-tensorrt.

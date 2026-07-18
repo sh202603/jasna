@@ -1,10 +1,15 @@
-# 変更点サマリ: `modi`（`v0.7.2+modi`）vs upstream main
+# 変更点サマリ: `modi`（`v0.8.0+modi`）vs upstream main
 
-このブランチが upstream（`main`）に対して加えている変更の要約です。`modi` は upstream main `278ab09`（`v0.7.2`）にリベース済み。
+このブランチが upstream（`main`）に対して加えている変更の要約です。`modi` は upstream main `abc5d6a`（`v0.8.0`）にリベース済み。
 
 - ブランチ: `modi`（fork `https://github.com/sh202603/jasna.git`）
-- バージョン: `0.7.2+modi`（upstream main `278ab09` ベース = `v0.7.2`）
-- 規模: upstream main 上に 6 コミットへ集約（`git diff --shortstat upstream/main..modi`）。
+- バージョン: `0.8.0+modi`（upstream main `abc5d6a` ベース = `v0.8.0`）
+
+> **`v0.8.0` ベースでの新規分**（2026-07-18 取り込み）: 上流はメディア層を **PyAV（NVDEC/NVENC）へ全面移行**し（`python_vali` / `PyNvVideoCodec` をランタイムから撤去、**mkvmerge 依存も削除**）、**AV1/H264 エンコード**・**BT.601/709/2020 × full/limited × 8/10-bit** の色空間/ビット深度対応・**ソフトウェアデコードフォールバック**・**アナモルフィック（SAR）対応**を実装した。さらに**区間エディター + スマートレンダリング**（`--segments`）、**復元プレビュー再生**、**マスク提案エディタ**（明示的な Submit 時のみ、フレーム+マスクを暗号化して上流の Cloudflare Worker へ送信）、**VR180 復元**（`--vr-mode`）、**高 FPS リターゲット**（`--retarget-high-fps`、60→30 間引き）、多数の Linux GUI 修正が入った。ドライバ要件は Windows 610+ / Linux 580+、依存に `av>=18,<19`（GPU パスは PyAV 18.1.0 相当の current_ctx API が必要。18.1.0 公開まで upstream main `61e4aa8` からのビルド wheel を使う）。
+>
+> このリベースの方針は **重複機能は upstream 優先**: 本フォークの「柔軟な出力」（旧 §2）は upstream 実装に全面置換して drop（`--bit-depth` フラグも廃止、下記 §2）。torchcodec バックエンドは新メディア層に合わせて意味論を再定義した（§7）。
+>
+> **検証状態**: リベース後の検証は GPU 非使用の pytest（1523 passed / スキップ・既知失敗は CUDA 必須・protection 欠落・ヘッドレス環境依存のみ）と CLI 疎通まで。**GPU 実走（native/torchcodec 両バックエンド、frame-gen、FP8、FlashVSR、TRT エンジン再コンパイル）は未実施**であり、次の GPU セッションで行う。
 
 > **ベースを `v0.7.2` へ更新。** 以下のコミット別の突き合わせ記録は当初の `v0.6.2` 期リベース向けに書かれたものだが、それらの upstream 修正（デコーダ stream 同期、分離畳み込み、validate-model-name、onnx export、trt load）は現在のベースにも引き継がれており（upstream は v0.7.0 リリース時に `main` を force-push して SHA を書き換えたが、機能は維持）、収束関係は今も成立する。`v0.7.1` ベースで既に入っていたのは upstream の **サポーター向けモデル**（SD 1.5 画像復元、unet-4x）とモデル暗号化/Nuitka 周りで、本フォークはそのコードを **inert（動作しない形）** のまま同梱する（公開ソースからは復号も実行もできない。README のスコープ注記を参照）。ビルドは upstream に合わせて PyInstaller から Nuitka へ移行したが、パッケージングツールは非公開のため、公開での利用経路はソースからの実行（`docs/BUILDING_*` を参照）。
 >
@@ -23,43 +28,24 @@
 upstream main に対するビルド環境とランタイムの更新。いずれも**ブランチのソースへ直接適用済み**で、クローン後そのままビルドできる（唯一の例外は venv に当てる mmengine パッチ、後述）。
 
 - **ビルド/ランタイム改善**
-  `model_weights/` の自動解決（`jasna/model_weights_resolver.py` 新規）。upstream も frozen バイナリ向けの `engine_paths.model_weights_dir()` を追加したため、upstream の呼び出し箇所を本リゾルバへ委譲して統一（env 上書き、パッケージ親フォールバック、ロギングを持つ superset を維持）。ほか TRT ベンチの新 API 追従、Windows 専用 DLL ロード補助、PyInstaller spec の調整など。
+  `model_weights/` の自動解決（`jasna/model_weights_resolver.py` 新規）。upstream も frozen バイナリ向けの `engine_paths.model_weights_dir()` を追加したため、upstream の呼び出し箇所を本リゾルバへ委譲して統一（env 上書き、パッケージ親フォールバック、ロギングを持つ superset を維持）。ほか TRT ベンチの新 API 追従、PyInstaller spec の調整など。旧 `video_decoder.py` の Windows 向け `python_vali`/CUDA DLL ロード補助は、upstream v0.8.0 の PyAV 移行（vali 撤去）で不要になったため drop。
 - **YOLO 検出エクスポート修正**: 検出 ONNX を CPU でエクスポートし、凍結（PyInstaller）バイナリで CUDA error 100 を回避する。ultralytics の GPU エクスポートは TensorRT より先に torch CUDA を初期化して初期化順序を壊すため。エクスポート後に `CUDA_VISIBLE_DEVICES` を復元。エンジンは引き続き fp16 でビルドされる。（`onnx` 自体は upstream の依存になった。）
 - **Linux GUI / RTX-VSR 修正**
-  モーダルダイアログの空表示修正、RTX Super-Res の TensorRT バージョン衝突（`libnvinfer.so.10` の先読み）修正。
+  RTX Super-Res の TensorRT バージョン衝突（`libnvinfer.so.10` の先読み）修正。旧来のモーダルダイアログ空表示対策（遅延 `grab_set`）は、upstream v0.8.0 の `wait_visibility()` ベースの X11 対応 + Linux GUI 修正群で置換されたため drop。
 - **ビルドガイド整備**: `docs/BUILDING_{LINUX,WINDOWS}_{ja,en}.md`。本ブランチはソース適用済みのためクローン後そのままビルド可。各ガイドの付録は変更内容の内訳を参照用に記述。
 
 > mmengine 用の `patches/fix_loading_mmengine_weights_on_torch26_and_higher.diff` は venv 内パッケージへ当てるもので、ビルド手順（各ガイド §8.1）で別途適用します（これが唯一同梱されるパッチ）。
 
 ---
 
-## 2. 新機能（modi）: 出力フォーマットの柔軟化
+## 2. 出力フォーマットの柔軟化（upstream v0.8.0 に全面吸収）
 
-従来 HEVC / 10bit(P010) / BT.709 固定だった GPU エンコード出力を、lada-ex 相当に拡張。
+> **本項は本ブランチ独自の差分ではなくなった。** modi は v0.7.2 期に AV1 / 8-10bit / BT.601-2020 出力（`--codec` / `--bit-depth`、`chw_rgb_to_surface` 汎用変換、mkvmerge+ffmpeg remux）を独自実装していたが、upstream v0.8.0 が PyAV ベースの新エンコーダで**同等以上**を実装した: `--codec {hevc,h264,av1}`、BT.601/709/2020 × full/limited × NV12/P010 変換一式（`rgb_to_nv12.py` / `rgb_to_p010.py`）、H.273 色タグの PyAV インライン付与、フルレンジ入力対応、mkvmerge 廃止。リベース方針（upstream 優先）に従い modi 実装は drop した。以下は帰結。
 
-> upstream も独自に **BT.601 対応**（`chw_rgb_to_p010_bt601_limited` の狭い実装 + HEVC VUI 書き換え）と **`.cube` LUT** 機能を追加した。リベースでは本ブランチの汎用 superset（`chw_rgb_to_surface`、BT.601/709/2020 × NV12/P010）を維持しつつ、**upstream の HEVC VUI ビットストリーム書き換え（`-bsf:v hevc_metadata`、AV1 では適用しない）と `.cube` LUT を取り込んで共存**させた。
-
-- **AV1 出力**: `--codec av1`（ファイル出力のみ。ストリーミング非対応、NVENC AV1 は B フレーム無効）。
-- **8bit(NV12) / 10bit(P010) 出力**: `--bit-depth {auto,8,10}`。既定 `auto` はソース連動（10bit→P010、それ以外→NV12）。
-- **BT.601 / BT.709 / BT.2020 色空間保持**: ソースの色空間に応じた limited-range RGB→YUV 変換を選択し、出力コンテナにマトリクス＋原色＋transfer を付与（BT.2020 は `bt2020nc` / `bt2020` / `bt2020-10`）。
-
-### 実装の要点
-- `jasna/media/rgb_to_p010.py`: 汎用変換 `chw_rgb_to_surface(frame, colorspace, bit_depth)`（NV12/P010 × BT.601/709/2020）。
-- `jasna/media/__init__.py`: `Colorspace` enum と `VideoMetadata.yuv_colorspace`（av の Colorspace では表現できない BT.2020 を保持）。ffprobe からの色空間判定を拡張。
-- `jasna/media/video_encoder.py`: codec＋ビット深度から `fmt`/`profile`/B フレーム/一時ファイル拡張子（`.hevc`/`.obu`）を決定。remux の色メタデータを matrix/primaries/transfer で正しく付与。出力コンテナは出力拡張子で決定（`.mkv`→Matroska、`.mp4`/`.mov`→MP4/MOV、AV1-in-MP4 可）し、mkvmerge で中間化後 ffmpeg で最終 remux（音声結合、`-c:v copy`、`.mp4`/`.mov` は `+faststart`）。
-- `jasna/pipeline.py` / `jasna/streaming_pipeline.py`: 早期ガードを「BT.709 以外を拒否」→「フルレンジのみ拒否」に変更（BT.601/709/2020 を全許可）。フルレンジ判定は ffprobe の `color_range` が `pc` または `jpeg`（ffprobe は `pc` を報告するため、`pc` を取りこぼさないよう修正済み）。
-- CLI（`jasna/main.py`）と GUI（`jasna/gui/`）に `--codec` / `--bit-depth` を追加。
-- ドキュメント: `docs/CODECS_AND_COLORSPACE_{ja,en}.md`、各 README に1行追記。
-- テスト: `tests/test_rgb_to_surface.py` 新規ほか、AV1/NV12/BT.601/BT.2020、バリデーションのケースを追加。
-
-### 実機検証（ffmpeg 8 / mkvmerge v97）
-HEVC 8/10bit（709）、BT.601、BT.2020、AV1（8/10bit）、`--bit-depth` 双方向 override をすべて確認（出力の codec/pix_fmt/色タグを ffprobe で検証、デコード成功）。追加で **10bit BT.601/709/2020 → P010**、**HEVC 10bit の `Main 10` プロファイル**、**`.mp4` への AV1-in-MP4 出力**、**フルレンジ(`pc`)入力の拒否発火** も確認。ユニットテストは全パス（フルレンジ `pc` 検出の回帰テスト `test_color_range_pc` を追加）。上記マトリクス（`--codec` × `--bit-depth` × BT.601/709/2020、`--bit-depth` 双方向、フルレンジ拒否）は **Windows / Linux 両環境**（RTX 5060 Ti）で、**CLI、GUI 連続処理、凍結(PyInstaller)バイナリ**にて確認済み（lada-yolo 検出 + RTX Super-Res、BT.2020 も VLC で色破綻なしを含む）。
-
-### 既知の制限
-- AV1 はファイル出力のみ（ストリーミング不可）。
-- HDR トランスファ特性（PQ/HLG）は非保持（マトリクス＋原色のみ）。
-- フルレンジ（JPEG/PC range）入力は非対応（検出時に拒否）。
-- AV1 muxing は OBU→mkvmerge（中間段）→ ffmpeg remux（最終）。古い mkvmerge では IVF 化や ffmpeg 直 mux が必要な場合あり。
+- **`--bit-depth` フラグは廃止**。ビット深度は upstream 仕様どおり codec で決まる（hevc/av1 → 10-bit P010、h264 → 8-bit NV12。`--segments` のスマートレンダリング断片のみ `match_input_bit_depth` で 8-bit ソースに追従）。
+- modi の `Colorspace` enum / `VideoMetadata.yuv_colorspace` / `chw_rgb_to_surface` / mkvmerge ベースの remux は削除（upstream は `av>=18` で BT.2020 をネイティブ表現できる）。
+- 旧 `docs/CODECS_AND_COLORSPACE_{ja,en}.md` と `tests/test_rgb_to_surface.py` は削除（upstream の `test_rgb_to_nv12.py` / `test_rgb_to_p010.py` / `test_video_encoder_mux.py` が置き換え）。
+- upstream に無かった modi 差分でこの領域に残るのは **frame-gen 連携の出力 fps 配線**（§4）のみ。
 
 ---
 
@@ -73,15 +59,15 @@ upstream の `create_blend_mask`（`jasna/tracking/blending.py`）は、フレ�
 
 ## 4. 新機能（modi）: フレームレート倍化（フレーム生成）
 
-AI補間フレームを挿入して出力フレームレートを上げる: `--frame-gen {none,2x,4x}`（ファイル出力のみ。AV1 と同様にストリーミング非対応）。
+AI補間フレームを挿入して出力フレームレートを上げる: `--frame-gen {none,2x,4x}`（ファイル出力のみ。ストリーミング非対応、`--segments` スマートレンダリングとも併用不可 — コピー区間とフレームレートが一致しなくなるため起動時に拒否する）。
 
 - **なぜ二次リストアではなく新ステージか**: 二次リストア（`unet-4x` / `tvai` / `rtx-super-res`）は 256×256 のモザイククロップを処理しフレーム数を変えない。フレーム生成は全解像度の出力フレームに対しフレーム数と PTS を**増やす**ため、パイプラインの `FrameWriter` を薄くラップするデコレータ（`FrameGenWriter`）として挿入する。パイプライン本体とエンコーダは無改造。
 - **バックエンド**（`--frame-gen-backend {rife,rtx}`）。`FrameGenerator` プロトコルで差し替え可能:
   - `rife`（既定）: ニューラル補間（RIFE）。CUDA で**現在利用可能**。TorchScript チェックポイント（推奨、自己完結）か、同梱 RIFE 4.6 `IFNet`（`jasna/models/rife/`）への state_dict を読み込む。重みは `--frame-gen-model-path` か `model_weights/rife.pth`。
   - `rtx`: **NVIDIA RTX Video Frame Generation**。RTX Spark と同時に Python ホイール + ComfyUI ノードとして発表されたが、`nvidia-vfx`（1.2.0 は `VideoSuperRes` のみ公開）に**未出荷**。アダプタ（`jasna/framegen/rtx_frame_generator.py`）は将来の Effect を探し、出荷までは明示エラーにする。出荷後は推論呼び出し 1 箇所で有効化できる。
-- **PTS 計算**（`FrameGenWriter`）: 連続する 2 フレームごとに、実フレームを出力後 `M-1` 枚の補間を `pts_k = prev_pts + round((curr_pts - prev_pts) * k / M)` で挿入。出力タイミングは PTS 駆動（mkvmerge タイムコード）なので、PTS 挿入が 2x/4x を生む。音声は元のタイムコードを保持するため尺と同期は不変。総フレーム数は `(N-1)*M + 1`。非単調 PTS の区間は補間をスキップ。NVENC の `fps`/`gop` は倍率でスケールし GOP/レート制御を正す（`NvidiaVideoEncoder(output_fps_multiplier=...)`）。
+- **PTS 計算**（`FrameGenWriter`）: 連続する 2 フレームごとに、実フレームを出力後 `M-1` 枚の補間を `pts_k = prev_pts + round((curr_pts - prev_pts) * k / M)` で挿入。出力タイミングは PTS 駆動なので、PTS 挿入が 2x/4x を生む。音声は元のタイムコードを保持するため尺と同期は不変。総フレーム数は `(N-1)*M + 1`。非単調 PTS の区間は補間をスキップ。エンコーダの fps/GOP は、v0.8.0 の upstream エンコーダが持つ `output_fps` パラメータに **ソース fps × 倍率** を渡して正す（旧 `output_fps_multiplier` パラメータは廃止。`--retarget-high-fps` の間引き後 fps にも倍率が乗る）。
 - CLI（`jasna/main.py`）と GUI（`jasna/gui/`）に `--frame-gen` / `--frame-gen-backend` を追加。GUI のエンコード設定には RIFE 重みパス（`--frame-gen-model-path` 相当）の入力欄もある。
-- スタンドアロン `jasna-framegen` CLI（`jasna/framegen_cli.py`、新規 `console_script`）: **復元済み動画にフレーム生成だけ**（2x/4x）を適用する（検出も復元もしない）。同じ NVDEC/NVENC + mkvmerge 経路と `FrameGenWriter` を再利用する薄いドライバで、`jasna.pipeline` や `jasna.protection` を一切 import しない（`tests/test_framegen_cli_protection_free.py` で担保）。2パス運用（公式バイナリで復元 → ここでアップコンバート）を可能にする。フォルダ入出力 + `--output-pattern`（`{original}` テンプレート）に対応し、`media_files.classify_folder` / `folder_output_path` を再利用。動画のみ（画像はスキップ）、バッチ全体で generator を 1 つ共有。テスト: `tests/test_framegen_cli_{driver,device,folder,folder_device,protection_free}.py`。
+- スタンドアロン `jasna-framegen` CLI（`jasna/framegen_cli.py`、新規 `console_script`）: **復元済み動画にフレーム生成だけ**（2x/4x）を適用する（検出も復元もしない）。同じ NVDEC/NVENC 経路と `FrameGenWriter` を再利用する薄いドライバで、`jasna.pipeline` や `jasna.protection` を一切 import しない（`tests/test_framegen_cli_protection_free.py` で担保）。2パス運用（公式バイナリで復元 → ここでアップコンバート）を可能にする。フォルダ入出力 + `--output-pattern`（`{original}` テンプレート）に対応し、`media_files.classify_folder` / `folder_output_path` を再利用。動画のみ（画像はスキップ）、バッチ全体で generator を 1 つ共有。テスト: `tests/test_framegen_cli_{driver,device,folder,folder_device,protection_free}.py`。
 - 変換ツール: `make_rife_torchscript.py`（Practical-RIFE → TorchScript、`Model.inference` 委譲で版差吸収、CUDA では fp16 トレースが既定で失敗時は fp32 自動フォールバック、RIFE 4.25 で動作確認）。手順は `docs/FRAME_GENERATION_{ja,en}.md`。
 - テスト: `tests/test_frame_gen_writer.py`（PTS と枚数、GPU 不要）と `tests/test_rife_frame_generator.py`（パディング + 補間形状 + TorchScript ロード + fp16 既定/fp32 フォールバック、CUDA 限定）。
 - 実機検証（RTX、Windows、ソース実行）: 30fps、10661 フレームの入力 → `--frame-gen 2x` で 60fps、21321 フレーム（=`(N-1)*2+1`）、尺と音声同期が不変であることを `ffprobe` で確認。
@@ -116,11 +102,17 @@ upstream v0.7.0 がフォルダ入力（`--input <dir> --output <dir>`、画像�
 
 - **一括処理での frame-gen**: RIFE generator は1回だけ構築され全動画で共有されるが、`FrameGenWriter.close()` が1本目の後にその**借用**generator を close（モデル解放 → `_model = None`）していたため、2本目が `'NoneType' object is not callable` でクラッシュしていた。writer は generator を close しないようにし、構築した側（CLI のフォルダループ / GUI のジョブ）が一括処理後に1回だけ close してライフサイクルを所有する。パイプラインが借用 restoration pipeline を扱うのと同じ方針。検証: 2本動画フォルダ + `--frame-gen 2x` で両方処理され、各 `(N-1)*2+1` フレーム。
 
-## 7. 新機能（modi）: torchcodec バックエンド（実験的、vali / PyNvVideoCodec フォールバック付き）
+## 7. 新機能（modi）: torchcodec バックエンド（実験的、native = PyAV フォールバック付き）
 
-`python_vali`（decode）と `PyNvVideoCodec`（encode）の代わりに使える実験的な `torchcodec>=0.14.0` バックエンドを追加した（オプション依存、既定 off）。既定は `native`（従来挙動）で、`--video-backend {native,auto,torchcodec}` と、個別上書きの `--decode-backend`/`--encode-backend {inherit,...}` で選択する。`auto` は適用できる場面で torchcodec を使い、それ以外はネイティブへフォールバックする。
+ネイティブ（v0.8.0 以降は PyAV NVDEC/NVENC）の代わりに使える実験的な `torchcodec>=0.14.0` バックエンド（オプション依存、既定 off）。既定は `native`（従来挙動）で、`--video-backend {native,auto,torchcodec}` と、個別上書きの `--decode-backend`/`--encode-backend {inherit,...}` で選択する。
 
-torchcodec のデコードは全入力を 8bit RGB で代替でき、エンコードは 8bit の HEVC/AV1（`*_nvenc`）に対応する。色空間（BT.601/709/2020）は既存の remux が付与し、NVENC 設定はマッピング可能なキー（cq/qmin/qmax/gop/lookahead/temporalaq/aq/nonrefp/maxbitrate/vbvbufsize と preset）を `extra_options` に変換して適用する。**ネイティブが担うのは 10bit、マッピング不可の設定、frame-gen、streaming のみ**。デコード速度は素材依存（合成では torchcodec が速く、実 1080p ではネイティブが約 12% 速いが、デコードは非ボトルネック）。実装は `jasna/media/backend.py`（選択レイヤ）、`torchcodec_decoder.py`、`torchcodec_encoder.py`。GUI ではエンコード設定の「ビデオバックエンド」ドロップダウン（decode/encode の両方に適用）として選択できる。設計と能力マトリクスは `docs/TORCHCODEC_BACKEND_{ja,en}.md` を参照。
+**v0.8.0 リベースでの意味論変更**: 上流のネイティブエンコーダは HEVC/AV1 を常に 10-bit（P010）で出力するようになり、8-bit nv12 専用の torchcodec エンコードでは出力パリティが成立しない。そのため:
+
+- **decode**: 従来どおり `auto` で torchcodec を優先し、失敗時はネイティブへフォールバック。ただし `--retarget-high-fps` の frame stride はネイティブリーダー専用（強制指定時はエラー、auto はネイティブへ）。
+- **encode**: **`auto` では選択されない**（出力ビット深度が黙って変わるのを防ぐ）。`--encode-backend torchcodec` の強制指定時のみ動作し、対象は **8-bit ソース + HEVC/AV1 + マッピング可能な NVENC 設定**に限る（出力は 8-bit。streaming / `--segments` / frame-gen / fps 変更は拒否）。色空間（BT.601/709/2020）は encoder 内蔵の ffmpeg copy-remux が H.273 コードポイント（+ HEVC は `hevc_metadata` BSF で VUI 書き換え）で付与し、旧 mkvmerge ヘルパーへの依存は撤去した。
+- b2471d5 由来の**観測可能バックエンド**（起動ログに `[decode: ..., encode: ...]` を表示、リーダー/エンコーダの `backend` 属性）と**エンコード専用ワーカースレッド**は維持。
+
+NVENC 設定のマッピング（cq/qmin/qmax/gop/lookahead/temporalaq/aq/nonrefp/maxbitrate/vbvbufsize と preset → `extra_options`）は従来どおり。実装は `jasna/media/backend.py`（選択レイヤ）、`torchcodec_decoder.py`、`torchcodec_encoder.py`。GUI ではエンコード設定の「ビデオバックエンド」ドロップダウン（decode/encode の両方に適用）として選択できる。設計と能力マトリクスは `docs/TORCHCODEC_BACKEND_{ja,en}.md` を参照（v0.8.0 の意味論変更は本節が正）。
 
 ## 8. 新機能（modi）: cuDNN FP8 復元バックエンド（実験的、TensorRT フォールバック付き）
 
