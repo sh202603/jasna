@@ -1,5 +1,8 @@
 # torchcodec バックエンド（実験的、vali / PyNvVideoCodec フォールバック付き）
 
+> **⚠️ v0.8.0 リベースでの意味論変更（2026-07-18）**: native バックエンドは PyAV（NVDEC/NVENC）になり、torchcodec **エンコード**は `auto` では選択されなくなった（ネイティブは HEVC/AV1 を常時 10-bit 出力するため、8-bit 専用の torchcodec と出力パリティが成立しない）。強制指定（`--encode-backend torchcodec`）時のみ、8-bit ソース限定で動作する。最新仕様は `docs/CHANGES_vs_upstream_ja.md` §7 が正。本書のそれ以外の設計記述（選択レイヤ、NVENC マッピング、フォールバック機構）は引き続き有効。
+
+
 `--video-backend` で選べる、torchcodec ベースの decode/encode 経路の設計をまとめる。
 
 既存のネイティブ経路（`python_vali` デコーダと `PyNvVideoCodec` エンコーダ）はそのまま残す。
