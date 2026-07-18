@@ -320,6 +320,9 @@ class TestValidation:
         ns.output = str(tmp_path / "out.mkv")
         ns.stream = False
         ns.frame_gen = "none"
+        ns.retarget_high_fps = False
+        ns.segments = ""
+        ns.vr_mode = "off"
         for k, v in overrides.items():
             setattr(ns, k, v)
         return ns
@@ -362,6 +365,54 @@ class TestValidation:
         ns = self._args(tmp_path, input=str(img))
         with pytest.raises(ValueError, match="video-only"):
             fo._validate_flashvsr_args(ns)
+
+    def test_retarget_high_fps_rejected(self, tmp_path):
+        ns = self._args(tmp_path, retarget_high_fps=True)
+        with pytest.raises(ValueError, match="retarget-high-fps"):
+            fo._validate_flashvsr_args(ns)
+
+    def test_segments_rejected(self, tmp_path):
+        ns = self._args(tmp_path, segments="10-25")
+        with pytest.raises(ValueError, match="segments"):
+            fo._validate_flashvsr_args(ns)
+
+    def test_vr_mode_sbs_rejected(self, tmp_path):
+        ns = self._args(tmp_path, vr_mode="sbs")
+        with pytest.raises(ValueError, match="VR processing"):
+            fo._validate_flashvsr_args(ns)
+
+    def test_vr_mode_sbs_fisheye_rejected(self, tmp_path):
+        ns = self._args(tmp_path, vr_mode="sbs-fisheye")
+        with pytest.raises(ValueError, match="VR processing"):
+            fo._validate_flashvsr_args(ns)
+
+    def test_vr_mode_auto_rejected_when_vr_detected(self, tmp_path):
+        from jasna.vr180 import VrModeResolution
+
+        ns = self._args(tmp_path, vr_mode="auto")
+        with (
+            patch("jasna.media.get_video_meta_data", return_value=MagicMock()),
+            patch(
+                "jasna.vr180.resolve_vr_mode",
+                return_value=VrModeResolution("auto", "sbs", "2:1 high-res", 2.0),
+            ),
+        ):
+            with pytest.raises(ValueError, match="detected VR content"):
+                fo._validate_flashvsr_args(ns)
+
+    def test_vr_mode_auto_passes_when_flat(self, tmp_path):
+        from jasna.vr180 import VrModeResolution
+
+        ns = self._args(tmp_path, vr_mode="auto")
+        with (
+            patch("jasna.media.get_video_meta_data", return_value=MagicMock()),
+            patch(
+                "jasna.vr180.resolve_vr_mode",
+                return_value=VrModeResolution("auto", "off", "not VR", 1.78),
+            ),
+        ):
+            repo, py, model, inp = fo._validate_flashvsr_args(ns)
+        assert inp.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -469,6 +520,9 @@ class TestOrchestrator:
         args.encode_backend = "inherit"
         args.stream = False
         args.frame_gen = "none"
+        args.retarget_high_fps = False
+        args.segments = ""
+        args.vr_mode = "off"
         return args
 
 
