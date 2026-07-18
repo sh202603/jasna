@@ -79,7 +79,7 @@ def test_cli_threads_device_and_multiplier(tmp_path):
 
     with (
         patch("jasna.framegen_cli.check_ascii_install_path", return_value=(True, "/fake")),
-        patch("jasna.framegen_cli.check_nvidia_gpu", return_value=(True, "Fake GPU")),
+        patch("jasna.framegen_cli.check_supported_gpu", return_value=(True, "Fake GPU")),
         patch("jasna.framegen_cli.check_gpu_driver_version", return_value=(True, "590.18")),
         patch("jasna.framegen_cli.check_required_executables"),
         patch("jasna.framegen_cli.check_windows_nvidia_sysmem_fallback_policy", return_value=(True, "OK")),
