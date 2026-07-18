@@ -632,7 +632,7 @@ def _validate_flashvsr_args(args: "argparse.Namespace") -> tuple[Path, Path, Pat
             f"--secondary-restoration flashvsr does not support VR processing (--vr-mode {vr_mode})"
         )
     if vr_mode == "auto":
-        from jasna.media import get_video_meta_data
+        from jasna.media.probe import get_video_meta_data
         from jasna.vr180 import resolve_vr_mode
 
         resolution = resolve_vr_mode("auto", get_video_meta_data(str(input_path)), input_path)

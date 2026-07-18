@@ -395,7 +395,7 @@ class TestValidation:
 
         ns = self._args(tmp_path, vr_mode="auto")
         with (
-            patch("jasna.media.get_video_meta_data", return_value=MagicMock()),
+            patch("jasna.media.probe.get_video_meta_data", return_value=MagicMock()),
             patch(
                 "jasna.vr180.resolve_vr_mode",
                 return_value=VrModeResolution("auto", "sbs", "2:1 high-res", 2.0, "fisheye190"),
@@ -409,7 +409,7 @@ class TestValidation:
 
         ns = self._args(tmp_path, vr_mode="auto")
         with (
-            patch("jasna.media.get_video_meta_data", return_value=MagicMock()),
+            patch("jasna.media.probe.get_video_meta_data", return_value=MagicMock()),
             patch(
                 "jasna.vr180.resolve_vr_mode",
                 return_value=VrModeResolution("auto", "off", "not VR", 1.78, "off"),

@@ -879,7 +879,6 @@ class JasnaApp(ctk.CTk, TkinterDnD.DnDWrapper):
         dialog.resizable(False, False)
         dialog.configure(fg_color=Colors.BG_MAIN)
         dialog.transient(self)
-        grab_modal(dialog)
 
         ctk.CTkLabel(
             dialog,
@@ -927,6 +926,10 @@ class JasnaApp(ctk.CTk, TkinterDnD.DnDWrapper):
             max(minimum_width, dialog.winfo_reqwidth()),
             dialog.winfo_reqheight(),
         )
+
+        # Defer the modal grab so the widgets are painted first; on Linux/X11
+        # an early grab_set() can leave a CTkToplevel rendered blank.
+        dialog.after(250, lambda: grab_modal(dialog))
         return dialog
 
 
