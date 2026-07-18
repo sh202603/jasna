@@ -9,7 +9,7 @@
 >
 > このリベースの方針は **重複機能は upstream 優先**: 本フォークの「柔軟な出力」（旧 §2）は upstream 実装に全面置換して drop（`--bit-depth` フラグも廃止、下記 §2）。torchcodec バックエンドは新メディア層に合わせて意味論を再定義した（§7）。
 >
-> **検証状態**: リベース後の検証は GPU 非使用の pytest（1523 passed / スキップ・既知失敗は CUDA 必須・protection 欠落・ヘッドレス環境依存のみ）と CLI 疎通まで。**GPU 実走（native/torchcodec 両バックエンド、frame-gen、FP8、FlashVSR、TRT エンジン再コンパイル）は未実施**であり、次の GPU セッションで行う。
+> **検証状態**（2026-07-18 GPU セッション完了）: GPU あり pytest **1678 passed / 9 failed + 1 collection error**（失敗は全て protection 欠落（unet4x/sd15/video_session 系）と日本語ロケール環境依存（segment_editor レイアウト 1 件、CJK フォント行高 + 1.33 スケーリング起因）で、**リベース回帰なし**）。CLI 実走も全て完了: native 480p（10661 フレーム一致、bt709 タグ、音声 copy）、torchcodec decode（4K）、torchcodec encode 強制（bt709+tv タグ・音声無劣化 copy・faststart moov 先頭を ffprobe 確認）、`--segments`（h264 一致出力・全長維持）、`--frame-gen 2x`（30→60fps、(N−1)×2+1 フレーム）、`--fp8-recon`（cuDNN FP8 経路有効を確認）、`--retarget-high-fps`（60→30fps 半減）、FlashVSR offline（フレーム数一致）とガード拒否（retarget/segments/VR）、GUI 起動（対話的検証は未実施）。TRT サブエンジンは v0.8.0 既定の b90 プロファイルで再コンパイル済み。このセッションで **§10 の NVENC ピッチ整列バグを発見・修正**。dev 環境の注意: ソースビルドの PyAV wheel は **nv-codec-headers 12.2+ でビルドされた FFmpeg 8 へのリンクが必須**（distro FFmpeg は `lookahead_level` 非対応のため全エンコードが起動時 `ValueError` で死ぬ。BtbN 共有ビルドへリンクし auditwheel で vendoring するのが手順）。
 
 > **ベースを `v0.7.2` へ更新。** 以下のコミット別の突き合わせ記録は当初の `v0.6.2` 期リベース向けに書かれたものだが、それらの upstream 修正（デコーダ stream 同期、分離畳み込み、validate-model-name、onnx export、trt load）は現在のベースにも引き継がれており（upstream は v0.7.0 リリース時に `main` を force-push して SHA を書き換えたが、機能は維持）、収束関係は今も成立する。`v0.7.1` ベースで既に入っていたのは upstream の **サポーター向けモデル**（SD 1.5 画像復元、unet-4x）とモデル暗号化/Nuitka 周りで、本フォークはそのコードを **inert（動作しない形）** のまま同梱する（公開ソースからは復号も実行もできない。README のスコープ注記を参照）。ビルドは upstream に合わせて PyInstaller から Nuitka へ移行したが、パッケージングツールは非公開のため、公開での利用経路はソースからの実行（`docs/BUILDING_*` を参照）。
 >
@@ -135,3 +135,13 @@ BasicVSR++ の **upsample** サブエンジンを cuDNN graph API の FP8 畳み
 **制約**: 両モードともファイル出力専用（`--stream` / 画像入力 非対応）、`--frame-gen` 非対応（フレーム生成は別パス）。オフラインはさらに v0.8.0 新機能の `--retarget-high-fps`（Phase 1 の frame stride が Phase 3 の再ブレンド索引とずれる）・`--segments`・VR 処理（`--vr-mode sbs`/`sbs-fisheye`、`auto` の VR 検出時）と併用不可で、起動時に拒否する。inline は FlashVSR（~15 crop-fps）律速で、モザイクが多い区間はその速度になる。
 
 **検証**: ユニット `tests/test_flashvsr_{offline,inline}.py` + `test_main.py`（GPU 無し CI、full suite リグレッション 0）。実機（RTX 5080 sm120）: オフライン/inline とも E2E 完走・出力フレーム数 = 入力。Linux では inline は 852x480 で combined VRAM peak 14780 MiB、A/B（primary-only 比）でモザイク領域のみが変化することを確認。1080p は物理天井際（~15.8 GB）まで上がり、`vram_offloader`（キューフレームを RAM へ退避）と worker の `expandable_segments` が圧を吸収して完走する。Windows（同カード、`expandable_segments` 非対応）でもフル長 480p/1080p の E2E を確認: 1080p は tiles `1` で GPU 全体ピーク 15.9 GB（天井まで <0.4 GB）、`--flashvsr-tiles 2` で 14.2 GB / 壁時計 +25% となり、短冊境界のシーム（バンディング、色調ずれ）は不検出。Windows 16 GB の 1080p 常用は tiles `2` を推奨。設計と全計測は `docs/FLASHVSR_{ja,en}.md`。
+
+---
+
+## 10. バグ修正: NVENC 入力ピッチの整列（upstream 報告候補）
+
+upstream v0.8.0 の PyAV エンコード経路は、RGB→YUV 変換結果のテンソルを `VideoFrame.from_dlpack` でゼロコピーのまま NVENC に登録する。このときの行ピッチは自然幅（W × 要素サイズ）になり、**16 バイト整列しない幅**（480p 定番の 852 幅 = P010 ピッチ 1704 B など）では NVENC のドライバ側カーネルが `cudaErrorMisalignedAddress` を起こす。共有 CUDA コンテキストが毒されるため decode/restore/blend/encode の全スレッドが同時にクラッシュし、プロセスはハングする（実測: Linux 595.71.05 / RTX 5080。幅 852/854/860 で再現、856/864/1280/1920/3840 は通過。コーデック不問、TRT・MPS・エンジン世代は無関係と切り分け済み）。
+
+修正は `jasna/media/video_encoder.py`: `_encode_frame` が from_dlpack へ渡す前に、ピッチが 256 B 整列でない場合のみ整列ステージングバッファ（per-frame 確保。NVENC の非同期読み出しと衝突しないため）へコピーする。整列済みの幅（1080p/4K 等）は従来どおりゼロコピー。エンコード経路は upstream コード無改変の領域のため **upstream 報告候補**。
+
+**検証**: 幅マトリクス 852/854/856/860/864/1280/1920 × hevc/h264 全通過、`tests/test_video_encoder_mux.py` 27 件パス、852x480（10661 フレーム一致）と 3840x2160 のフルパイプライン完走。
