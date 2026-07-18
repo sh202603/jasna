@@ -54,8 +54,8 @@ import logging
 from jasna.os_utils import (
     check_ascii_install_path,
     check_gpu_driver_version,
-    check_nvidia_gpu,
     check_required_executables,
+    check_supported_gpu,
     check_windows_nvidia_sysmem_fallback_policy,
 )
 
@@ -364,7 +364,7 @@ def main() -> None:
 
     check_required_executables(disable_ffmpeg_check=args.disable_ffmpeg_check)
 
-    gpu_ok, gpu_result = check_nvidia_gpu()
+    gpu_ok, gpu_result = check_supported_gpu(str(args.device))
     if not gpu_ok:
         if gpu_result == "no_cuda":
             print("Error: No CUDA device. An NVIDIA GPU with compute capability 7.5+ is required.")
