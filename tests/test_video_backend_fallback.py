@@ -2,14 +2,16 @@
 
 Exercises ``_FallbackVideoReader`` directly with fake factories, and checks that
 ``make_video_reader`` / ``make_video_encoder`` route to the right backend without
-constructing GPU resources. Reader construction is lightweight (``__init__`` only
-stores attributes); the torchcodec path stays lazy until ``__enter__``.
+constructing GPU resources. Reader construction is lightweight (``__init__`` stores
+attributes and resolves the accelerator vendor, so it needs a real torch.device);
+the torchcodec path stays lazy until ``__enter__``.
 """
 from __future__ import annotations
 
 from fractions import Fraction
 
 import pytest
+import torch
 from av.video.reformatter import Colorspace as AvColorspace, ColorRange as AvColorRange
 
 from jasna.media import VideoMetadata
@@ -72,8 +74,8 @@ class TestMakeVideoReaderDispatch:
         from jasna.media.video_decoder import NvidiaVideoReader
 
         monkeypatch.setattr(backend_mod, "torchcodec_available", lambda: True)
-        r = make_video_reader(file="x.mp4", batch_size=4, device=object(), metadata=object(),
-                              backend=VideoBackend.NATIVE)
+        r = make_video_reader(file="x.mp4", batch_size=4, device=torch.device("cuda"),
+                              metadata=object(), backend=VideoBackend.NATIVE)
         assert isinstance(r, NvidiaVideoReader)
 
     def test_auto_available_wraps_in_fallback(self, monkeypatch):
@@ -86,8 +88,8 @@ class TestMakeVideoReaderDispatch:
         from jasna.media.video_decoder import NvidiaVideoReader
 
         monkeypatch.setattr(backend_mod, "torchcodec_available", lambda: False)
-        r = make_video_reader(file="x.mp4", batch_size=4, device=object(), metadata=object(),
-                              backend=VideoBackend.AUTO)
+        r = make_video_reader(file="x.mp4", batch_size=4, device=torch.device("cuda"),
+                              metadata=object(), backend=VideoBackend.AUTO)
         assert isinstance(r, NvidiaVideoReader)
 
     def test_torchcodec_unavailable_raises(self, monkeypatch):
