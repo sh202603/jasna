@@ -34,7 +34,7 @@ Build-environment and runtime updates over upstream main. All are **applied dire
   Fix RTX Super-Res TensorRT version clash by pre-loading `libnvinfer.so.10`. The old blank-modal-dialog workaround (deferred `grab_set`) was dropped: upstream v0.8.0's `wait_visibility()`-based X11 handling plus its Linux GUI fixes supersede it.
 - **Build guides**: `docs/BUILDING_{LINUX,WINDOWS}_{ja,en}.md`. On this branch the changes are pre-applied to the source, so you can build straight after cloning; each guide's appendix documents the change breakdown for reference.
 
-> The mmengine patch `patches/fix_loading_mmengine_weights_on_torch26_and_higher.diff` applies to the venv package and is applied separately during the build (each guide's §8.1); it is the only bundled patch.
+> The mmengine patch `patches/fix_loading_mmengine_weights_on_torch26_and_higher.diff` applies to the venv package and is applied separately during the build (each guide's §5.1); it is the only bundled patch.
 
 ---
 
