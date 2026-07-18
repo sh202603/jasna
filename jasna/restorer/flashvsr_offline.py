@@ -583,6 +583,17 @@ def _validate_flashvsr_args(args: "argparse.Namespace") -> tuple[Path, Path, Pat
             "--secondary-restoration flashvsr does not support --frame-gen yet "
             "(run frame generation as a separate pass)"
         )
+    if bool(getattr(args, "retarget_high_fps", False)):
+        # Phase 1 would decode with the fps-retarget frame stride while Phase 3
+        # re-reads every source frame, so the bundle's start_frame indices would
+        # no longer match the reblend's frame counter.
+        raise ValueError(
+            "--secondary-restoration flashvsr does not support --retarget-high-fps"
+        )
+    if str(getattr(args, "segments", "") or "").strip():
+        raise ValueError(
+            "--secondary-restoration flashvsr does not support --segments smart rendering"
+        )
 
     if not str(args.flashvsr_repo).strip():
         raise ValueError("--flashvsr-repo is required for --secondary-restoration flashvsr")
@@ -611,6 +622,26 @@ def _validate_flashvsr_args(args: "argparse.Namespace") -> tuple[Path, Path, Pat
         raise ValueError("--secondary-restoration flashvsr does not support folder input")
     if is_image_path(input_path):
         raise ValueError("--secondary-restoration flashvsr is video-only (image input not supported)")
+
+    # The Phase 3 reblend pastes crops onto plain source frames with no VR
+    # projector, so any VR processing in Phase 1 would blend into the wrong
+    # geometry. "auto" is only rejected when it actually detects VR content.
+    vr_mode = str(getattr(args, "vr_mode", "off") or "off").strip().lower()
+    if vr_mode in ("sbs", "sbs-fisheye"):
+        raise ValueError(
+            f"--secondary-restoration flashvsr does not support VR processing (--vr-mode {vr_mode})"
+        )
+    if vr_mode == "auto":
+        from jasna.media import get_video_meta_data
+        from jasna.vr180 import resolve_vr_mode
+
+        resolution = resolve_vr_mode("auto", get_video_meta_data(str(input_path)), input_path)
+        if resolution.resolved != "off":
+            raise ValueError(
+                "--secondary-restoration flashvsr does not support VR processing, but "
+                f"--vr-mode auto detected VR content ({resolution.resolved}: {resolution.reason}). "
+                "Pass --vr-mode off to force flat processing."
+            )
 
     return repo, fv_python, model_dir, input_path
 
