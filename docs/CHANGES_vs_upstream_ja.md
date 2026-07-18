@@ -1,10 +1,12 @@
-# 変更点サマリ: `modi`（`v0.8.0+modi`）vs upstream main
+# 変更点サマリ: `modi`（`v0.8.1+modi`）vs upstream main
 
-このブランチが upstream（`main`）に対して加えている変更の要約です。`modi` は upstream main `abc5d6a`（`v0.8.0`）にリベース済み。
+このブランチが upstream（`main`）に対して加えている変更の要約です。`modi` は upstream main `9ad4635`（`v0.8.1` タグ + 4 コミット）にリベース済み。
 
 - ブランチ: `modi`（fork `https://github.com/sh202603/jasna.git`）
-- バージョン: `0.8.0+modi`（upstream main `abc5d6a` ベース = `v0.8.0`）
+- バージョン: `0.8.1+modi`（upstream main `9ad4635` ベース = `v0.8.1` + リリース後 4 コミット）
 
+> **`v0.8.1` ベースでの新規分**（2026-07-19 取り込み）: 上流は **AMD ROCm 対応（実験的、Linux）** を追加した — `jasna/accelerator.py`（vendor/capabilities 判定）、検出の onnxruntime-migraphx 実行（`mosaic/migraphx_runner.py`）、AMF ハードウェアデコード/エンコード、ROCm 向け cumsum ベース box blur（`_prefix_box_blur`）。それに伴い **pyproject の依存が extras に分割**され（`nvidia` = torch cu130 + TensorRT + nvidia-vfx / `amd` = torch 2.9.1 + migraphx）、ソース実行の dev インストールは `uv pip install -e .[dev,nvidia]` になった。`requires-python` は **>=3.12** に緩和。本フォークが報告した **NVENC 入力ピッチ整列バグ（[Kruk2/jasna#230](https://github.com/Kruk2/jasna/issues/230)）は upstream `bb6e36e` で修正**され、Linux ドライバ最小 580 化も upstream `041eded` が実装したため、対応するローカル 2 コミット（256B 整列版ピッチ修正 / os_utils のプラットフォーム分岐）は**このリベースで drop し upstream 版を採用**した（§10）。ほか GUI 区間プレビューの HiDPI 修正（#229）、リリースビルド整備（分割 Linux アーカイブ、libnvJitLink.so.13 同梱、Windows AMD リリース）。
+>
 > **`v0.8.0` ベースでの新規分**（2026-07-18 取り込み）: 上流はメディア層を **PyAV（NVDEC/NVENC）へ全面移行**し（`python_vali` / `PyNvVideoCodec` をランタイムから撤去、**mkvmerge 依存も削除**）、**AV1/H264 エンコード**・**BT.601/709/2020 × full/limited × 8/10-bit** の色空間/ビット深度対応・**ソフトウェアデコードフォールバック**・**アナモルフィック（SAR）対応**を実装した。さらに**区間エディター + スマートレンダリング**（`--segments`）、**復元プレビュー再生**、**マスク提案エディタ**（明示的な Submit 時のみ、フレーム+マスクを暗号化して上流の Cloudflare Worker へ送信）、**VR180 復元**（`--vr-mode`）、**高 FPS リターゲット**（`--retarget-high-fps`、60→30 間引き）、多数の Linux GUI 修正が入った。ドライバ要件は Windows 610+ / Linux 580+、依存に `av>=18,<19`（GPU パスは PyAV 18.1.0 相当の current_ctx API が必要。18.1.0 公開まで upstream main `61e4aa8` からのビルド wheel を使う）。
 >
 > このリベースの方針は **重複機能は upstream 優先**: 本フォークの「柔軟な出力」（旧 §2）は upstream 実装に全面置換して drop（`--bit-depth` フラグも廃止、下記 §2）。torchcodec バックエンドは新メディア層に合わせて意味論を再定義した（§7）。
@@ -136,10 +138,12 @@ BasicVSR++ の **upsample** サブエンジンを cuDNN graph API の FP8 畳み
 
 ---
 
-## 10. バグ修正: NVENC 入力ピッチの整列（upstream 報告候補）
+## 10. バグ修正: NVENC 入力ピッチの整列（upstream 報告 → v0.8.1 で修正済み）
+
+> **本項は本ブランチ独自の差分ではなくなった。** 本フォークが [Kruk2/jasna#230](https://github.com/Kruk2/jasna/issues/230) として報告し、upstream v0.8.1 の `bb6e36e`（"fix(encoder): align NVENC input pitch"）が修正した。以下は経緯の記録。
 
 upstream v0.8.0 の PyAV エンコード経路は、RGB→YUV 変換結果のテンソルを `VideoFrame.from_dlpack` でゼロコピーのまま NVENC に登録する。このときの行ピッチは自然幅（W × 要素サイズ）になり、**16 バイト整列しない幅**（480p 定番の 852 幅 = P010 ピッチ 1704 B など）では NVENC のドライバ側カーネルが `cudaErrorMisalignedAddress` を起こす。共有 CUDA コンテキストが毒されるため decode/restore/blend/encode の全スレッドが同時にクラッシュし、プロセスはハングする（実測: Linux 595.71.05 / RTX 5080。幅 852/854/860 で再現、856/864/1280/1920/3840 は通過。コーデック不問、TRT・MPS・エンジン世代は無関係と切り分け済み）。
 
-修正は `jasna/media/video_encoder.py`: `_encode_frame` が from_dlpack へ渡す前に、ピッチが 256 B 整列でない場合のみ整列ステージングバッファ（per-frame 確保。NVENC の非同期読み出しと衝突しないため）へコピーする。整列済みの幅（1080p/4K 等）は従来どおりゼロコピー。エンコード経路は upstream コード無改変の領域のため **upstream 報告候補**。
+本フォークはまず 256 B 整列のステージングバッファ版をローカル実装して報告した。upstream 修正 `bb6e36e` は同じ構造（幅広バッファ + `[:, :width]` の strided view）で **16 B 整列**を採用し、パディングのゼロ埋めとテスト（`test_video_encoder_unit.py` の `_align_yuv_pitch` ユニット + `test_video_encoder_mux.py` の幅 852/854/860 × hevc/h264/av1 隔離プロセスプローブ）を追加している。v0.8.1 リベースでローカル版は drop し upstream 版を採用。v0.8.1 の AMD 対応後は NVIDIA 経路（`vendor is NVIDIA`）でのみ `_align_yuv_pitch` が呼ばれる（AMF はホストコピー経由でピッチ問題自体がない）。
 
-**検証**: 幅マトリクス 852/854/856/860/864/1280/1920 × hevc/h264 全通過、`tests/test_video_encoder_mux.py` 27 件パス、852x480（10661 フレーム一致）と 3840x2160 のフルパイプライン完走。
+**検証**（256B ローカル版・v0.8.0 時点）: 幅マトリクス 852/854/856/860/864/1280/1920 × hevc/h264 全通過、`tests/test_video_encoder_mux.py` 27 件パス、852x480（10661 フレーム一致）と 3840x2160 のフルパイプライン完走。**upstream 16B 版はリベース時に同型プローブ（上記 upstream テスト）を RTX 5080 実機で再検証済み。**
