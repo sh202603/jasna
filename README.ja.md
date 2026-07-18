@@ -8,11 +8,11 @@ Jasna は無料です。支援者には、このプロジェクト用に訓練�
 
 > ### ⚙️ これは Jasna の `+modi` フォークです
 >
-> 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) をベースにした改変ビルドで、**フレーム生成**（`--frame-gen` 2x/4x）と**柔軟な出力**（HEVC/AV1, 8/10-bit, BT.601/709/2020 色空間）などを追加しています。
+> 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.0 をベースにした改変ビルドで、**フレーム生成**（`--frame-gen` 2x/4x）、**torchcodec 動画バックエンド**、**FP8 復元バックエンド**、**FlashVSR セカンダリ復元**などを追加しています。
 >
 > - **ソース（このフォーク/ブランチ）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
 > - **上流との変更点一覧:** [docs/CHANGES_vs_upstream_ja.md](docs/CHANGES_vs_upstream_ja.md)
-> - **対象範囲 — 公開（無料）機能のみ。** 支援者モデル（**unet-4x** と **SD 1.5 画像復元**）は支援者キーで解錠される暗号化チェックポイントで、復号コードは**この公開フォークに含まれない**プライベートサブモジュールにあります。そのため、これらのモデルは**ここではダウンロード・復号・実行できません**。上流のコードは同梱されますが inert（不活性）のままです。支援者モデルが必要な場合は上流 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) を使い支援者になってください。それ以外（検出・動画復元・RTX/TVAI セカンダリ・エクスポート後アクション・AV1・フレーム生成）は通常通り動作します。
+> - **対象範囲 — 公開（無料）機能のみ。** 支援者モデル（**unet-4x** と **SD 1.5 画像復元**）は支援者キーで解錠される暗号化チェックポイントで、復号コードは**この公開フォークに含まれない**プライベートサブモジュールにあります。そのため、これらのモデルは**ここではダウンロード・復号・実行できません**。上流のコードは同梱されますが inert（不活性）のままです。支援者モデルが必要な場合は上流 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) を使い支援者になってください。それ以外（検出・動画復元・RTX/TVAI セカンダリ・区間エディター・VR180・エクスポート後アクション・フレーム生成）は通常通り動作します。
 
 <img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
 
@@ -41,26 +41,15 @@ Jasna は無料です。支援者には、このプロジェクト用に訓練�
 - ハードカット（シーン切り替え）を検出してクリップをその位置で終了し、カットをまたいだ映像の混合を防ぎます。
 - オプションの[セカンダリ復元モデル](docs/ja/models.md) — **unet-4x**、**RTX Super Resolution**、**Topaz Video AI** — で品質をさらに高められます。復元した領域、とくに大きなモザイク、クローズアップ、4K 動画がシャープになります。
 - 復元した動画を内蔵ブラウザプレーヤーや対応する Stash フォークへストリーミングできます。
-- **`+modi`:** HEVC または AV1、8/10-bit、BT.601/709/2020 色空間を保持して出力できます。
 - **`+modi`:** AI フレーム生成（RIFE）による 2x/4x のフレームレート アップコンバート。
 
 ## `+modi` の追加機能
 
 これらの機能は `+modi` フォーク専用です。変更点の全一覧は [docs/CHANGES_vs_upstream_ja.md](docs/CHANGES_vs_upstream_ja.md) を参照してください。
 
-### 柔軟な出力（コーデック / ビット深度 / 色空間）
-
-これまで HEVC / 10-bit (P010) / BT.709 に固定されていた出力段が、**AV1**、**8-bit (NV12)** または **10-bit** に対応し、ソースの **BT.601 / BT.709 / BT.2020** 色空間を保持します。パイプラインは GPU 上で end-to-end のゼロコピーを維持します。
-
-```bash
-jasna --input input.mp4 --output output.mkv --codec av1 --bit-depth 10
-```
-
-`--codec {hevc,av1}`、`--bit-depth {auto,8,10}`。詳細: [docs/CODECS_AND_COLORSPACE_ja.md](docs/CODECS_AND_COLORSPACE_ja.md)。
-
 ### フレーム生成（フレームレート アップコンバート）
 
-`--frame-gen {2x,4x}` は、ソースフレーム間に AI 補間フレーム（RIFE）を挿入して出力フレームレートを上げます。ファイル出力のみ（`--stream` では不可）。音声のタイムコードは維持されるため、長さと同期は保たれます。既定で fp16 動作 — fp32 比で約 1.9 倍高速（1080p 2x, RTX 5060 Ti）、見た目は同等です。
+`--frame-gen {2x,4x}` は、ソースフレーム間に AI 補間フレーム（RIFE）を挿入して出力フレームレートを上げます。ファイル出力のみ（`--stream`・`--segments` では不可）。音声のタイムコードは維持されるため、長さと同期は保たれます。既定で fp16 動作 — fp32 比で約 1.9 倍高速（1080p 2x, RTX 5060 Ti）、見た目は同等です。
 
 ```bash
 jasna --input input.mp4 --output output.mkv --frame-gen 2x
@@ -79,13 +68,13 @@ jasna-framegen --input in_dir --output out_dir --factor 2x --output-pattern "{or
 
 ### 動画バックエンド（実験的）
 
-Jasna は既定でデコードに `python_vali`、エンコードに `PyNvVideoCodec` を使います（`--video-backend native`）。**実験的**な [torchcodec](https://github.com/meta-pytorch/torchcodec) バックエンドは、8-bit HEVC/AV1 出力でこの両方を置き換えられます。
+Jasna は既定でデコード・エンコードとも PyAV（NVDEC/NVENC）を使います（`--video-backend native`）。**実験的**な [torchcodec](https://github.com/meta-pytorch/torchcodec) バックエンドを代替として選択できます。
 
 ```bash
 jasna --input input.mp4 --output output.mkv --video-backend auto
 ```
 
-`--video-backend {native,auto,torchcodec}`（既定 `native`、つまり従来挙動）: `auto` は torchcodec が使える場面で使い、それ以外はネイティブにフォールバックします。`torchcodec` は強制します。`--decode-backend` / `--encode-backend` でデコード側・エンコード側を個別に上書きできます。torchcodec エンコーダは**8-bit HEVC/AV1**とマッピング可能な NVENC 設定に対応します。**10-bit、フレーム生成、ストリーミング、マッピング不可のエンコーダ設定は常にネイティブにフォールバック**し、色空間メタデータはどちらでも保持されます。オプション依存（cu130 wheel index から `pip install "torchcodec>=0.14.0"`）が必要です。詳細: [docs/TORCHCODEC_BACKEND_ja.md](docs/TORCHCODEC_BACKEND_ja.md)。
+`--video-backend {native,auto,torchcodec}`（既定 `native`、つまり従来挙動）: `auto` は**デコード**に torchcodec が使える場面で使い、それ以外はネイティブにフォールバックします。`torchcodec` は強制します。`--decode-backend` / `--encode-backend` でデコード側・エンコード側を個別に上書きできます。v0.8.0 以降、ネイティブエンコーダは HEVC/AV1 を常に 10-bit で出力するため、8-bit 専用の torchcodec エンコードでは出力が一致しません。そのため **torchcodec エンコードは強制指定（`--encode-backend torchcodec`）時のみ**動作し、対象は 8-bit ソース + マッピング可能な NVENC 設定に限られます。ストリーミング、`--segments`、`--retarget-high-fps`、フレーム生成はネイティブ側のままです。色空間メタデータはどちらでも保持されます。オプション依存（cu130 wheel index から `pip install "torchcodec>=0.14.0"`）が必要です。詳細: [docs/TORCHCODEC_BACKEND_ja.md](docs/TORCHCODEC_BACKEND_ja.md)。
 
 ### FP8 復元バックエンド（実験的）
 
