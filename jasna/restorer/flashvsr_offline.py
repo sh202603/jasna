@@ -419,7 +419,6 @@ def _run_phase_reblend(cfg: dict[str, Any]) -> None:
 
     decode_backend = VideoBackend(str(cfg.get("decode_backend", "native")))
     encode_backend = VideoBackend(str(cfg.get("encode_backend", "native")))
-    working_directory = Path(cfg["working_directory"]) if cfg.get("working_directory") else None
 
     encoder = make_video_encoder(
         file=output_path,
@@ -427,11 +426,7 @@ def _run_phase_reblend(cfg: dict[str, Any]) -> None:
         metadata=metadata,
         codec=str(cfg["codec"]),
         encoder_settings=dict(cfg.get("encoder_settings", {})),
-        stream_mode=False,
-        working_directory=working_directory,
-        bit_depth=cfg.get("bit_depth"),
         lut_path=cfg.get("lut_path"),
-        output_fps_multiplier=1,
         backend=encode_backend,
     )
 
@@ -824,9 +819,6 @@ def _phase3_reblend(
 ) -> None:
     from jasna.media import parse_encoder_settings, validate_encoder_settings
 
-    bit_depth_arg = str(getattr(args, "bit_depth", "auto")).lower()
-    bit_depth = None if bit_depth_arg == "auto" else int(bit_depth_arg)
-
     video_backend = str(getattr(args, "video_backend", "native")).lower()
 
     def _resolve(override: str) -> str:
@@ -834,18 +826,16 @@ def _phase3_reblend(
         return video_backend if override == "inherit" else override
 
     lut_arg = str(getattr(args, "lut", "") or "").strip()
-    working_dir = str(getattr(args, "working_directory", "") or "").strip()
     cfg = {
         "bundle_dir": str(bundle_dir),
         "input": str(input_path),
         "output": str(output_path),
         "device": str(args.device),
         "codec": str(args.codec).lower(),
-        "bit_depth": bit_depth,
         "encoder_settings": validate_encoder_settings(
-            parse_encoder_settings(str(getattr(args, "encoder_settings", "") or ""))
+            parse_encoder_settings(str(getattr(args, "encoder_settings", "") or "")),
+            codec=str(args.codec).lower(),
         ),
-        "working_directory": working_dir or None,
         "lut_path": lut_arg or None,
         "batch_size": int(args.batch_size),
         "decode_backend": _resolve(str(getattr(args, "decode_backend", "inherit"))),
