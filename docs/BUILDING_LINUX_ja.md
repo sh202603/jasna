@@ -20,7 +20,7 @@ Linux で Jasna のセットアップを行い、**ソースから実行**する
 |---|---|---|---|
 | OS | Ubuntu 26.04 x64（または同等） | n/a | 26.04 で検証。`apt` に ffmpeg 8 がある |
 | ビルドツール | `build-essential`, `pkg-config` | apt | PyAV wheel のビルド（4節）にのみ使用 |
-| Python | **3.13 + 3.13-dev + 3.13-tk** | apt (`python3.13 python3.13-dev python3.13-tk`) | Ubuntu 26.04 の既定 `python3` は 3.14 で、`pyproject.toml` の `requires-python = ">=3.13,<3.14"` が拒否する。`python3.13-dev` は PyAV wheel のビルドに、`python3.13-tk` は GUI の実行に必要 |
+| Python | **3.13 + 3.13-dev + 3.13-tk** | apt (`python3.13 python3.13-dev python3.13-tk`) | v0.8.1 で `requires-python` は `>=3.12` に緩和されたが、本ガイドの検証は 3.13 のみ（Ubuntu 26.04 の既定 `python3` = 3.14 は cu130 GPU スタックとの組み合わせが未検証）。`python3.13-dev` は PyAV wheel のビルドに、`python3.13-tk` は GUI の実行に必要 |
 | uv | 最新 | [astral.sh/uv](https://docs.astral.sh/uv/) | venv を管理 |
 | NVIDIA ドライバ | **580+** | ディストリ / NVIDIA | 起動チェックが Linux では 580 以上を要求。GPU は compute capability 7.5+ |
 | ffmpeg / ffprobe | **v8**（実行時 CLI） | apt | 起動チェックが `ffprobe` のメジャーバージョン 8 を要求。`ffmpeg` CLI は HLS ストリーミング等で使用 |
@@ -124,17 +124,17 @@ uv pip install dist/av-18.0.0-*manylinux*.whl
 
 生成物は `av-18.0.0-cp311-abi3-manylinux_2_28_x86_64.manylinux_2_41_x86_64.whl` のような名前になります（abi3 wheel なので Python 3.13 でそのまま使えます）。
 
-> **注意: この wheel はバージョン番号が PyPI の 18.0.0 と同じです。** `uv pip show av` では区別できず、取り違えると実行時に current_ctx 関連のエラーになります（トラブルシューティング参照）。5節の `uv pip install -e .[dev]` は同版の av を置き換えないため、本節を先に済ませておけばそのまま維持されます。
+> **注意: この wheel はバージョン番号が PyPI の 18.0.0 と同じです。** `uv pip show av` では区別できず、取り違えると実行時に current_ctx 関連のエラーになります（トラブルシューティング参照）。5節の `uv pip install -e .[dev,nvidia]` は同版の av を置き換えないため、本節を先に済ませておけばそのまま維持されます。
 
 ---
 
 ## 5. jasna 本体のインストール
 
-`pyproject.toml` は `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` に依存し、これらは既定の PyPI にありません。uv を PyTorch cu130 インデックスに向け、フラグを 2 つ追加します:
+v0.8.1 で GPU スタックは extras に分割されました（`nvidia` = NVIDIA スタック、`amd` = ROCm 用）。NVIDIA ビルドでは `nvidia` extra が `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx` を入れますが、これらは既定の PyPI にありません。uv を PyTorch cu130 インデックスに向け、フラグを 2 つ追加します:
 
 ```bash
 cd "$WORKSPACE/jasna"
-uv pip install -e .[dev] \
+uv pip install -e .[dev,nvidia] \
     --extra-index-url https://download.pytorch.org/whl/cu130 \
     --index-strategy unsafe-best-match \
     --prerelease=allow
@@ -146,12 +146,12 @@ uv pip install -e .[dev] \
 - `--index-strategy unsafe-best-match`：`torch-tensorrt==2.12.0` をインデックスの local-version リリース `2.12.0+cu130` で満たせるようにする。
 - `--prerelease=allow`：推移依存（`nvidia-cuda-runtime-cu13`）がプレリリース。
 
-`[dev]` extra は `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja` を入れます。
+`[dev]` extra は `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja` を入れます。`[nvidia]` extra は GPU スタック（torch cu130 / TensorRT / torch-tensorrt / nvidia-vfx。v0.8.1 で必須依存から分割）を入れます — **指定を忘れると torch が入らず起動しません**。
 
-**オプション: torchcodec バックエンド。** 実験的な torchcodec のデコード/エンコード経路（`--video-backend torchcodec`/`auto`）を使う場合は、`torchcodec` extra を追加し、同じフラグで `.[dev,torchcodec]` を入れます:
+**オプション: torchcodec バックエンド。** 実験的な torchcodec のデコード/エンコード経路（`--video-backend torchcodec`/`auto`）を使う場合は、`torchcodec` extra を追加し、同じフラグで `.[dev,nvidia,torchcodec]` を入れます:
 
 ```bash
-uv pip install -e .[dev,torchcodec] \
+uv pip install -e .[dev,nvidia,torchcodec] \
     --extra-index-url https://download.pytorch.org/whl/cu130 \
     --index-strategy unsafe-best-match \
     --prerelease=allow
@@ -174,7 +174,7 @@ patch -p1 -d .venv/lib/python3.13/site-packages \
 grep -n "weights_only=False" .venv/lib/python3.13/site-packages/mmengine/runner/checkpoint.py
 ```
 
-> `uv pip install -e .[dev]` を再実行すると `mmengine` が再インストールされ、このパッチが消えます。その後は再適用してください。
+> `uv pip install -e .[dev,nvidia]` を再実行すると `mmengine` が再インストールされ、このパッチが消えます。その後は再適用してください。
 
 ### 5.2 ONNX パッケージ（YOLO 検出モデル用）
 
@@ -281,7 +281,7 @@ python -m jasna              # GUI を起動（引数なし）
 
 ### jasna インストール
 
-- **`uv pip install -e .[dev]` が `no version of torch==2.12.0+cu130` で失敗**。`--extra-index-url https://download.pytorch.org/whl/cu130` を追加。
+- **`uv pip install -e .[dev,nvidia]` が `no version of torch==2.12.0+cu130` で失敗**。`--extra-index-url https://download.pytorch.org/whl/cu130` を追加。
 - **`torch-tensorrt==2.12.0+cu130 ... unsatisfiable`**。`--index-strategy unsafe-best-match --prerelease=allow` を追加（5節）。
 
 ### ランタイム

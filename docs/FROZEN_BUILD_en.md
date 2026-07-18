@@ -10,7 +10,7 @@ Background: upstream switched its packaging from PyInstaller to Nuitka, but its 
 
 ## 1. Prerequisites
 
-- A working **from-source setup** per [BUILDING_WINDOWS_en.md](BUILDING_WINDOWS_en.md): the venv with all runtime dependencies installed, plus the `[dev]` extra (`uv pip install -e .[dev]`), which provides `nuitka>=2.4`. Visual Studio Build Tools (MSVC) must be available — Nuitka compiles jasna to C.
+- A working **from-source setup** per [BUILDING_WINDOWS_en.md](BUILDING_WINDOWS_en.md): the venv with all runtime dependencies installed, plus the `[dev]` extra (`uv pip install -e .[dev,nvidia]`), which provides `nuitka>=2.4`. Visual Studio Build Tools (MSVC) must be available — Nuitka compiles jasna to C.
 - **CUDA Toolkit 13.x installed and `CUDA_PATH` set.** The NPP / nvJPEG runtime DLLs (`nppc64_13.dll`, `nppicc64_13.dll`, ..., `nvjpeg64_13.dll`) are copied from `%CUDA_PATH%\bin\x64` into the distribution. They are not shipped by any pip wheel, and the frozen app deliberately strips the CUDA Toolkit from `PATH` at runtime, so a build without them produces a distribution whose video decode fails on machines without a local CUDA Toolkit.
 - The required model weights in `model_weights\`:
   `lada_mosaic_restoration_model_generic_v1.2.pth`, `rfdetr-v5.onnx`, `lada_mosaic_detection_model_v4_fast.pt`.
