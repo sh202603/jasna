@@ -1,10 +1,12 @@
-# Change summary: `modi` (`v0.8.0+modi`) vs upstream main
+# Change summary: `modi` (`v0.8.1+modi`) vs upstream main
 
-A summary of what this branch adds on top of upstream (`main`). `modi` is rebased onto upstream main `abc5d6a` (`v0.8.0`).
+A summary of what this branch adds on top of upstream (`main`). `modi` is rebased onto upstream main `9ad4635` (the `v0.8.1` tag + 4 commits).
 
 - Branch: `modi` (fork `https://github.com/sh202603/jasna.git`)
-- Version: `0.8.0+modi` (based on upstream main `abc5d6a` = `v0.8.0`)
+- Version: `0.8.1+modi` (based on upstream main `9ad4635` = `v0.8.1` + 4 post-release commits)
 
+> **New with the `v0.8.1` base** (merged 2026-07-19): upstream added **experimental AMD ROCm support (Linux)** — `jasna/accelerator.py` (vendor/capability detection), detection via onnxruntime-migraphx (`mosaic/migraphx_runner.py`), AMF hardware decode/encode, and a cumsum-based box blur for ROCm (`_prefix_box_blur`). Along with it, **pyproject dependencies were split into extras** (`nvidia` = torch cu130 + TensorRT + nvidia-vfx / `amd` = torch 2.9.1 + migraphx), so the from-source dev install is now `uv pip install -e .[dev,nvidia]`; `requires-python` was relaxed to **>=3.12**. The **NVENC input-pitch alignment bug this fork reported ([Kruk2/jasna#230](https://github.com/Kruk2/jasna/issues/230)) is fixed upstream in `bb6e36e`**, and the Linux driver minimum of 580 landed as upstream `041eded`, so the two corresponding local commits (the 256-byte-alignment pitch fix / the os_utils platform split) were **dropped on this rebase in favor of the upstream versions** (§10). Also: a HiDPI fix for the GUI segment preview (#229) and release-build work (split Linux archives, bundled libnvJitLink.so.13, native Windows AMD releases).
+>
 > **New with the `v0.8.0` base** (merged 2026-07-18): upstream moved the media layer wholesale to **PyAV (NVDEC/NVENC)** (removing `python_vali` / `PyNvVideoCodec` from the runtime and **dropping the mkvmerge dependency**), and implemented **AV1/H264 encoding**, **BT.601/709/2020 x full/limited x 8/10-bit** colorspace/bit-depth handling, **software-decode fallback**, and **anamorphic (SAR) support**. It also added the **segment editor + smart rendering** (`--segments`), **restoration preview playback**, the **mask suggestion editor** (uploads frame+mask, encrypted, to upstream's Cloudflare Worker — only on an explicit Submit), **VR180 restoration** (`--vr-mode`), **high-fps retargeting** (`--retarget-high-fps`, 60->30 decimation), and many Linux GUI fixes. Driver requirement: Windows 610+ / Linux 580+; dependency `av>=18,<19` (the GPU path needs the current_ctx API slated for PyAV 18.1.0 — until it is published, use a wheel built from PyAV upstream main `61e4aa8`).
 >
 > Rebase policy: **upstream wins on overlapping features.** This fork's "flexible output" (old §2) was dropped in favor of the upstream implementation (the `--bit-depth` flag is gone; see §2), and the torchcodec backend semantics were redefined against the new media layer (§7).
@@ -136,10 +138,12 @@ A secondary restorer that upscales each 256px primary crop to 1024px (4x) with t
 
 ---
 
-## 10. Bug fix: NVENC input-pitch alignment (upstream-report candidate)
+## 10. Bug fix: NVENC input-pitch alignment (reported upstream → fixed in v0.8.1)
+
+> **This is no longer a delta of this branch.** This fork reported it as [Kruk2/jasna#230](https://github.com/Kruk2/jasna/issues/230) and upstream v0.8.1 fixed it in `bb6e36e` ("fix(encoder): align NVENC input pitch"). The record below is kept for history.
 
 The upstream v0.8.0 PyAV encode path registers the RGB→YUV conversion result with NVENC zero-copy via `VideoFrame.from_dlpack`, which passes the tensor's natural row pitch (W × itemsize). For widths whose pitch is **not 16-byte aligned** (852 — the standard 480p width — gives a 1704 B P010 pitch), NVENC's driver-side kernels fault with `cudaErrorMisalignedAddress`. The shared CUDA context is poisoned, every pipeline thread (decode/restore/blend/encode) crashes at once, and the process hangs (observed on Linux 595.71.05 / RTX 5080; widths 852/854/860 reproduce, 856/864/1280/1920/3840 pass; codec-independent, and TRT engines / MPS / engine generations were ruled out during isolation).
 
-The fix in `jasna/media/video_encoder.py`: `_encode_frame` copies the packed tensor into a 256-byte-pitch staging buffer (allocated per frame so NVENC's asynchronous reads never race a reuse) before building the hardware frame — only when the pitch is unaligned; aligned widths (1080p/4K) keep the zero-copy path. The encode path is unmodified upstream code, so this is an **upstream-report candidate**.
+This fork first shipped a local 256-byte-alignment staging-buffer fix and reported the bug. The upstream fix `bb6e36e` uses the same structure (a wider buffer returned as a `[:, :width]` strided view) with **16-byte alignment**, zero-fills the padding, and adds tests (a `_align_yuv_pitch` unit test in `test_video_encoder_unit.py` plus isolated-process probes at widths 852/854/860 × hevc/h264/av1 in `test_video_encoder_mux.py`). The local version was dropped on the v0.8.1 rebase in favor of upstream's. Since the v0.8.1 AMD work, `_align_yuv_pitch` runs only on the NVIDIA path (`vendor is NVIDIA`); AMF goes through a host copy and has no pitch issue.
 
-**Verification**: width matrix 852/854/856/860/864/1280/1920 × hevc/h264 all pass, `tests/test_video_encoder_mux.py` 27 passed, full-pipeline runs at 852x480 (10661-frame parity) and 3840x2160 complete.
+**Verification** (local 256 B version, on the v0.8.0 base): width matrix 852/854/856/860/864/1280/1920 × hevc/h264 all pass, `tests/test_video_encoder_mux.py` 27 passed, full-pipeline runs at 852x480 (10661-frame parity) and 3840x2160 complete. **The upstream 16 B version was re-verified on this rebase with the equivalent probes (the upstream tests above) on real RTX 5080 hardware.**
