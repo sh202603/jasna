@@ -282,9 +282,13 @@ def make_video_reader(
     def _native():
         from jasna.media.video_decoder import VideoReader
 
+        # Only pass frame_stride / decode_backend when they are off their defaults, so reader
+        # fakes/mocks written against the plain contract keep working.
+        kwargs = {"frame_stride": frame_stride} if int(frame_stride) != 1 else {}
+        if decode_backend != "auto":
+            kwargs["decode_backend"] = decode_backend
         return VideoReader(
-            file, batch_size=batch_size, device=device, metadata=metadata,
-            frame_stride=frame_stride, decode_backend=decode_backend,
+            file, batch_size=batch_size, device=device, metadata=metadata, **kwargs
         )
 
     if int(frame_stride) != 1:
