@@ -8,7 +8,7 @@ The default is off, which is exactly the previous behavior.
 
 **Environment**: the usual GPU-only jasna stack plus the `nvidia-cudnn-frontend` dependency (verified with 1.25.0), cuDNN >= 9.17 (satisfied by the 9.20 bundled with torch 2.12.0+cu130), and an FP8-capable GPU (sm89+, i.e. RTX 40 series or newer).
 All numbers in this document were measured on Linux / Python 3.13.14 / torch 2.12.0+cu130 / TensorRT 10.16.1.11 / cuDNN 9.20 / RTX 5080 (sm120, 16GB) / `--max-clip-size 90`.
-Windows is verified as well: on Windows 11 with the same RTX 5080, the same A/B benchmark passes every gate with matching numbers (speedup 1.42-1.56x, PSNR 64.1 dB, SSIM 0.99976, net VRAM saving 1976 MB, bit-deterministic), with the glue compiled through the `triton-windows` wheel. See Limitations for details.
+Windows is verified as well: on Windows 11 with the same RTX 5080, the same A/B benchmark passes every gate with matching numbers (speedup 1.42-1.56x, PSNR 64.1 dB, SSIM 0.99976, net VRAM saving 1976 MB, bit-deterministic), with the glue compiled through the `triton-windows` wheel. On v0.8.0+modi (the PyAV media layer) `--fp8-recon` activation and a full run were confirmed on Windows hardware as well. See Limitations for details.
 
 The implementation is a port from the sibling project lada-ex, branch `feat/fp8-recon` (`lada/models/basicvsrpp/fp8_recon.py`, AGPL-3.0).
 The stage lada-ex calls "reconstruction" is the same sub-network as jasna's upsample sub-engine.
