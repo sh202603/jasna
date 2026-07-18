@@ -8,7 +8,7 @@ Jasna is free. Supporters get a key that unlocks the extra models trained for th
 
 > ### ⚙️ This is the `+modi` fork of Jasna
 >
-> A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.0, adding **frame generation** (`--frame-gen` 2x/4x), an experimental **torchcodec video backend**, an experimental **FP8 restoration backend**, and **FlashVSR secondary restoration**, among other improvements.
+> A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1, adding **frame generation** (`--frame-gen` 2x/4x), an experimental **torchcodec video backend**, an experimental **FP8 restoration backend**, and **FlashVSR secondary restoration**, among other improvements.
 >
 > - **Source (this fork/branch):** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
 > - **Full list of changes vs upstream:** [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)

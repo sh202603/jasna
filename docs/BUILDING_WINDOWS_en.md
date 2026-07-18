@@ -30,7 +30,7 @@ How to set up Jasna on Windows and run it **from source**.
 | OS | Windows 10/11 x64 | n/a | PowerShell 7+ recommended |
 | Git | Git for Windows | `Git.Git` | For cloning the repository |
 | uv | Latest | `astral-sh.uv` | Manages Python automatically |
-| Python | 3.13 | n/a (managed by uv) | Auto-fetched by `uv venv --python 3.13` if missing. 3.14 is rejected by `requires-python = ">=3.13,<3.14"` |
+| Python | 3.13 | n/a (managed by uv) | Auto-fetched by `uv venv --python 3.13` if missing. v0.8.1 relaxed `requires-python` to `>=3.12`, but this guide is verified on 3.13 only (3.14 is unverified against the cu130 GPU stack) |
 | NVIDIA Driver | **610+** | NVIDIA official or the NVIDIA App | The startup check requires 610+ on Windows. GPU must be compute capability 7.5+ |
 | ffmpeg / ffprobe | **v8** (runtime CLI) | [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases), `ffmpeg-n8.1-latest-win64-gpl-shared-*.zip` recommended (see below) | The startup check requires `ffprobe` major version 8 |
 | VS Build Tools | 2022 (Desktop development with C++) | `Microsoft.VisualStudio.2022.BuildTools` | **Only when building the PyAV wheel yourself** (Section 4 (B)) |
@@ -146,17 +146,17 @@ python -c "import av; from av.video.frame import CudaContext; print(av.ffmpeg_ve
 
 delvewheel vendors the DLLs under hash-mangled names in `av.libs\`, so at runtime they are a separate in-process copy from the FFmpeg DLLs torchcodec loads. That is fine on Windows — each DLL has its own symbol namespace, so the same-name library collision that bit Linux cannot happen (confirmed by the full smoke-test matrix).
 
-> **Note: the self-built wheel carries the same version number as PyPI's 18.0.0.** `uv pip show av` cannot tell them apart; if they get mixed up you see current_ctx-related errors at runtime (see Troubleshooting). The `uv pip install -e .[dev]` in Section 5 does not replace an installed av of the same version (confirmed by measurement), so doing this section first keeps your wheel in place. To check which one is installed: `Test-Path .venv\Lib\site-packages\av.libs` (present only for the delvewheel-repaired wheel).
+> **Note: the self-built wheel carries the same version number as PyPI's 18.0.0.** `uv pip show av` cannot tell them apart; if they get mixed up you see current_ctx-related errors at runtime (see Troubleshooting). The `uv pip install -e .[dev,nvidia]` in Section 5 does not replace an installed av of the same version (confirmed by measurement), so doing this section first keeps your wheel in place. To check which one is installed: `Test-Path .venv\Lib\site-packages\av.libs` (present only for the delvewheel-repaired wheel).
 
 ---
 
 ## 5. Install jasna itself
 
-`pyproject.toml` depends on `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0`, which are not on the default PyPI index. Point uv at the PyTorch wheel index with `--extra-index-url` and add two more flags:
+Since v0.8.1 the GPU stack is split into extras (`nvidia` = the NVIDIA stack, `amd` = the ROCm one). For an NVIDIA build the `nvidia` extra pulls in `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx`, which are not on the default PyPI index. Point uv at the PyTorch wheel index with `--extra-index-url` and add two more flags:
 
 ```powershell
 cd $Workspace\jasna
-uv pip install -e .[dev] `
+uv pip install -e .[dev,nvidia] `
     --extra-index-url https://download.pytorch.org/whl/cu130 `
     --index-strategy unsafe-best-match `
     --prerelease=allow
@@ -168,12 +168,12 @@ Why each flag:
 - `--index-strategy unsafe-best-match`: needed so `torch-tensorrt==2.12.0` from `pyproject.toml` can be satisfied by `torch-tensorrt==2.12.0+cu130` (local version) on the PyTorch index; the default first-index strategy refuses
 - `--prerelease=allow`: the transitive dependency `nvidia-cuda-runtime-cu13==0.0.0a0` is a prerelease
 
-The `[dev]` extra installs `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja`.
+The `[dev]` extra installs `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja`. The `[nvidia]` extra installs the GPU stack (torch cu130 / TensorRT / torch-tensorrt / nvidia-vfx; split out of the required dependencies in v0.8.1) — **omitting it leaves you without torch and the app will not start**.
 
-**Optional: the torchcodec backend.** To use the experimental torchcodec decode/encode path (`--video-backend torchcodec`/`auto`), add the `torchcodec` extra and install `.[dev,torchcodec]` with the same flags:
+**Optional: the torchcodec backend.** To use the experimental torchcodec decode/encode path (`--video-backend torchcodec`/`auto`), add the `torchcodec` extra and install `.[dev,nvidia,torchcodec]` with the same flags:
 
 ```powershell
-uv pip install -e .[dev,torchcodec] `
+uv pip install -e .[dev,nvidia,torchcodec] `
     --extra-index-url https://download.pytorch.org/whl/cu130 `
     --index-strategy unsafe-best-match `
     --prerelease=allow
@@ -205,7 +205,7 @@ Select-String -Path .venv\Lib\site-packages\mmengine\runner\checkpoint.py -Patte
 # → one matching line means it's applied
 ```
 
-> This patch is wiped every time `uv pip install -e .[dev]` reinstalls `mmengine`. Re-apply it after reinstalls.
+> This patch is wiped every time `uv pip install -e .[dev,nvidia]` reinstalls `mmengine`. Re-apply it after reinstalls.
 
 ### 5.2 ONNX packages (for YOLO detection models)
 
@@ -316,10 +316,10 @@ Upstream's own packaging tooling (also Nuitka-based) lives in a **private submod
 
 ### jasna install
 
-- **`uv pip install -e .[dev]` fails with `No solution found ... no version of torch==2.12.0+cu130`**
+- **`uv pip install -e .[dev,nvidia]` fails with `No solution found ... no version of torch==2.12.0+cu130`**
   The PyTorch index is missing. Add `--extra-index-url https://download.pytorch.org/whl/cu130`.
 
-- **`uv pip install -e .[dev]` fails with `torch-tensorrt==2.12.0+cu130 ... unsatisfiable`**
+- **`uv pip install -e .[dev,nvidia]` fails with `torch-tensorrt==2.12.0+cu130 ... unsatisfiable`**
   uv's default index strategy is first-index only and refuses to satisfy `torch-tensorrt==2.12.0` with the PyTorch index's `2.12.0+cu130` (local version). The transitive dependency `nvidia-cuda-runtime-cu13==0.0.0a0` is also a prerelease. Add `--index-strategy unsafe-best-match --prerelease=allow` (Section 5).
 
 ### Runtime

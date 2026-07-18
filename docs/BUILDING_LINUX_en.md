@@ -20,7 +20,7 @@ How to set up Jasna on Linux and run it **from source**.
 |---|---|---|---|
 | OS | Ubuntu 26.04 x64 (or similar) | n/a | Verified on 26.04; ships ffmpeg 8 in `apt` |
 | Build tools | `build-essential`, `pkg-config` | apt | Used only to build the PyAV wheel (Section 4) |
-| Python | **3.13 + 3.13-dev + 3.13-tk** | apt (`python3.13 python3.13-dev python3.13-tk`) | Ubuntu 26.04's default `python3` is 3.14, which `pyproject.toml` rejects via `requires-python = ">=3.13,<3.14"`. `python3.13-dev` is needed to build the PyAV wheel; `python3.13-tk` is needed to run the GUI |
+| Python | **3.13 + 3.13-dev + 3.13-tk** | apt (`python3.13 python3.13-dev python3.13-tk`) | v0.8.1 relaxed `requires-python` to `>=3.12`, but this guide is verified on 3.13 only (Ubuntu 26.04's default `python3` = 3.14 is unverified against the cu130 GPU stack). `python3.13-dev` is needed to build the PyAV wheel; `python3.13-tk` is needed to run the GUI |
 | uv | latest | [astral.sh/uv](https://docs.astral.sh/uv/) | Manages the venv |
 | NVIDIA driver | **580+** | your distro / NVIDIA | The startup check requires 580+ on Linux. GPU must be compute capability 7.5+ |
 | ffmpeg / ffprobe | **v8** (runtime CLI) | apt | The startup check requires `ffprobe` major version 8; the `ffmpeg` CLI is used by HLS streaming and similar paths |
@@ -124,17 +124,17 @@ uv pip install dist/av-18.0.0-*manylinux*.whl
 
 The result is named like `av-18.0.0-cp311-abi3-manylinux_2_28_x86_64.manylinux_2_41_x86_64.whl` (an abi3 wheel, so it works on Python 3.13 as-is).
 
-> **Note: this wheel carries the same version number as PyPI's 18.0.0.** `uv pip show av` cannot tell them apart; if they get mixed up you see current_ctx-related errors at runtime (see Troubleshooting). The `uv pip install -e .[dev]` in Section 5 does not replace an installed av of the same version, so doing this section first keeps your wheel in place.
+> **Note: this wheel carries the same version number as PyPI's 18.0.0.** `uv pip show av` cannot tell them apart; if they get mixed up you see current_ctx-related errors at runtime (see Troubleshooting). The `uv pip install -e .[dev,nvidia]` in Section 5 does not replace an installed av of the same version, so doing this section first keeps your wheel in place.
 
 ---
 
 ## 5. Install jasna itself
 
-`pyproject.toml` depends on `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0`, which are not on the default PyPI index. Point uv at the PyTorch cu130 index and add two flags:
+Since v0.8.1 the GPU stack is split into extras (`nvidia` = the NVIDIA stack, `amd` = the ROCm one). For an NVIDIA build the `nvidia` extra pulls in `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx`, which are not on the default PyPI index. Point uv at the PyTorch cu130 index and add two flags:
 
 ```bash
 cd "$WORKSPACE/jasna"
-uv pip install -e .[dev] \
+uv pip install -e .[dev,nvidia] \
     --extra-index-url https://download.pytorch.org/whl/cu130 \
     --index-strategy unsafe-best-match \
     --prerelease=allow
@@ -146,12 +146,12 @@ Why each flag:
 - `--index-strategy unsafe-best-match`: lets `torch-tensorrt==2.12.0` be satisfied by the index's local-version release `2.12.0+cu130`.
 - `--prerelease=allow`: a transitive dependency (`nvidia-cuda-runtime-cu13`) is a prerelease.
 
-The `[dev]` extra installs `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja`.
+The `[dev]` extra installs `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja`. The `[nvidia]` extra installs the GPU stack (torch cu130 / TensorRT / torch-tensorrt / nvidia-vfx; split out of the required dependencies in v0.8.1) — **omitting it leaves you without torch and the app will not start**.
 
-**Optional: the torchcodec backend.** To use the experimental torchcodec decode/encode path (`--video-backend torchcodec`/`auto`), add the `torchcodec` extra and install `.[dev,torchcodec]` with the same flags:
+**Optional: the torchcodec backend.** To use the experimental torchcodec decode/encode path (`--video-backend torchcodec`/`auto`), add the `torchcodec` extra and install `.[dev,nvidia,torchcodec]` with the same flags:
 
 ```bash
-uv pip install -e .[dev,torchcodec] \
+uv pip install -e .[dev,nvidia,torchcodec] \
     --extra-index-url https://download.pytorch.org/whl/cu130 \
     --index-strategy unsafe-best-match \
     --prerelease=allow
@@ -174,7 +174,7 @@ patch -p1 -d .venv/lib/python3.13/site-packages \
 grep -n "weights_only=False" .venv/lib/python3.13/site-packages/mmengine/runner/checkpoint.py
 ```
 
-> Re-running `uv pip install -e .[dev]` reinstalls `mmengine` and wipes this patch. Re-apply it afterwards.
+> Re-running `uv pip install -e .[dev,nvidia]` reinstalls `mmengine` and wipes this patch. Re-apply it afterwards.
 
 ### 5.2 ONNX packages (for YOLO detection models)
 
@@ -281,7 +281,7 @@ The publicly supported path is therefore **running from source** (Section 7). If
 
 ### jasna install
 
-- **`uv pip install -e .[dev]` fails with `no version of torch==2.12.0+cu130`.** Add `--extra-index-url https://download.pytorch.org/whl/cu130`.
+- **`uv pip install -e .[dev,nvidia]` fails with `no version of torch==2.12.0+cu130`.** Add `--extra-index-url https://download.pytorch.org/whl/cu130`.
 - **`torch-tensorrt==2.12.0+cu130 ... unsatisfiable`.** Add `--index-strategy unsafe-best-match --prerelease=allow` (Section 5).
 
 ### Runtime
