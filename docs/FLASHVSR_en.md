@@ -173,6 +173,10 @@ before the expensive Phase 2** if it won't fit (keeping the bundle so you can po
 
 - **File output only.** Not compatible with `--stream`, folder/image input, or
   `--frame-gen` (run frame generation as a separate pass on the output).
+- **No fps retargeting, smart rendering, or VR.** `--retarget-high-fps` (the
+  Phase 1 frame stride would misalign the Phase 3 reblend indices), `--segments`,
+  and VR processing (`--vr-mode sbs`/`sbs-fisheye`, or `auto` when it detects VR
+  content — Phase 3 has no VR projector) are rejected at startup.
 - **Double encode.** Phase 1 encodes a throwaway output so it can run through the
   fully-tested pipeline unchanged; the final encode happens in Phase 3. This adds
   one extra encode pass over a normal run.
