@@ -8,7 +8,7 @@ FP8 バックエンドの構築に失敗した場合（非対応 GPU、依存欠
 
 **実行環境**：jasna 本体と同じ GPU 専用スタックに加え、依存 `nvidia-cudnn-frontend`（1.25.0 で検証）、cuDNN 9.17 以上（torch 2.12.0+cu130 同梱の 9.20 で充足）、FP8 対応 GPU（sm89 以上、RTX 40 系以降）を要する。
 本書の数値は Linux / Python 3.13.14 / torch 2.12.0+cu130 / TensorRT 10.16.1.11 / cuDNN 9.20 / RTX 5080 (sm120, 16GB) / `--max-clip-size 90` で計測した。
-Windows でも検証済みで、Windows 11 / 同一 RTX 5080 上で同じ A/B ベンチマークが同等の数値で全ゲートを通過する（速度比 1.42〜1.56 倍、PSNR 64.1 dB、SSIM 0.99976、VRAM 純減 1976 MB、ビット決定的。glue は triton-windows wheel 経由でコンパイル）。詳細は「制限と注意点」を参照。
+Windows でも検証済みで、Windows 11 / 同一 RTX 5080 上で同じ A/B ベンチマークが同等の数値で全ゲートを通過する（速度比 1.42〜1.56 倍、PSNR 64.1 dB、SSIM 0.99976、VRAM 純減 1976 MB、ビット決定的。glue は triton-windows wheel 経由でコンパイル）。v0.8.0+modi（PyAV メディア層）でも Windows 実機で `--fp8-recon` の有効化と完走を確認済み。詳細は「制限と注意点」を参照。
 
 本実装は姉妹プロジェクト lada-ex の `feat/fp8-recon` ブランチ（`lada/models/basicvsrpp/fp8_recon.py`、AGPL-3.0）からの移植である。
 lada-ex で reconstruction と呼ばれるステージは、jasna の upsample サブエンジンと同一の部分ネットワークを指す。

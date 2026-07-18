@@ -2,7 +2,7 @@
 
 How to set up Jasna on Windows and run it **from source**.
 
-> **Verification status (2026-07-18)**: The v0.8.0 update of this guide is a **desk revision**. Up to v0.7.2+modi these instructions were verified on real hardware (Windows 11 + RTX 5080), but the Windows verification of `v0.8.0+modi` is still ahead; sections marked ⚠️ **unverified** will be revised based on its results. The Linux side was verified on hardware the same day ([BUILDING_LINUX_en.md](BUILDING_LINUX_en.md)).
+> **Verification status (2026-07-18)**: These instructions are **verified on real hardware** — Windows 11 + RTX 5080 (driver 610.62, Python 3.13.9). For the Linux side see [BUILDING_LINUX_en.md](BUILDING_LINUX_en.md).
 
 > **This guide covers the `v0.8.0+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
 
@@ -42,7 +42,7 @@ The CUDA Toolkit is no longer needed. The torch / tensorrt pip wheels bundle the
 For the CLI alone (`ffmpeg.exe` / `ffprobe.exe`), gyan.dev's [release-full build](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z) suffices (it is also what the startup check's error message points to). The BtbN **shared build** is recommended because the same extraction also covers:
 
 - the FFmpeg DLLs (`avcodec-62.dll` etc. in `bin\`) that the optional torchcodec backend needs at runtime
-- the `include\` / `lib\` (with pkgconfig files) needed when building the PyAV wheel yourself (Section 4 (B))
+- the `include\` (headers) and `lib\` (MSVC import libraries such as `avcodec.lib`) needed when building the PyAV wheel yourself (Section 4 (B))
 
 Extract it and add `bin\` to PATH:
 
@@ -104,7 +104,7 @@ uv's managed Python is fine here (a system Python was only required by the old g
 
 ---
 
-## 4. Install the PyAV wheel (interim, ⚠️ unverified)
+## 4. Install the PyAV wheel (interim, until PyAV 18.1.0 is published)
 
 The v0.8.0 GPU path uses the **current_ctx API** landing in PyAV 18.1.0 (it lets NVDEC/NVENC share the CUDA context torch already initialized), but 18.1.0 is not published yet and PyPI's av 18.0.0 lacks the API.
 
@@ -114,9 +114,11 @@ In addition, the link target must be an **FFmpeg 8 built with nv-codec-headers 1
 
 If PyPI already has av 18.1.0, the rest of this section is unnecessary. The PyPI binary wheels bundle a compatible FFmpeg, so `uv pip install "av>=18.1"` is all it takes (the Section 5 install resolves it too).
 
-### (B) Build from PyAV main `61e4aa8` yourself (⚠️ unverified)
+### (B) Build from PyAV main `61e4aa8` yourself (verified on hardware)
 
-The Windows version of the procedure verified on Linux (check out upstream main `61e4aa8`, which has current_ctx merged, and link against the BtbN shared build). Additional prerequisites: VS Build Tools 2022 (run inside a **Developer PowerShell for VS 2022** session) and a pkg-config-compatible tool (pkgconf; e.g. choco's `pkgconfiglite` or MSYS2's `pkgconf`).
+Check out upstream main `61e4aa8`, which has current_ctx merged, and link against the BtbN shared build. The only additional prerequisite is VS Build Tools 2022 (run inside a **Developer PowerShell for VS 2022** session).
+
+> **No pkg-config / pkgconf is needed.** PyAV's setup.py **never calls pkg-config on Windows** (that code path is non-Windows only). Setting `PKG_CONFIG_PATH` is silently ignored; the only way FFmpeg's headers and libraries reach the compiler is through the standard MSVC environment variables `INCLUDE` / `LIB`. Building without them fails with `fatal error C1083: libavcodec/avcodec.h: No such file or directory`.
 
 ```powershell
 cd $Workspace
@@ -124,14 +126,27 @@ git clone https://github.com/PyAV-Org/PyAV.git
 cd PyAV
 git checkout 61e4aa8
 
-$env:PKG_CONFIG_PATH = "$Workspace\ffmpeg-n8.1-shared\lib\pkgconfig"
-uv build --wheel                     # -> dist\av-18.0.0-*.whl
-uv pip install (Get-Item dist\av-*.whl)
+# cl.exe reads INCLUDE, link.exe reads LIB (append to the Developer PowerShell values)
+$env:INCLUDE = "$env:INCLUDE;$Workspace\ffmpeg-n8.1-shared\include"
+$env:LIB     = "$env:LIB;$Workspace\ffmpeg-n8.1-shared\lib"
+uv build --wheel                     # -> dist\av-18.0.0-cp311-abi3-win_amd64.whl
 ```
 
-**FFmpeg DLL resolution (⚠️ unverified)**: On Linux the FFmpeg libraries were vendored into the wheel with auditwheel (to avoid clashing with the same-named libraries torchcodec brings in). The Windows equivalent is delvewheel. The current plan is to first run *without* vendoring, keeping the BtbN `bin\` on PATH, and see whether problems appear (this shares the very same FFmpeg 8.1 DLLs with torchcodec, so the "same-named libraries from different builds" collision that bit Linux is not expected — but that is unverified too). This section will be rewritten once the Windows verification settles it.
+**delvewheel is mandatory for FFmpeg DLL resolution.** Since Python 3.8, Windows does not search PATH for the DLL dependencies of extension modules (`av\_core.pyd`) — only the system directories, the .pyd's own folder, and directories registered via `os.add_dll_directory()`. Keeping the BtbN `bin\` on PATH is therefore not enough: the import fails with `ImportError: DLL load failed while importing _core` (measured). Vendor the FFmpeg DLLs into the wheel with delvewheel before installing:
 
-> **Note: the self-built wheel carries the same version number as PyPI's 18.0.0.** `uv pip show av` cannot tell them apart; if they get mixed up you see current_ctx-related errors at runtime (see Troubleshooting). The `uv pip install -e .[dev]` in Section 5 does not replace an installed av of the same version, so doing this section first keeps your wheel in place.
+```powershell
+uv pip install delvewheel
+delvewheel repair dist\av-18.0.0-cp311-abi3-win_amd64.whl `
+    --add-path $Workspace\ffmpeg-n8.1-shared\bin -w dist\repaired
+uv pip install --reinstall (Get-Item dist\repaired\av-*.whl)
+
+# Verify: BtbN FFmpeg (n8.1.x) is picked up and the current_ctx API is present
+python -c "import av; from av.video.frame import CudaContext; print(av.ffmpeg_version_info); print(hasattr(CudaContext, 'current_ctx'))"
+```
+
+delvewheel vendors the DLLs under hash-mangled names in `av.libs\`, so at runtime they are a separate in-process copy from the FFmpeg DLLs torchcodec loads. That is fine on Windows — each DLL has its own symbol namespace, so the same-name library collision that bit Linux cannot happen (confirmed by the full smoke-test matrix).
+
+> **Note: the self-built wheel carries the same version number as PyPI's 18.0.0.** `uv pip show av` cannot tell them apart; if they get mixed up you see current_ctx-related errors at runtime (see Troubleshooting). The `uv pip install -e .[dev]` in Section 5 does not replace an installed av of the same version (confirmed by measurement), so doing this section first keeps your wheel in place. To check which one is installed: `Test-Path .venv\Lib\site-packages\av.libs` (present only for the delvewheel-repaired wheel).
 
 ---
 
@@ -166,7 +181,7 @@ uv pip install -e .[dev,torchcodec] `
 
 This installs `torchcodec>=0.15.0`. torchcodec needs the FFmpeg DLLs at runtime, so keep the BtbN shared build's `bin\` on PATH (Section 1.1). It is not needed for a normal setup; the default `native` backend (PyAV) works without torchcodec. Details: [TORCHCODEC_BACKEND_en.md](TORCHCODEC_BACKEND_en.md).
 
-**Note: the FP8 restoration backend needs no extra install steps.** Its dependencies `nvidia-cudnn-frontend` and (on Windows) `triton-windows` are regular dependencies in `pyproject.toml` and come in with the command above. The cuDNN runtime (9.17+) ships inside the torch cu130 wheels. The feature is a runtime opt-in (`--fp8-recon`, needs an FP8-capable GPU, sm89+) and falls back to the TensorRT engines where unavailable. Verified on hardware (Windows 11 + RTX 5080) in the v0.7.2 era; re-verification on v0.8.0 is pending. Details: [FP8_RECON_en.md](FP8_RECON_en.md).
+**Note: the FP8 restoration backend needs no extra install steps.** Its dependencies `nvidia-cudnn-frontend` and (on Windows) `triton-windows` are regular dependencies in `pyproject.toml` and come in with the command above. The cuDNN runtime (9.17+) ships inside the torch cu130 wheels. The feature is a runtime opt-in (`--fp8-recon`, needs an FP8-capable GPU, sm89+) and falls back to the TensorRT engines where unavailable. Verified on hardware (Windows 11 + RTX 5080) on v0.8.0+modi as well (2026-07-18; confirmed `CudnnFP8Upsample: enabled` with `--log-level info` — note the default `--log-level error` suppresses the activation log line). Details: [FP8_RECON_en.md](FP8_RECON_en.md).
 
 ### 5.1 Apply the mmengine patch (torch 2.6+ compatibility)
 
@@ -239,7 +254,7 @@ When **running from source**, `model_weights\rife.pth` is picked up automaticall
 
 ### 6.2 Optional: FlashVSR secondary restoration (experimental)
 
-FlashVSR (`--secondary-restoration flashvsr` / `flashvsr-inline`) needs a separate repository checkout with its own venv, and the inline mode additionally needs a bundled patch applied to that checkout. Windows is supported (inline was verified on a 16 GB Windows card in the v0.7.2 era; on v0.8.0 only Linux has been re-verified). Setup instructions: [FLASHVSR_en.md](FLASHVSR_en.md).
+FlashVSR (`--secondary-restoration flashvsr` / `flashvsr-inline`) needs a separate repository checkout with its own venv, and the inline mode additionally needs a bundled patch applied to that checkout. Windows is supported (inline is re-verified on v0.8.0+modi on a 16 GB Windows card with `--flashvsr-tiles 2`; v0.8.0 automatically caps `--max-clip-size` to 32 in inline mode, leaving more VRAM headroom than in the v0.7.2 era). Setup instructions: [FLASHVSR_en.md](FLASHVSR_en.md).
 
 ---
 
@@ -282,7 +297,13 @@ Upstream's own packaging tooling (also Nuitka-based) lives in a **private submod
 ### PyAV / FFmpeg
 
 - **Every encode fails right at startup with `ValueError: hevc_nvenc did not accept encoder option(s): ['lookahead_level']`**
-  PyAV is linked against an FFmpeg built with old nv-codec-headers. Rebuild the wheel with `PKG_CONFIG_PATH` pointing at the BtbN build (Section 4 (B)).
+  PyAV is linked against an FFmpeg built with old nv-codec-headers. Rebuild the wheel with `INCLUDE` / `LIB` pointing at the BtbN build as in Section 4 (B).
+
+- **`import av` fails with `ImportError: DLL load failed while importing _core`**
+  The self-built wheel was installed without the delvewheel repair. Python 3.8+ does not search PATH for the DLL dependencies of extension modules, so keeping the BtbN `bin\` on PATH is not enough. Reinstall the delvewheel-repaired wheel from Section 4 (B).
+
+- **The PyAV build fails with `fatal error C1083: libavcodec/avcodec.h`**
+  The compiler does not know where FFmpeg lives. `PKG_CONFIG_PATH` is ignored on Windows (setup.py never calls pkg-config there). Append the BtbN `include` / `lib` directories to `INCLUDE` / `LIB` as in Section 4 (B).
 
 - **Encoder/decoder initialization fails with a current_ctx-related `TypeError` or similar**
   av is still PyPI's 18.0.0 (the Section 4 wheel was never installed, or a dependency reinstall replaced it). Reinstall it with `uv pip install --reinstall`.
