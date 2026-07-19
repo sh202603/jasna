@@ -144,8 +144,13 @@ def ffprobe_status() -> FfprobeStatus:
     return FfprobeStatus(path, True, major)
 
 
-def check_required_executables() -> None:
-    """Exit with what to install when ffprobe is missing, fails, or is not version 8."""
+def check_required_executables(disable_ffmpeg_check: bool = False) -> None:
+    """Exit with what to install when ffprobe is missing, fails, or is not version 8.
+
+    ``disable_ffmpeg_check`` skips the check (modi: the standalone tools' ``--disable-ffmpeg-check``).
+    """
+    if disable_ffmpeg_check:
+        return
     status = ffprobe_status()
     if not status.runs:
         print("Error: Required executable(s) not found in PATH or not callable: ffprobe")
