@@ -2,9 +2,9 @@
 
 Windows で Jasna のセットアップを行い、**ソースから実行**する手順。
 
-> **検証状態（2026-07-18）**: 本ガイドの手順は Windows 11 + RTX 5080（driver 610.62、Python 3.13.9）で**実機検証済み**です。Linux 側は [BUILDING_LINUX_ja.md](BUILDING_LINUX_ja.md) を参照してください。
+> **検証状態（2026-07-19、`v0.8.1+modi`）**: 本ガイドの手順は Windows 11 + RTX 5080（driver 610.62、Python 3.13.9）で **`v0.8.1+modi` を実機検証済み**です（v0.8.0 の実機検証は 2026-07-18）。Linux 側は [BUILDING_LINUX_ja.md](BUILDING_LINUX_ja.md) を参照してください。
 
-> **本ガイドは `v0.8.0+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）は v0.7.2 期から変わらず、依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
+> **本ガイドは `v0.8.1+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）は v0.7.2 期から変わらず、依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
 
 > **v0.8.0 でビルド手順は大幅に簡素化されました。** upstream v0.8.0 でメディア層が PyAV（NVDEC/NVENC）へ移行し、`python_vali` / `PyNvVideoCodec` の C++ ビルドが丸ごと不要になりました。これに伴い、旧ガイドの前提だった以下はすべて不要です:
 >
@@ -264,7 +264,7 @@ FlashVSR（`--secondary-restoration flashvsr` / `flashvsr-inline`）は別リポ
 
 ```powershell
 cd $Workspace\jasna
-python -m jasna --version    # -> 0.8.0+modi
+python -m jasna --version    # -> 0.8.1+modi
 python -m jasna --help
 jasna --input assets\test_clip1_1080p.mp4 --output $env:TEMP\out.mp4   # 短いクリップを処理
 python -m jasna              # GUI を起動（引数なし）
