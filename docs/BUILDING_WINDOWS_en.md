@@ -2,9 +2,9 @@
 
 How to set up Jasna on Windows and run it **from source**.
 
-> **Verification status (2026-07-18)**: These instructions are **verified on real hardware** — Windows 11 + RTX 5080 (driver 610.62, Python 3.13.9). For the Linux side see [BUILDING_LINUX_en.md](BUILDING_LINUX_en.md).
+> **Verification status (2026-07-19, `v0.8.1+modi`)**: These instructions are **verified on real hardware at `v0.8.1+modi`** — Windows 11 + RTX 5080 (driver 610.62, Python 3.13.9) (the v0.8.0 hardware verification was 2026-07-18). For the Linux side see [BUILDING_LINUX_en.md](BUILDING_LINUX_en.md).
 
-> **This guide covers the `v0.8.0+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
+> **This guide covers the `v0.8.1+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
 
 > **v0.8.0 simplified the setup considerably.** Upstream v0.8.0 moved the media layer to PyAV (NVDEC/NVENC), which removed the C++ builds of `python_vali` / `PyNvVideoCodec` entirely. All of the following prerequisites of the old guide are gone with them:
 >
@@ -264,7 +264,7 @@ With Sections 1–6 done, run Jasna directly from the source checkout inside the
 
 ```powershell
 cd $Workspace\jasna
-python -m jasna --version    # -> 0.8.0+modi
+python -m jasna --version    # -> 0.8.1+modi
 python -m jasna --help
 jasna --input assets\test_clip1_1080p.mp4 --output $env:TEMP\out.mp4   # process a short clip
 python -m jasna              # launch the GUI (no arguments)
