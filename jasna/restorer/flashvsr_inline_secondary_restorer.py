@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 import torch
 
+from jasna.restorer import bundled_script_path
+
 if TYPE_CHECKING:
     pass
 
@@ -51,7 +53,7 @@ _TINYLONG_REL = Path("src") / "pipelines" / "flashvsr_tiny_long.py"
 
 def _resolve_worker_script() -> Path:
     """Path to the worker script (module-level for test monkeypatching)."""
-    return Path(__file__).with_name("flashvsr_inline_worker.py")
+    return bundled_script_path("flashvsr_inline_worker.py")
 
 
 def _check_patched_repo(repo: Path) -> None:

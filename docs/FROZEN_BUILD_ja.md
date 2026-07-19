@@ -1,7 +1,8 @@
 # 凍結バイナリのビルド方法（Windows、実験的）
 
 このフォークは、スタンドアロンの**凍結配布物**（Python の導入なしで動く配布用ディレクトリ）を `dist_nuitka\jasna\` に生成できる。
-実行ファイルは `jasna.exe` の 1 本だけで、引数を付けて起動すれば CLI、引数なしで起動すれば GUI として動く（GUI 起動時はコンソールウィンドウが自動で切り離される）。
+メインの実行ファイルは `jasna.exe` で、引数を付けて起動すれば CLI、引数なしで起動すれば GUI として動く（GUI 起動時はコンソールウィンドウが自動で切り離される）。
+その隣に `jasna-framegen.exe`（`jasna.exe` のコピー）が置かれ、こちらはスタンドアロンのフレーム生成 CLI として動く（実行ファイル名で入口が切り替わる）。
 
 upstream はパッケージングを PyInstaller から Nuitka へ切り替えたが、そのツールは非公開の submodule（`jasna/protection`）にあり、このフォークには含まれない。
 `scripts\build_nuitka.py` は、このフォークが独自に持つ自己完結のビルドスクリプトである。
@@ -20,15 +21,14 @@ upstream はパッケージングを PyInstaller から Nuitka へ切り替え�
 - [BUILDING_WINDOWS_ja.md](BUILDING_WINDOWS_ja.md) の手順でソース実行できる環境が整っていること。
   venv に全ランタイム依存に加えて `[dev]` extra（`uv pip install -e .[dev,nvidia]`）が入っていれば、`nuitka>=2.4` が使える。
   Nuitka は jasna を C にコンパイルするため、Visual Studio Build Tools（MSVC）も必要である。
-- CUDA Toolkit 13.x がインストールされ、`CUDA_PATH` が設定されていること。
-  NPP と nvJPEG のランタイム DLL（`nppc64_13.dll` から `nvjpeg64_13.dll` までの 6 本）を `%CUDA_PATH%\bin\x64` から配布物へコピーするためである。
-  これらはどの pip wheel にも含まれず、しかも凍結アプリは実行時に CUDA Toolkit を意図的に `PATH` から除外する。
-  そのため、この DLL を欠いたままビルドすると、CUDA Toolkit を持たない配布先で動画デコードが失敗する配布物ができてしまう。
 - `model_weights\` に必須の重み 3 ファイルがあること。
   `lada_mosaic_restoration_model_generic_v1.2.pth`、`rfdetr-v5.onnx`、`lada_mosaic_detection_model_v4_fast.pt` である。
-- 任意で、`ffmpeg` と `ffprobe`（メジャーバージョン 8）と `mkvmerge` が `PATH` にあること。
+- 任意で、`ffmpeg` と `ffprobe`（メジャーバージョン 8、shared ビルド推奨）と `mkvmerge` が `PATH` にあること。
   見つかれば `tools\` と `mkvtoolnix\` に同梱される。
   見つからなければ警告だけ出してビルドは続行し、凍結アプリは実行時に配布先の `PATH` へフォールバックする。
+  `tools\` の DLL は torchcodec バックエンドの動作条件でもある。
+  torchcodec は素の名前の FFmpeg 8 DLL（`avcodec-62.dll` など）をロードするが、配布物の他の場所にこれは存在しない（`av.libs` にあるのは delvewheel がリネームしたコピーだけである）。
+  そのため shared ビルドの ffmpeg を同梱せずにビルドすると、配布先が自前で FFmpeg 8 DLL を `PATH` に持つ場合にしか torchcodec バックエンドが動かない配布物になる。
 - ディスク容量。完成した配布物は約 8 GB になる（大半は torch と CUDA スタックである）。
 
 ## 2. ビルド手順
@@ -57,7 +57,7 @@ upstream はパッケージングを PyInstaller から Nuitka へ切り替え�
   一方、site-packages で見つかった third-party のトップレベルパッケージはすべて `--nofollow-import-to` でコンパイル対象から外し、配布物のルートへそのままコピーする。
 - この方式が成立するのは、Nuitka standalone バイナリの `sys.path` が自身のディレクトリだけを指すからである。
   ルートに平置きしたパッケージは通常どおり import できる。
-  この平置きレイアウトは `jasna\packaging\windows_dll_paths.py` が前提とする配置でもある（起動時に `torch\lib` や `tensorrt_libs`、ルート直下の `*.libs` ディレクトリなどを DLL 探索パスに登録する）。
+  この平置きレイアウトは `jasna\packaging\windows_dll_paths.py` が前提とする配置でもある（起動時に `torch\lib`、`tensorrt_libs`、`nvvfx`、`torchcodec`、`tools`、ルート直下の `*.libs` ディレクトリを DLL 探索パスに登録する）。
 - exe はコンソールサブシステムでビルドする（`--windows-console-mode=force`）。
   CLI がシェルをブロックして stdout と stderr が機能するためであり、GUI 起動時は jasna 側が `FreeConsole()` でコンソールを切り離す（`os_utils.drop_console_window`）。
 - `--deployment` を指定する。
@@ -72,7 +72,9 @@ upstream はパッケージングを PyInstaller から Nuitka へ切り替え�
 2. **`python3.dll`**：Nuitka は `python313.dll` を同梱するが、stable ABI 用のフォワーダである `python3.dll` は同梱しない。
    limited API でビルドされた拡張（たとえば psutil の `_psutil_windows.pyd`）は `python3.dll` にリンクしており、これがないとロードに失敗する。
    スクリプトはベースの CPython インストールからコピーする。
-3. **NPP と nvJPEG の DLL**：前提条件の節で述べたとおりである。
+3. **コンパイル対象パッケージ内の非 Python ファイル**：`--include-package=jasna` がコンパイルするのは `.py` モジュールだけで、`jasna\` 内のデータファイルやスクリプトは黙って脱落する。
+   そこでスクリプトが明示的にコピーする。
+   対象は、`jasna\media\yuv_to_rgb.fatbin`（GPU の YUV→RGB カーネル。凍結時は配布物ルートから読まれ、欠けるとすべてのデコードが最初のフレームで失敗する）、`jasna\restorer\` 配下の FlashVSR worker と driver のスクリプト（外部の FlashVSR venv の Python に実ファイルとして渡される）、`assets\` のロゴファイルである。
 
 TensorRT エンジン（`*.engine` と `*_sub_engines\`）は意図的に同梱しない。
 エンジンは GPU と TensorRT のバージョンに固有であり、配布先の初回起動時に `model_weights\` へ再生成されるからである（初回のみ 15 分から 60 分程度のコンパイルが走る）。
@@ -81,16 +83,18 @@ TensorRT エンジン（`*.engine` と `*_sub_engines\`）は意図的に同梱�
 
 ```
 dist_nuitka\jasna\
-├── jasna.exe               # 唯一のエントリポイント（引数あり → CLI、なし → GUI）
+├── jasna.exe               # メインのエントリポイント（引数あり → CLI、なし → GUI）
+├── jasna-framegen.exe      # スタンドアロンのフレーム生成 CLI（jasna.exe のコピー）
 ├── python313.dll, python3.dll, vcruntime140*.dll
-├── npp*_13.dll, nvjpeg64_13.dll   # CUDA Toolkit 由来のランタイム DLL
-├── torch\, torchvision\, tensorrt_libs\, python_vali\, PyNvVideoCodec\, nvvfx\, ...
+├── yuv_to_rgb.fatbin       # GPU の YUV→RGB カーネル（凍結時はルートから読まれる）
+├── torch\, torchvision\, tensorrt_libs\, torchcodec\, nvvfx\, ...
 ├── numpy.libs\, scipy.libs\, av.libs\    # ルート直下に置く必要がある（DLL 探索の前提）
 ├── *.dist-info\            # importlib.metadata のバージョン照会用に残す
 ├── tcl\, tk\               # tkinter のデータ（tk-inter プラグイン）
+├── jasna\restorer\         # FlashVSR worker と driver のスクリプト（外部 FlashVSR venv が実行する）
 ├── model_weights\          # 重みのみ。エンジンは含まない
-├── assets\                 # テストクリップ
-├── tools\                  # 同梱 ffmpeg と ffprobe（ビルド時に見つかった場合）
+├── assets\                 # テストクリップとロゴ
+├── tools\                  # 同梱 ffmpeg と ffprobe（ビルド時に見つかった場合。torchcodec 用の FFmpeg DLL でもある）
 └── mkvtoolnix\             # 同梱 mkvmerge（ビルド時に見つかった場合）
 ```
 
@@ -101,6 +105,9 @@ dist_nuitka\jasna\
   ソース実行時と同じ制約であり、既定のパイプライン（検出、BasicVSR++、セカンダリの rtx-super-res と tvai）には影響しない。
 - FP8 recon（`--fp8-recon`）は凍結ビルドでは未検証である。
   配布先マシンで triton がカーネルを JIT コンパイルできることに依存するためである。
+- FlashVSR は同梱されない。
+  `flashvsr` と `flashvsr-inline` のどちらも、ソース実行時と同じく、パッチ適用済みの FlashVSR チェックアウトと専用 venv が配布先マシンに別途必要である（`--flashvsr-repo`）。
+  配布物に含まれるのは jasna 側のオーケストレーション（`jasna\restorer\` 配下の worker と driver のスクリプトを含む）だけである。
 - 配布物は、書き込み可能で ASCII のみのパスに展開する必要がある。
   TRT エンジンが exe の隣の `model_weights\` に書き込まれるためであり、ASCII 制約はソース実行時と同じ RTX Super-Res の制限である。
 - 配布先にも NVIDIA GPU（compute capability 7.5 以上）とドライバ 590 以上は必要である。
@@ -110,8 +117,9 @@ dist_nuitka\jasna\
 
 ```powershell
 cd dist_nuitka\jasna
-.\jasna.exe --version                 # -> 0.7.2+modi（スクリプトが自動で確認済み）
+.\jasna.exe --version                 # -> 0.8.1+modi（スクリプトが自動で確認済み）
 .\jasna.exe --input assets\test_clip1_1080p.mp4 --output %TEMP%\out.mkv
+.\jasna-framegen.exe --input %TEMP%\out.mkv --output %TEMP%\out2x.mkv --factor 2x   # --bundle-rife の重みが必要
 ```
 
 初回の実処理では、エンジンコンパイルのサブプロセス経路（`jasna.exe --compile-engines ...` として自分自身を再起動する）も同時に検証される。
@@ -122,16 +130,19 @@ cd dist_nuitka\jasna
 ## 7. トラブルシューティング
 
 - **GPU があるのに `Error: No CUDA device` になる**：このメッセージは誤解を招くことがある。
-  `os_utils.check_nvidia_gpu()` は `ImportError` を握りつぶすため、凍結アプリ内で torch の import が失敗した場合（典型的には stdlib モジュールの欠落）も「no CUDA」と報告される。
+  `os_utils.check_supported_gpu()` は `ImportError` を握りつぶすため、凍結アプリ内で torch の import が失敗した場合（典型的には stdlib モジュールの欠落）も「no CUDA」と報告される。
   GPU スタックを疑う前に、まずモジュール欠落（次項）を確認する。
 - **`ModuleNotFoundError: <stdlib モジュール>`**：そのモジュールが Nuitka の自動同梱除外リストに載っていて、同梱から漏れている。
   `scripts\build_nuitka.py` の `STDLIB_INCLUDE_SKIP` から外す（または include ロジックを広げる）ことで解消する。
   再ビルドでコンパイルし直すのは jasna だけなので、短時間で済む。
 - **`ImportError: DLL load failed while importing <拡張>`**：その拡張の依存 DLL を調べる（`pefile` などを使う）。
   `python3.dll` にリンクしていれば、フォワーダが配布物ルートにないのが原因である。
-  そうでなければ、依存 DLL が凍結アプリの探索パス（配布物ルート、`torch\lib`、`*.libs`、System32）にない。
-- **`... nppicc64_13.dll was not found`（ほかの npp 系や nvjpeg でも同様）**：ビルドマシンでスクリプト実行時に `CUDA_PATH` が未設定だった。
-  CUDA Toolkit を入れた状態でビルドし直す。
+  そうでなければ、依存 DLL が凍結アプリの探索パス（配布物ルート、`torch\lib`、`*.libs`、`tools\`、System32）にない。
+- **`Missing precompiled YUV conversion kernel`**：配布物ルートに `yuv_to_rgb.fatbin` がない。
+  同梱手順をやり直す（`--skip-nuitka` で足りる）。
+- **native バックエンドは動くのに torchcodec バックエンドがロードに失敗する**：FFmpeg 8 の shared DLL が解決できていない。
+  ビルド時に static ビルドの ffmpeg を同梱した（`tools\` に DLL がない）か、`tools\` 自体がない。
+  shared ビルドの ffmpeg を同梱するか、配布先の `PATH` に FFmpeg 8 DLL を置く。
 - **nofollow のロジックを変えたあとの原因不明な誤動作**：`build\nuitka\report.xml` を確認する。
   site-packages 由来のモジュールがコンパイルされていた場合、スクリプトが警告を出す。
   third-party コードはコピーすべきであってコンパイルしてはならず、たとえば `cv2` はコンパイルすると壊れる。
