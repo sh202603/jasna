@@ -2,7 +2,7 @@
 
 Linux で Jasna のセットアップを行い、**ソースから実行**する手順です。
 
-> **本ガイドは `v0.8.0+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）は v0.7.2 期から変わらず、依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
+> **本ガイドは `v0.8.1+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）は v0.7.2 期から変わらず、依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
 
 > **v0.8.0 でビルド手順は大幅に簡素化されました。** upstream v0.8.0 でメディア層が PyAV（NVDEC/NVENC）へ移行し、`python_vali` / `PyNvVideoCodec` のネイティブビルドが丸ごと不要になりました。これに伴い、旧ガイドの前提だった CUDA Toolkit、cmake / ninja、ffmpeg dev パッケージ（`libav*-dev`）、`FFMPEG_DIR` prefix、`setuptools<80` の固定、`mkvmerge` はすべて不要です。残る特殊手順は **PyAV wheel の自前ビルド**（4節。PyAV 18.1.0 が PyPI に公開されるまでの暫定）だけです。
 >
@@ -10,7 +10,7 @@ Linux で Jasna のセットアップを行い、**ソースから実行**する
 
 > **パッケージングについて:** この公開フォークは Jasna を**ソースから実行**します。Linux 向けに frozen バイナリを生成する公開手段はありません（同梱の実験的 Nuitka スクリプト `scripts/build_nuitka.py` は Windows 向けで、しかも v0.8.0 のメディア層移行に未追従です）。パッケージ済みバイナリが必要なら upstream Kruk2/jasna の公式リリースを使ってください。
 
-> 本ガイドは **Ubuntu 26.04 LTS** + **RTX 5080** + **ドライバ 595.71.05** で検証済みです（2026-07-18、pytest とフルパイプライン実走）。他のディストリでも動作しますが、パッケージ名や ffmpeg の導入手順は異なります。
+> 本ガイドは **Ubuntu 26.04 LTS** + **RTX 5080** + **ドライバ 595.71.05** で **`v0.8.1+modi` を検証済み**です（2026-07-19、pytest とフルパイプライン実走。v0.8.0 の検証は 2026-07-18）。他のディストリでも動作しますが、パッケージ名や ffmpeg の導入手順は異なります。
 
 ---
 
@@ -233,7 +233,7 @@ FlashVSR（`--secondary-restoration flashvsr` / `flashvsr-inline`）は別リポ
 
 ```bash
 cd "$WORKSPACE/jasna"
-python -m jasna --version    # -> 0.8.0+modi
+python -m jasna --version    # -> 0.8.1+modi
 python -m jasna --help
 jasna --input assets/test_clip1_1080p.mp4 --output /tmp/out.mp4   # 短いクリップを処理
 python -m jasna              # GUI を起動（引数なし）
