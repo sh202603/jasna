@@ -178,6 +178,20 @@ def test_check_required_executables_errors_when_version_cannot_be_detected(monke
     assert "could not detect major version" in captured.out
 
 
+def test_check_required_executables_skips_checks_when_disabled(monkeypatch) -> None:
+    def fail_run(*args, **kwargs):
+        raise AssertionError("subprocess.run must not run when the ffmpeg check is disabled")
+
+    def fail_find(exe):
+        raise AssertionError("find_executable must not run when the ffmpeg check is disabled")
+
+    monkeypatch.setattr(os_utils.subprocess, "run", fail_run)
+    monkeypatch.setattr(os_utils, "find_executable", fail_find)
+
+    # Returns without raising or exiting; backs jasna-framegen --disable-ffmpeg-check.
+    os_utils.check_required_executables(disable_ffmpeg_check=True)
+
+
 def test_get_subprocess_startup_info_non_nt_returns_none(monkeypatch) -> None:
     monkeypatch.setattr(os_utils.os, "name", "posix", raising=False)
     assert os_utils.get_subprocess_startup_info() is None
