@@ -9,7 +9,9 @@ next to the binary) and avoids compiling the GPU stack.
 
 A single console-subsystem `jasna.exe` is produced: with arguments it runs the
 CLI, without arguments it detaches the console (FreeConsole) and starts the
-GUI (see jasna/__main__.py argv0/arg dispatch).
+GUI (see jasna/__main__.py argv0/arg dispatch). A `jasna-framegen.exe` copy is
+placed next to it; the same argv0 dispatch routes it to the standalone
+frame-generation CLI (jasna/framegen_cli.py).
 
 Run from the project root with the venv interpreter:
 
@@ -46,6 +48,13 @@ REQUIRED_WEIGHTS = [
 # setuptools/pkg_resources stay in (torch._inductor / triton / pkg_resources
 # consumers may want them at runtime); yapf stays in (mmengine.config uses it).
 EXCLUDED_PACKAGES = {
+    # Legacy media stack: since the v0.8.x PyAV move nothing in jasna imports
+    # python_vali / PyNvVideoCodec anymore; they may still be installed in the
+    # venv but are dead weight in the dist.
+    "python_vali",
+    "pynvvideocodec",
+    # delvewheel is only used to repair the self-built PyAV wheel at build time.
+    "delvewheel",
     "nuitka",
     "pyinstaller",
     "_pyinstaller_hooks_contrib",
@@ -79,6 +88,9 @@ EXCLUDED_PACKAGES = {
     "yapftests",
 }
 EXCLUDED_DISTS = {
+    "python_vali",
+    "pynvvideocodec",
+    "delvewheel",
     "nuitka",
     "pyinstaller",
     "pyinstaller_hooks_contrib",
@@ -103,7 +115,7 @@ EXCLUDED_DISTS = {
 # code imports it — imports made by the flat-copied (nofollow'd) third-party
 # packages are invisible to Nuitka, so e.g. torch's `unittest.mock`/`uuid`
 # imports came up missing and surfaced as a bogus "No CUDA device" (the
-# ImportError is swallowed by os_utils.check_nvidia_gpu). Rather than chase
+# ImportError is swallowed by os_utils.check_supported_gpu). Rather than chase
 # one ModuleNotFoundError at a time, include everything on that list that
 # exists on this platform, minus obvious junk. Bytecode inclusion is cheap.
 STDLIB_INCLUDE_SKIP = {
@@ -224,6 +236,8 @@ def enumerate_site_packages() -> tuple[list[Path], list[str]]:
             copy_entries.append(entry)
             nofollow.append(entry.stem)
         elif suffix in {".pyd", ".dll"}:
+            if "__mypyc" in low:
+                continue  # delvewheel's mypyc-compiled runtime (delvewheel is excluded)
             copy_entries.append(entry)
             mod = name.split(".")[0]
             if suffix == ".pyd" and mod.isidentifier():
@@ -302,6 +316,9 @@ def place_dist() -> None:
     else:
         log("WARNING: python3.dll not found next to the base interpreter; "
             "stable-ABI extensions (psutil, ...) will fail to load")
+    # argv0-stem dispatch in jasna/__main__.py routes a binary named
+    # jasna-framegen to the standalone frame-generation CLI.
+    shutil.copy2(DIST / "jasna.exe", DIST / "jasna-framegen.exe")
     log(f"dist placed at {DIST}")
 
 
@@ -341,41 +358,32 @@ def copy_weights_and_assets(bundle_rife: bool) -> None:
             shutil.copy2(entry, weights_out / entry.name)
     assets_out = DIST / "assets"
     assets_out.mkdir(exist_ok=True)
-    for clip in ["test_clip1_1080p.mp4", "test_clip1_2160p.mp4"]:
-        src = ROOT / "assets" / clip
+    # Logos: gui/branding.py reads them from <dist>/assets/ when frozen.
+    for asset in [
+        "test_clip1_1080p.mp4",
+        "test_clip1_2160p.mp4",
+        "jasna-logo.png",
+        "jasna-logo.ico",
+        "jasna-logo.svg",
+    ]:
+        src = ROOT / "assets" / asset
         if src.is_file():
-            shutil.copy2(src, assets_out / clip)
+            shutil.copy2(src, assets_out / asset)
         else:
-            log(f"WARNING: assets/{clip} missing, skipped")
+            log(f"WARNING: assets/{asset} missing, skipped")
 
 
-# CUDA NPP / nvJPEG runtime DLLs used by python_vali's NV12<->RGB conversion.
-# Not shipped by any pip wheel, and windows_dll_paths.py deliberately strips
-# the CUDA Toolkit from PATH in the frozen app, so they must sit at the dist
-# root (same list the old PyInstaller spec bundled).
-CUDA_RUNTIME_DLLS = [
-    "nppc64_13.dll",
-    "nppial64_13.dll",
-    "nppicc64_13.dll",
-    "nppidei64_13.dll",
-    "nppig64_13.dll",
-    "nvjpeg64_13.dll",
-]
-
-
-def bundle_cuda_npp_dlls() -> None:
-    cuda_path = os.environ.get("CUDA_PATH")
-    if not cuda_path:
-        log("WARNING: CUDA_PATH not set; NPP/nvJPEG DLLs not bundled — "
-            "video decode will fail on machines without a CUDA Toolkit on PATH")
-        return
-    cuda_bin = Path(cuda_path) / "bin" / "x64"
-    for dll in CUDA_RUNTIME_DLLS:
-        src = cuda_bin / dll
-        if src.is_file():
-            shutil.copy2(src, DIST / dll)
-        else:
-            log(f"WARNING: {src} not found, not bundled")
+def copy_frozen_runtime_files() -> None:
+    # GPU YUV->RGB kernel: media/yuv_to_rgb.py reads it from the dist root when
+    # frozen (the compiled jasna package carries no data files).
+    shutil.copy2(ROOT / "jasna" / "media" / "yuv_to_rgb.fatbin", DIST / "yuv_to_rgb.fatbin")
+    # FlashVSR passes these as real script files to the external FlashVSR
+    # venv's Python; when frozen they are resolved under <dist>/jasna/restorer/
+    # (see _resolve_worker_script / the phase-2 driver lookup).
+    restorer_out = DIST / "jasna" / "restorer"
+    restorer_out.mkdir(parents=True, exist_ok=True)
+    for script in ["flashvsr_inline_worker.py", "flashvsr_phase2_driver.py"]:
+        shutil.copy2(ROOT / "jasna" / "restorer" / script, restorer_out / script)
 
 
 def bundle_external_tools() -> None:
@@ -452,7 +460,7 @@ def main() -> None:
     place_dist()
     copy_third_party(copy_entries)
     copy_weights_and_assets(bundle_rife=args.bundle_rife)
-    bundle_cuda_npp_dlls()
+    copy_frozen_runtime_files()
     bundle_external_tools()
     smoke_test()
     log(f"done: {DIST}")
