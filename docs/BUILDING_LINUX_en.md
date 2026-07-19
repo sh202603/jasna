@@ -2,7 +2,7 @@
 
 How to set up Jasna on Linux and run it **from source**.
 
-> **This guide covers the `v0.8.0+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
+> **This guide covers the `v0.8.1+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
 
 > **v0.8.0 simplified the setup considerably.** Upstream v0.8.0 moved the media layer to PyAV (NVDEC/NVENC), which removed the native builds of `python_vali` / `PyNvVideoCodec` entirely. With them went every prerequisite the old guide needed for those builds: the CUDA Toolkit, cmake / ninja, the ffmpeg dev packages (`libav*-dev`), the `FFMPEG_DIR` prefix, the `setuptools<80` pin, and `mkvmerge`. The one special step that remains is **building a PyAV wheel yourself** (Section 4; an interim measure until PyAV 18.1.0 reaches PyPI).
 >
@@ -10,7 +10,7 @@ How to set up Jasna on Linux and run it **from source**.
 
 > **Packaging note:** This public fork runs Jasna **from source**. There is no public way to produce a frozen Linux binary from it (the bundled experimental Nuitka script `scripts/build_nuitka.py` targets Windows, and has not been updated for the v0.8.0 media-layer migration either). If you want a pre-packaged binary, use upstream Kruk2/jasna's official releases.
 
-> This guide was verified on **Ubuntu 26.04 LTS** with an **RTX 5080** and **driver 595.71.05** (2026-07-18: pytest plus full-pipeline runs). Other distributions work too, but package names and the ffmpeg install steps will differ.
+> This guide is verified at **`v0.8.1+modi`** on **Ubuntu 26.04 LTS** with an **RTX 5080** and **driver 595.71.05** (2026-07-19: pytest plus full-pipeline runs; the v0.8.0 verification was 2026-07-18). Other distributions work too, but package names and the ffmpeg install steps will differ.
 
 ---
 
@@ -233,7 +233,7 @@ With Sections 1–6 done, run Jasna directly from the source checkout inside the
 
 ```bash
 cd "$WORKSPACE/jasna"
-python -m jasna --version    # -> 0.8.0+modi
+python -m jasna --version    # -> 0.8.1+modi
 python -m jasna --help
 jasna --input assets/test_clip1_1080p.mp4 --output /tmp/out.mp4   # process a short clip
 python -m jasna              # launch the GUI (no arguments)
