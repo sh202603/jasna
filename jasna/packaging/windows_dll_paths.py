@@ -92,6 +92,14 @@ def _iter_top_level_lib_dirs(root: Path) -> list[Path]:
             if libs.is_dir():
                 out.append(libs)
 
+    # Bundled ffmpeg (shared build): torchcodec's libtorchcodec_core8.dll links
+    # the plain-named FFmpeg 8 DLLs (avcodec-62.dll, ...). av.libs only carries
+    # delvewheel-mangled copies, so without tools/ on the DLL search path the
+    # torchcodec backend cannot load on machines without their own FFmpeg.
+    tools = root / "tools"
+    if tools.is_dir():
+        out.append(tools)
+
     return out
 
 

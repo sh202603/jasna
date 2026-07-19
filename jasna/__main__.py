@@ -87,6 +87,10 @@ if multiprocessing.parent_process() is None:
             from jasna.main import main
 
             main()
+        elif argv0_stem == "jasna-framegen":
+            from jasna.framegen_cli import main as framegen_main
+
+            framegen_main()
         elif argv0_stem == "jasna-gui":
             drop_console_window()
             _preload_native_libs()
