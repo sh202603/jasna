@@ -43,6 +43,9 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from jasna._frozen import is_frozen
+from jasna.restorer import bundled_script_path
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import argparse
 
@@ -785,6 +788,11 @@ def run_flashvsr_offline(args: "argparse.Namespace") -> None:
 def _jasna_phase_cmd(phase: str, cfg: dict[str, Any], bundle_dir: Path) -> list[str]:
     json_path = bundle_dir / f"phase_{phase}.json"
     json_path.write_text(json.dumps(cfg))
+    # The frozen binary takes --flashvsr-phase directly (jasna/__main__.py handles
+    # it before dispatch); "-m jasna" only exists for a real interpreter. Mirrors
+    # the --compile-engines relaunch in engine_compiler.
+    if is_frozen():
+        return [sys.executable, "--flashvsr-phase", phase, str(json_path)]
     return [sys.executable, "-m", "jasna", "--flashvsr-phase", phase, str(json_path)]
 
 
@@ -815,7 +823,7 @@ def _phase2_upscale(
     fv_python: Path,
     model_dir: Path,
 ) -> None:
-    driver = Path(__file__).with_name("flashvsr_phase2_driver.py")
+    driver = bundled_script_path("flashvsr_phase2_driver.py")
     cmd = [
         str(fv_python),
         str(driver),

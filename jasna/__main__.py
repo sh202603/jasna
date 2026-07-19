@@ -1,7 +1,7 @@
 import logging
 import os
 import sys
-from pathlib import Path, PureWindowsPath
+from pathlib import Path, PurePath, PureWindowsPath
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,11 @@ def _preload_native_libs():
         logger.warning("Native preload of av failed", exc_info=True)
 
 
+def _argv0_stem(argv: list[str]) -> str:
+    path = PureWindowsPath(argv[0]) if sys.platform == "win32" else PurePath(argv[0])
+    return path.stem.lower()
+
+
 def _wants_cli(argv: list[str]) -> bool:
     if sys.platform == "win32":
         exe_stem = PureWindowsPath(argv[0]).stem.lower()
@@ -97,7 +102,11 @@ if __name__ == "__main__":
         multiprocessing.freeze_support()
 
 if multiprocessing.parent_process() is None:
-    if _wants_cli(sys.argv):
+    if _argv0_stem(sys.argv) == "jasna-framegen":
+        from jasna.framegen_cli import main as framegen_main
+
+        framegen_main()
+    elif _wants_cli(sys.argv):
         if len(sys.argv) == 1:
             from jasna.main import build_parser
 
