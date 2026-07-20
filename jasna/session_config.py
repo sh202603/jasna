@@ -54,6 +54,7 @@ class SessionConfig:
     retarget_high_fps: bool
     disable_progress: bool
     working_dir: Path | None
+    fmp4: bool = False
     flashvsr_repo: str = ""
     flashvsr_python: str = ""
     flashvsr_model_dir: str = ""

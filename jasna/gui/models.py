@@ -162,6 +162,7 @@ class AppSettings:
     encoder_custom_args: str = ""
     lut_path: str = ""
     retarget_high_fps: bool = False
+    fmp4: bool = False  # fragmented MP4: file playable during processing
     frame_gen: str = "none"  # none, 2x, 4x (frame-rate up-conversion, file-output only)
     frame_gen_backend: str = "rife"  # rife, rtx (rtx pending nvidia-vfx release)
     frame_gen_model_path: str = ""  # optional RIFE weights; empty = <model_weights>/rife.pth

@@ -37,6 +37,9 @@ def _run_main_with_args(tmp_path, extra_args, *, create_input=True, create_detec
         patch("jasna.engine_compiler.ensure_engines_compiled", return_value=MagicMock(use_basicvsrpp_tensorrt=False)),
         patch("jasna.pipeline.Pipeline", return_value=MagicMock()) as pipeline_cls,
         patch("jasna.restorer.basicvsrpp_mosaic_restorer.BasicvsrppMosaicRestorer", MagicMock()),
+        # Validation tests exercise argument wiring only; keep them runnable
+        # without a visible GPU (device_context would initialize CUDA).
+        patch("jasna.accelerator.device_context"),
     ):
         with patch.object(sys, "argv", base_args + extra_args):
             from jasna.main import main
@@ -200,3 +203,47 @@ class TestMainValidation:
     def test_retarget_high_fps_rejected_for_streaming(self, tmp_path):
         with pytest.raises(SystemExit):
             _run_main_with_args(tmp_path, ["--stream", "--retarget-high-fps"])
+
+    def test_fmp4_defaults_off(self, tmp_path):
+        pipeline_cls = _run_main_with_args(tmp_path, [])
+        assert pipeline_cls.call_args.kwargs["fmp4"] is False
+
+    def test_fmp4_reaches_pipeline(self, tmp_path):
+        pipeline_cls = _run_main_with_args(tmp_path, ["--fmp4"])
+        assert pipeline_cls.call_args.kwargs["fmp4"] is True
+
+    def test_fmp4_ignored_with_streaming(self, tmp_path, capsys):
+        # --stream saves no file, so the flag is meaningless rather than fatal.
+        with patch("webbrowser.open"):
+            pipeline_cls = _run_main_with_args(tmp_path, ["--stream", "--fmp4"])
+
+        assert "ignored with --stream" in capsys.readouterr().out
+        assert pipeline_cls.call_args.kwargs["fmp4"] is False
+
+    def test_fmp4_applies_to_folder_input(self, tmp_path):
+        in_dir = tmp_path / "in_folder"
+        in_dir.mkdir()
+        (in_dir / "clip.mp4").touch()
+        out_dir = tmp_path / "out_folder"
+
+        pipeline_cls = _run_main_with_args(
+            tmp_path,
+            ["--input", str(in_dir), "--output", str(out_dir), "--fmp4"],
+        )
+
+        assert pipeline_cls.call_args.kwargs["fmp4"] is True
+
+    def test_fmp4_disabled_with_segments(self, tmp_path, capsys):
+        metadata = MagicMock(codec_name="h264", duration=10.0)
+        with (
+            patch("jasna.media.get_video_meta_data", return_value=metadata),
+            patch("jasna.media.splice.validate_smart_render"),
+            patch("jasna.media.splice.probe_keyframes", return_value=MagicMock()),
+            patch("jasna.media.splice.build_splice_plan", return_value=MagicMock()),
+        ):
+            pipeline_cls = _run_main_with_args(
+                tmp_path, ["--segments", "1-2", "--fmp4"]
+            )
+
+        assert "disabled with --segments" in capsys.readouterr().out
+        assert pipeline_cls.call_args.kwargs["fmp4"] is False

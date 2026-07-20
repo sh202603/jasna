@@ -192,6 +192,32 @@ class EncodingSection:
         self._widgets["video_backend"].pack(side="right")
         self._widgets["video_backend"].set("Native")
 
+        # Fragmented MP4 output (file playable while processing runs).
+        fmp4_row = ctk.CTkFrame(inner, fg_color="transparent")
+        fmp4_row.pack(fill="x", pady=(0, Sizing.PADDING_SMALL))
+        fmp4_label = ctk.CTkLabel(
+            fmp4_row,
+            text=t("fmp4"),
+            text_color=Colors.TEXT_PRIMARY,
+            font=(Fonts.FAMILY, Fonts.SIZE_NORMAL),
+        )
+        fmp4_label.pack(side="left")
+        fmp4_tip = ctk.CTkLabel(
+            fmp4_row,
+            text="ⓘ",
+            text_color=Colors.TEXT_PRIMARY,
+            font=(Fonts.FAMILY, Fonts.SIZE_TINY),
+            cursor="hand2",
+        )
+        fmp4_tip.pack(side="left", padx=4)
+        Tooltip(fmp4_tip, get_tooltip("fmp4"))
+        self._widgets["fmp4"] = create_compact_switch(
+            fmp4_row,
+            self._on_modified,
+            Colors.BG_PANEL,
+        )
+        self._widgets["fmp4"].pack(side="right")
+
         # Custom args
         row3 = ctk.CTkFrame(inner, fg_color="transparent")
         row3.pack(fill="x")
@@ -310,6 +336,10 @@ class EncodingSection:
         self._widgets["frame_gen_model_path"].insert(0, getattr(preset, "frame_gen_model_path", "") or "")
         _backend_display = {"native": "Native", "auto": "Auto", "torchcodec": "TorchCodec"}
         self._widgets["video_backend"].set(_backend_display.get(getattr(preset, "video_backend", "native").lower(), "Native"))
+        if getattr(preset, "fmp4", False):
+            self._widgets["fmp4"].select()
+        else:
+            self._widgets["fmp4"].deselect()
 
         self._widgets["lut_path"].delete(0, "end")
         self._widgets["lut_path"].insert(0, preset.lut_path or "")
@@ -327,6 +357,7 @@ class EncodingSection:
             "frame_gen_backend": self._widgets["frame_gen_backend"].get().lower(),
             "frame_gen_model_path": self._widgets["frame_gen_model_path"].get().strip(),
             "video_backend": self._widgets["video_backend"].get().lower(),
+            "fmp4": self._widgets["fmp4"].get() == 1,
             "lut_path": self._widgets["lut_path"].get().strip(),
             "working_directory": self._widgets["working_directory"].get().strip(),
         }

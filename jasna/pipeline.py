@@ -103,6 +103,7 @@ class Pipeline:
         frame_generator=None,
         decode_backend: VideoBackend | str = VideoBackend.NATIVE,
         encode_backend: VideoBackend | str = VideoBackend.NATIVE,
+        fmp4: bool = False,
     ) -> None:
         self.input_video = input_video
         self.output_video = output_video
@@ -135,6 +136,7 @@ class Pipeline:
         self.progress_callback = progress_callback
         self.lut_path = lut_path
         self.retarget_high_fps = bool(retarget_high_fps)
+        self.fmp4 = bool(fmp4)
         self.segments = tuple(segments) if segments else None
         self.splice_plan = splice_plan
         self._vr_resolution = None
@@ -554,6 +556,12 @@ class Pipeline:
             disable=self.disable_progress,
             callback=self.progress_callback,
         )
+        if self.fmp4 and self.output_video.suffix.lower() not in {".mp4", ".mov"}:
+            log.info(
+                "fmp4 has no effect on %s output (the container is "
+                "already progressively playable)",
+                self.output_video.suffix,
+            )
         encoder_ctx = make_video_encoder(
             file=str(self.output_video),
             device=self.device,
@@ -563,6 +571,7 @@ class Pipeline:
             lut_path=self.lut_path,
             output_fps=frame_rate.output_fps * self.frame_gen_multiplier,
             backend=self.encode_backend,
+            fmp4=self.fmp4,
         )
         try:
             self._run_pass(
@@ -673,6 +682,13 @@ class Pipeline:
         self._validate_metadata(metadata)
         self.configure_vr(metadata)
         if self.segments:
+            if self.fmp4:
+                log.warning(
+                    "fmp4 has no effect with segment smart rendering "
+                    "(the output is assembled after processing finishes); "
+                    "writing a standard MP4"
+                )
+                self.fmp4 = False
             self._run_smart(metadata)
         else:
             self._run_full(metadata)

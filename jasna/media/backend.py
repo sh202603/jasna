@@ -320,6 +320,7 @@ def make_video_encoder(
     pts_origin: int = 0,
     match_input_bit_depth: bool = False,
     smart_fragment: bool = False,
+    fmp4: bool = False,
     backend: "VideoBackend | str | None" = VideoBackend.NATIVE,
 ):
     """Construct a video encoder for ``backend``.
@@ -341,6 +342,12 @@ def make_video_encoder(
         lut_path=lut_path,
     )
     if selected == "torchcodec":
+        if fmp4:
+            log.warning(
+                "fmp4 has no effect with the torchcodec encode backend "
+                "(output is written to a temporary file and remuxed with "
+                "+faststart at the end)"
+            )
         from jasna.media.torchcodec_encoder import TorchcodecVideoEncoder
 
         return TorchcodecVideoEncoder(
@@ -368,4 +375,5 @@ def make_video_encoder(
         pts_origin=pts_origin,
         match_input_bit_depth=match_input_bit_depth,
         smart_fragment=smart_fragment,
+        fmp4=fmp4,
     )

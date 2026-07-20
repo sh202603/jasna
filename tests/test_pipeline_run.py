@@ -1198,3 +1198,84 @@ class TestEarliestBlockingSeqs:
         pr1 = self._make_pr(start_frame=10, n_frames=180, keep_start=0, keep_end=180)
         result = Pipeline._earliest_blocking_seqs({0: pr0, 1: pr1})
         assert result == {1}
+
+
+class TestMp4FastStart:
+    def _patches(self, metadata, reader_cls, mock_encoder):
+        # The last two patches keep these tests runnable without a visible GPU
+        # (VramOffloader probes device properties; _run_pass resets peak stats).
+        return (
+            patch("jasna.pipeline.get_video_meta_data", return_value=metadata),
+            patch("jasna.pipeline_threads.make_video_reader", reader_cls),
+            patch("jasna.pipeline.make_video_encoder", return_value=mock_encoder),
+            patch("jasna.pipeline_threads.torch.cuda.set_device"),
+            patch(
+                "jasna.pipeline_threads.torch.inference_mode",
+                return_value=MagicMock(
+                    __enter__=MagicMock(), __exit__=MagicMock(return_value=False)
+                ),
+            ),
+            patch("jasna.pipeline.VramOffloader", return_value=MagicMock()),
+            patch("jasna.pipeline.torch.cuda.ipc_collect"),
+            patch("jasna.pipeline.torch.cuda.reset_peak_memory_stats"),
+        )
+
+    @staticmethod
+    def _mock_encoder():
+        m = MagicMock()
+        m.__enter__ = MagicMock(return_value=m)
+        m.__exit__ = MagicMock(return_value=False)
+        return m
+
+    def test_flag_propagates_to_encoder(self):
+        import contextlib
+
+        p = _make_pipeline()
+        p.fmp4 = True
+        p.output_video = Path("out.mp4")
+        reader_cls, _, _ = _make_two_readers([])
+        mock_encoder = self._mock_encoder()
+
+        with contextlib.ExitStack() as stack:
+            patches = self._patches(_fake_metadata(), reader_cls, mock_encoder)
+            entered = [stack.enter_context(cm) for cm in patches]
+            p.run()
+            encoder_cls = entered[2]
+
+        assert encoder_cls.call_args.kwargs["fmp4"] is True
+
+    def test_flag_off_by_default(self):
+        import contextlib
+
+        p = _make_pipeline()
+        p.output_video = Path("out.mp4")
+        reader_cls, _, _ = _make_two_readers([])
+        mock_encoder = self._mock_encoder()
+
+        with contextlib.ExitStack() as stack:
+            patches = self._patches(_fake_metadata(), reader_cls, mock_encoder)
+            entered = [stack.enter_context(cm) for cm in patches]
+            p.run()
+            encoder_cls = entered[2]
+
+        assert encoder_cls.call_args.kwargs["fmp4"] is False
+
+    def test_segments_disable_fmp4(self, caplog):
+        import logging
+
+        from jasna.segments import SegmentRange
+
+        p = _make_pipeline()
+        p.fmp4 = True
+        p.segments = (SegmentRange(0.0, 0.1),)
+        p._run_smart = MagicMock()
+
+        with (
+            patch("jasna.pipeline.get_video_meta_data", return_value=_fake_metadata()),
+            caplog.at_level(logging.WARNING, logger="jasna.pipeline"),
+        ):
+            p.run()
+
+        p._run_smart.assert_called_once()
+        assert p.fmp4 is False
+        assert "smart rendering" in caplog.text

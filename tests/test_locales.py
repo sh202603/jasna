@@ -324,3 +324,11 @@ _MASK_FEEDBACK_KEYS = [
 @pytest.mark.parametrize("key", _MASK_FEEDBACK_KEYS)
 def test_all_languages_define_mask_feedback_keys(lang: str, key: str) -> None:
     assert TRANSLATIONS[lang][key].strip()
+
+_FMP4_KEYS = {"fmp4", "tip_fmp4"}
+
+
+@pytest.mark.parametrize("lang", ["en", "zh", "ja", "ko", "th"])
+def test_all_languages_define_fmp4_keys(lang: str) -> None:
+    missing = _FMP4_KEYS - TRANSLATIONS[lang].keys()
+    assert not missing, f"{lang} missing fmp4 keys: {sorted(missing)}"

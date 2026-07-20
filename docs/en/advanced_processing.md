@@ -62,6 +62,30 @@ jasna --input in.mp4 --output out.mkv --encoder-settings "cq=22"
 Every accepted key for every codec is documented in the
 [CLI reference](cli.md#encoding).
 
+## Fragmented MP4 (fMP4)
+
+`.mp4` / `.mov` output is normally unplayable until the run finishes: the moov
+atom — the codec setup plus an index of every sample — is written only when the
+container is closed. `--fmp4` writes a fragmented MP4 (fMP4) instead, so the
+growing file can be opened and played mid-run, audio included, and stays
+playable if the run is interrupted:
+
+```bash
+jasna --input input.mp4 --output output.mp4 --fmp4
+```
+
+Internally the movflags change from `+faststart` to `+frag_keyframe+empty_moov`:
+a sample-free moov lands at the head of the file immediately, and media follows
+as per-keyframe `moof` + `mdat` fragments, each carrying the sample table for its
+own `mdat`. The playable range grows every time a fragment completes. Fragment
+granularity follows the keyframe interval — with the NVENC default (`g=250`),
+roughly every 8 s at 30 FPS.
+
+The in-progress file's moov carries no total duration, so players may show an
+incomplete duration and seek imprecisely until the run finishes, and very old
+players may not support fragmented MP4. The flag is ignored with `--stream` and
+[segment processing](segments.md), and has no effect on `.mkv` output.
+
 ## Post-export actions
 
 Run something when the whole queue finishes: **Shutdown PC** or a **custom

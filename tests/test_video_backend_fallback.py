@@ -127,3 +127,67 @@ class TestMakeVideoEncoderDispatch:
                 file="o.mkv", device=object(), metadata=_meta(), codec="hevc",
                 encoder_settings={}, backend=VideoBackend.TORCHCODEC,
             )
+
+
+class TestMp4FastStartDispatch:
+    def test_native_passes_flag_through(self):
+        from jasna.media.video_encoder import NvidiaVideoEncoder
+
+        enc = make_video_encoder(
+            file="o.mp4", device=torch.device("cuda"), metadata=_meta(), codec="hevc",
+            encoder_settings={}, backend=VideoBackend.NATIVE, fmp4=True,
+        )
+        assert isinstance(enc, NvidiaVideoEncoder)
+        assert enc.fmp4 is True
+
+    def test_native_defaults_off(self):
+        enc = make_video_encoder(
+            file="o.mp4", device=torch.device("cuda"), metadata=_meta(), codec="hevc",
+            encoder_settings={}, backend=VideoBackend.NATIVE,
+        )
+        assert enc.fmp4 is False
+
+    def test_torchcodec_warns_and_does_not_forward_flag(self, monkeypatch, caplog):
+        import logging
+        import sys
+        import types
+        from unittest.mock import MagicMock
+
+        monkeypatch.setattr(
+            backend_mod, "select_encoder_backend", lambda *a, **k: "torchcodec"
+        )
+        stub = types.ModuleType("jasna.media.torchcodec_encoder")
+        stub.TorchcodecVideoEncoder = MagicMock(return_value="tc-encoder")
+        monkeypatch.setitem(sys.modules, "jasna.media.torchcodec_encoder", stub)
+
+        with caplog.at_level(logging.WARNING, logger="jasna.media.backend"):
+            enc = make_video_encoder(
+                file="o.mp4", device=object(), metadata=_meta(), codec="hevc",
+                encoder_settings={}, backend=VideoBackend.TORCHCODEC,
+                fmp4=True,
+            )
+
+        assert enc == "tc-encoder"
+        assert "fmp4 has no effect" in caplog.text
+        assert "fmp4" not in stub.TorchcodecVideoEncoder.call_args.kwargs
+
+    def test_torchcodec_no_warning_when_flag_off(self, monkeypatch, caplog):
+        import logging
+        import sys
+        import types
+        from unittest.mock import MagicMock
+
+        monkeypatch.setattr(
+            backend_mod, "select_encoder_backend", lambda *a, **k: "torchcodec"
+        )
+        stub = types.ModuleType("jasna.media.torchcodec_encoder")
+        stub.TorchcodecVideoEncoder = MagicMock(return_value="tc-encoder")
+        monkeypatch.setitem(sys.modules, "jasna.media.torchcodec_encoder", stub)
+
+        with caplog.at_level(logging.WARNING, logger="jasna.media.backend"):
+            make_video_encoder(
+                file="o.mp4", device=object(), metadata=_meta(), codec="hevc",
+                encoder_settings={}, backend=VideoBackend.TORCHCODEC,
+            )
+
+        assert "fmp4" not in caplog.text

@@ -94,6 +94,7 @@ Still images route here automatically; `--restoration-model-name` is video-only.
 | `--encoder-settings` | — | JSON object or comma-separated `key=value` pairs, e.g. `{"cq":22}` or `cq=22,rc-lookahead=32`. See below. |
 | `--lut` | — | `.cube` color LUT (1D or 3D) applied on GPU before encoding. Also available in the GUI's Encoding section. |
 | `--retarget-high-fps` | off | 60 → 30 FPS (and 59.94 → 29.97) by processing every second frame. Other rates unchanged; audio timing preserved. |
+| `--fmp4` | off | Write `.mp4`/`.mov` output as fragmented MP4 (fMP4) so the file plays while processing runs. Ignored with `--stream` and `--segments`. |
 | `--segments` | — | Restore only selected ranges, e.g. `10-25,01:10-01:30.5`. Cannot be combined with `--stream` or `--retarget-high-fps`. See [Segments](segments.md). |
 | `--working-directory` | output dir | Where segment temp files are written. See [Segments](segments.md). |
 

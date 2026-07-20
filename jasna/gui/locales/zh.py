@@ -248,6 +248,8 @@ ZH = {
         "tip_lut_path": "可选的 .cube 色彩 LUT，在编码前由 GPU 应用。\n支持 1D 和 3D LUT（例如 Adobe Premiere 或 DaVinci Resolve 导出的文件）。\n可在不重新编码的情况下修正黑色抬升、白平衡等问题。",
         "retarget_high_fps": "将 60 FPS 降至 30 FPS",
         "tip_retarget_high_fps": "仅用于离线导出：60 或 59.94 FPS 视频每两帧处理一帧，并精确编码为 30 或 29.97 FPS。其他帧率保持不变，音频时序和播放速度不变。",
+        "fmp4": "分段式 MP4（处理中即可播放）",
+        "tip_fmp4": "将 MP4/MOV 输出写为分段式 MP4（fragmented MP4），处理进行中即可打开并播放该文件（含音频），处理中断后文件也仍可播放。部分播放器在处理完成前可能显示不完整的时长；非常老旧的播放器可能不支持分段式 MP4。对 MKV 输出和分段任务无效。",
 
         # Secondary Restoration
         "supporter_title": "激活 Jasna",

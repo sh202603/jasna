@@ -95,6 +95,16 @@ jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvs
 
 FlashVSR は単体で 12〜16GB VRAM を消費するため、一次パイプライン（約 9GB）と同時常駐できません。**ピーク VRAM が時間的に重ならない 3 つのサブプロセス**として動きます:(1) 一次復元 → クロップをディスクの *bundle* へ直列化、(2) 専用 venv で FlashVSR 4x、(3) 最終出力を再 blend + encode。`FlashVSR_plus` の checkout・v1.1 重み・**uv-managed の standalone Python venv**（system Python では FlashVSR の Triton アテンションカーネルを JIT できない）は利用者が用意します。ファイル出力専用で、`--stream` / `--frame-gen` とは併用不可。単一パス版 `--secondary-restoration flashvsr-inline` は、FlashVSR をストリーミングパイプラインに挟んで**中間ファイル無し**で実行します（16GB カード + tiny-long マルチチャンク修正パッチを当てた checkout が前提）。詳細: [docs/FLASHVSR_ja.md](docs/FLASHVSR_ja.md)。
 
+### フラグメント化 MP4 出力（`--fmp4`）
+
+`--fmp4` は `.mp4`/`.mov` 出力を **fragmented MP4** で書き出します。処理の進行中でも出力ファイルを開いて再生（音声付き）でき、処理を中断してもファイルは再生可能なまま残ります:
+
+```bash
+jasna --input in.mp4 --output out.mp4 --fmp4
+```
+
+処理速度への影響は計測できる範囲では生じません。既定 off（従来挙動）。GUI ではエンコード設定のトグルで同じ機能を使えます。`--segments`・`--stream`・torchcodec エンコードバックエンドでは警告を出して通常の MP4 出力にフォールバックします。詳細: [docs/FMP4_ja.md](docs/FMP4_ja.md)。
+
 ## コミュニティ
 
 [SLS Discord](https://discord.gg/uNwQ4mHqgv) では、復元例、サポート、設定について話せます。あまり変な振る舞いはしないでください。

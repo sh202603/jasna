@@ -95,6 +95,16 @@ jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvs
 
 FlashVSR peaks at 12–16 GB VRAM on its own, so it cannot co-reside with the ~9 GB primary pipeline. It runs **offline in three subprocesses whose peak VRAM never overlaps**: (1) primary restoration → serialize crops to a disk *bundle*, (2) FlashVSR 4x under its own venv, (3) re-blend + encode the final output. You supply the `FlashVSR_plus` checkout, its v1.1 weights, and a **uv-managed standalone Python venv** (system Python can't JIT FlashVSR's Triton attention kernel). File-output only; not compatible with `--stream` / `--frame-gen`. A single-pass variant, `--secondary-restoration flashvsr-inline`, runs FlashVSR inside the streaming pipeline with **no intermediate files** (needs a 16 GB card and a checkout with the tiny-long multi-chunk patch). Details: [docs/FLASHVSR_en.md](docs/FLASHVSR_en.md).
 
+### Fragmented MP4 output (`--fmp4`)
+
+`--fmp4` writes `.mp4`/`.mov` output as **fragmented MP4**, so the output file can be opened and played (with audio) while processing is still running, and stays playable if the run is interrupted:
+
+```bash
+jasna --input in.mp4 --output out.mp4 --fmp4
+```
+
+No measurable throughput cost. Default off (unchanged behavior). Also available as a GUI toggle in the encoding settings. Falls back to a normal MP4 with a warning for `--segments`, `--stream` and the torchcodec encode backend. Details: [docs/FMP4_en.md](docs/FMP4_en.md).
+
 ## Community
 
 Join the [SLS Discord](https://discord.gg/uNwQ4mHqgv) for examples, support, and settings discussion. Please don't be too weird.

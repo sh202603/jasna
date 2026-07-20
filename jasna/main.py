@@ -59,6 +59,7 @@ def _session_config_from_args(
         encoder_settings=encoder_settings,
         lut_path=lut_path,
         retarget_high_fps=bool(args.retarget_high_fps),
+        fmp4=bool(args.fmp4),
         disable_progress=bool(args.no_progress),
         working_dir=Path(args.working_directory) if args.working_directory else None,
         flashvsr_repo=str(getattr(args, "flashvsr_repo", "") or ""),
@@ -445,6 +446,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     encoding.add_argument(
+        "--fmp4",
+        action="store_true",
+        help=(
+            "Write .mp4/.mov output as fragmented MP4 (fMP4) so the file can be "
+            "played while processing runs, and stays playable after an "
+            "interruption. Ignored with --stream, --segments and the torchcodec "
+            "encode backend."
+        ),
+    )
+    encoding.add_argument(
         "--segments",
         type=str,
         default="",
@@ -535,6 +546,12 @@ def main() -> None:
     is_streaming = bool(args.stream)
     if is_streaming and args.retarget_high_fps:
         parser.error("--retarget-high-fps is only supported for offline exports")
+    if is_streaming and args.fmp4:
+        print(
+            "Warning: --fmp4 is ignored with --stream "
+            "(streaming mode saves no file)"
+        )
+        args.fmp4 = False
     from jasna.post_export_action import validate_post_export_action, run_post_export_action_safely
     validate_post_export_action(str(args.post_export_action), str(args.post_export_command))
 
@@ -597,6 +614,12 @@ def main() -> None:
     # their peak VRAM never overlaps). Dispatch here, before the heavy torch /
     # pipeline imports — the orchestrator only spawns subprocesses.
     if str(args.secondary_restoration).lower() == "flashvsr":
+        if bool(args.fmp4):
+            print(
+                "Warning: --fmp4 is not supported with "
+                "--secondary-restoration flashvsr (offline multi-phase pass)"
+            )
+            args.fmp4 = False
         from jasna.restorer.flashvsr_offline import run_flashvsr_offline
         run_flashvsr_offline(args)
         _run_post_export_action()
@@ -624,6 +647,12 @@ def main() -> None:
             parser.error("--segments requires a single video input, not an image")
         if input_is_dir:
             parser.error("--segments requires a single video input, not a folder")
+        if args.fmp4:
+            print(
+                "Warning: --fmp4 is disabled with --segments "
+                "(the output is assembled after processing finishes)"
+            )
+            args.fmp4 = False
 
     from jasna.framegen import MULTIPLIER_CHOICES
     frame_gen_name = str(args.frame_gen).lower()

@@ -533,3 +533,38 @@ class TestDropUnsupportedNvencOverrides:
 
     def test_av1_weighted_pred_always_dropped(self):
         assert self._drop("av1", {"weighted_pred": "1", "bf": "0"}) == {"bf": "0"}
+
+
+class TestMovContainerOptions:
+    def test_mp4_defaults_to_faststart(self):
+        from jasna.media.video_encoder import _mov_container_options
+
+        assert _mov_container_options(".mp4", fmp4=False) == {"movflags": "+faststart"}
+        assert _mov_container_options(".mov", fmp4=False) == {"movflags": "+faststart"}
+
+    def test_fragmented_when_enabled(self):
+        from jasna.media.video_encoder import _mov_container_options
+
+        for suffix in (".mp4", ".mov", ".MP4", ".Mov"):
+            assert _mov_container_options(suffix, fmp4=True) == {
+                "movflags": "+frag_keyframe+empty_moov"
+            }, suffix
+
+    def test_non_mov_containers_get_no_movflags(self):
+        from jasna.media.video_encoder import _mov_container_options
+
+        for suffix in (".mkv", ".webm", ".avi", ".nut", ""):
+            assert _mov_container_options(suffix, fmp4=True) == {}
+            assert _mov_container_options(suffix, fmp4=False) == {}
+
+    def test_encoder_stores_flag(self, tmp_path):
+        assert _make_encoder(tmp_path).fmp4 is False
+        enc = NvidiaVideoEncoder(
+            file=str(tmp_path / "out.mp4"),
+            device=torch.device("cuda:0"),
+            metadata=_fake_metadata(),
+            codec="hevc",
+            encoder_settings={},
+            fmp4=True,
+        )
+        assert enc.fmp4 is True

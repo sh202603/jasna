@@ -147,3 +147,19 @@ upstream v0.8.0 の PyAV エンコード経路は、RGB→YUV 変換結果のテ
 本フォークはまず 256 B 整列のステージングバッファ版をローカル実装して報告した。upstream 修正 `bb6e36e` は同じ構造（幅広バッファ + `[:, :width]` の strided view）で **16 B 整列**を採用し、パディングのゼロ埋めとテスト（`test_video_encoder_unit.py` の `_align_yuv_pitch` ユニット + `test_video_encoder_mux.py` の幅 852/854/860 × hevc/h264/av1 隔離プロセスプローブ）を追加している。v0.8.1 リベースでローカル版は drop し upstream 版を採用。v0.8.1 の AMD 対応後は NVIDIA 経路（`vendor is NVIDIA`）でのみ `_align_yuv_pitch` が呼ばれる（AMF はホストコピー経由でピッチ問題自体がない）。
 
 **検証**（256B ローカル版・v0.8.0 時点）: 幅マトリクス 852/854/856/860/864/1280/1920 × hevc/h264 全通過、`tests/test_video_encoder_mux.py` 27 件パス、852x480（10661 フレーム一致）と 3840x2160 のフルパイプライン完走。**upstream 16B 版はリベース時に同型プローブ（上記 upstream テスト）を RTX 5080 実機で再検証済み。**
+
+---
+
+## 11. 新機能（modi）: `--fmp4`（処理中に再生できる fMP4 出力）
+
+v0.7.x では処理中に生 .hevc が出力フォルダへ書かれ途中経過を確認できたが、v0.8.0 のメディア層刷新（最終 MP4 へ直接書く方式）でこの手段が失われた。その置き換えとして、出力 MP4 を fragmented MP4 で書き出すオプションを追加した。opt-in（既定 off = 従来挙動）。
+
+- **fMP4 ファイル出力**: `.mp4`/`.mov` の movflags を既定の `+faststart` から `+frag_keyframe+empty_moov` へ切り替える（`jasna/media/video_encoder.py` の純関数 `_mov_container_options()`）。サンプル情報ゼロの moov を先頭に即時書き込み、以降はキーフレームごとの moof+mdat 断片を逐次書き出すため、書き込み途中のファイルがそのまま再生でき、中断してもファイルは再生可能なまま残る。ネイティブエンコーダは音声をライブ mux 済みのため**途中再生に音声も含まれる**。断片粒度は GOP（NVENC 既定 `g=250` → 30fps で約 8 秒）。CLI の `--fmp4` と GUI のエンコード設定トグル（5 言語ロケール追加）が同一機能を提供する。
+- **フォールバック**: エラーにはせず、いずれも警告 + 通常 MP4 出力で継続する。`--stream`（ファイルを保存しないため無意味）、`--segments`（出力は完了後組み立て）、`--secondary-restoration flashvsr`（オフライン多段パス）、VR180 SBS（空間メタデータ注入が古典 moov/mdat 前提のため `+faststart` に退避）、torchcodec エンコード（末尾 remux 方式のため fMP4 化せず）。フォルダ入力に制限はなく、ファイルごとに fMP4 になる。
+- **実装**: `video_encoder.py` / `backend.py` / `pipeline.py` / `main.py` / GUI 一式。**検証**: CPU/CUDA テストとも全通過（フルスイート 1754 passed / 21 skipped。残る 9 件は `jasna.protection` 欠落と GUI レイアウトに起因し、変更前 HEAD でも同一に失敗することを worktree で確認）。RTX 5080 / Linux 実機（1920x1080・29.97 fps・140 秒・4203 フレーム・AAC 音声）で確認: フラグ有りの出力は fragmented（先頭 moov + moof/mdat 17 組 + 末尾 mfra）で、既定は moov + mdat 各 1 個。処理中のコピーはフラグ有りが音声込みでデコードでき、既定は `moov atom not found` で再生不可。出力はどちらも 4203 フレーム + AAC で一致（fMP4 はコンテナ申告の総時間のみ 0.11 秒長い）。**性能**: 計測可能な差はない。交互に 3 回ずつ実行してベースライン 141.1 / 141.3 / 142.3 fps、フラグ有り 141.8 / 140.0 / 140.8 fps で、ばらつきは実行ごとのノイズの範囲。詳細は `docs/FMP4_{ja,en}.md`。
+
+---
+
+## 12. 付随修正（modi）: `StreamingEncoder` の永久待ちバグ
+
+`jasna/streaming_encoder.py` の `write_frame` は、ffmpeg が死亡した後も `_started` が立ったままリトライループを回り続け、永久に待ち続ける可能性があった。writer スレッドが `BrokenPipeError` / `OSError` を捕まえた時点で `_started` を落として `failed` フラグを立てる kill-switch を追加し、呼び出し側が待ち続けずに諦められるようにした。`--stream` にも効く。
