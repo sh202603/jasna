@@ -336,6 +336,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     encoding.add_argument(
+        "--fmp4",
+        action="store_true",
+        help=(
+            "Write .mp4/.mov output as fragmented MP4 (fMP4) so the file can be "
+            "played while processing runs, and stays playable after an "
+            "interruption. Ignored with --stream and --segments."
+        ),
+    )
+    encoding.add_argument(
         "--segments",
         type=str,
         default="",
@@ -393,6 +402,12 @@ def main() -> None:
     is_streaming = bool(args.stream)
     if is_streaming and args.retarget_high_fps:
         parser.error("--retarget-high-fps is only supported for offline exports")
+    if is_streaming and args.fmp4:
+        print(
+            "Warning: --fmp4 is ignored with --stream "
+            "(streaming mode saves no file)"
+        )
+        args.fmp4 = False
     from jasna.post_export_action import validate_post_export_action, run_post_export_action_safely
     validate_post_export_action(str(args.post_export_action), str(args.post_export_command))
 
@@ -472,6 +487,12 @@ def main() -> None:
             parser.error("--segments requires a single video input, not an image")
         if input_is_dir:
             parser.error("--segments requires a single video input, not a folder")
+        if args.fmp4:
+            print(
+                "Warning: --fmp4 is disabled with --segments "
+                "(the output is assembled after processing finishes)"
+            )
+            args.fmp4 = False
 
     folder_videos: list[Path] = []
     folder_output_dir: Path | None = None
@@ -730,6 +751,7 @@ def main() -> None:
                 disable_progress=args.no_progress,
                 lut_path=lut_path,
                 retarget_high_fps=bool(args.retarget_high_fps),
+                fmp4=bool(args.fmp4),
                 segments=segments,
                 splice_plan=splice_plan,
                 working_dir=working_dir,

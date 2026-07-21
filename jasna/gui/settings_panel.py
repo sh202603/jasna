@@ -1065,7 +1065,33 @@ class SettingsPanel(ctk.CTkFrame):
             Colors.BG_PANEL,
         )
         self._widgets["retarget_high_fps"].pack(side="right")
-        
+
+        # Fragmented MP4 output (file playable while processing runs).
+        fmp4_row = ctk.CTkFrame(inner, fg_color="transparent")
+        fmp4_row.pack(fill="x", pady=(0, Sizing.PADDING_SMALL))
+        fmp4_label = ctk.CTkLabel(
+            fmp4_row,
+            text=t("fmp4"),
+            text_color=Colors.TEXT_PRIMARY,
+            font=(Fonts.FAMILY, Fonts.SIZE_NORMAL),
+        )
+        fmp4_label.pack(side="left")
+        fmp4_tip = ctk.CTkLabel(
+            fmp4_row,
+            text="ⓘ",
+            text_color=Colors.TEXT_PRIMARY,
+            font=(Fonts.FAMILY, Fonts.SIZE_TINY),
+            cursor="hand2",
+        )
+        fmp4_tip.pack(side="left", padx=4)
+        Tooltip(fmp4_tip, get_tooltip("fmp4"))
+        self._widgets["fmp4"] = create_compact_switch(
+            fmp4_row,
+            lambda: self._on_toggle_change("fmp4"),
+            Colors.BG_PANEL,
+        )
+        self._widgets["fmp4"].pack(side="right")
+
         # Custom args
         row3 = ctk.CTkFrame(inner, fg_color="transparent")
         row3.pack(fill="x")
@@ -1337,6 +1363,10 @@ class SettingsPanel(ctk.CTkFrame):
             self._widgets["retarget_high_fps"].select()
         else:
             self._widgets["retarget_high_fps"].deselect()
+        if getattr(preset, "fmp4", False):
+            self._widgets["fmp4"].select()
+        else:
+            self._widgets["fmp4"].deselect()
 
         self._widgets["lut_path"].delete(0, "end")
         self._widgets["lut_path"].insert(0, getattr(preset, "lut_path", "") or "")
@@ -1517,6 +1547,7 @@ class SettingsPanel(ctk.CTkFrame):
             encoder_cq=int(self._widgets["encoder_cq"].get()),
             encoder_custom_args=self._widgets["encoder_custom_args"].get(),
             retarget_high_fps=self._widgets["retarget_high_fps"].get() == 1,
+            fmp4=self._widgets["fmp4"].get() == 1,
             file_conflict=file_conflict,
             lut_path=self._widgets["lut_path"].get().strip(),
             working_directory=self._widgets["working_directory"].get().strip(),

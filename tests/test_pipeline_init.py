@@ -107,6 +107,10 @@ class TestPipelineInit:
         assert _make_pipeline().retarget_high_fps is False
         assert _make_pipeline(retarget_high_fps=True).retarget_high_fps is True
 
+    def test_fmp4_defaults_off_and_can_be_enabled(self):
+        assert _make_pipeline().fmp4 is False
+        assert _make_pipeline(fmp4=True).fmp4 is True
+
     def test_configure_vr_wraps_detector_for_direct_sbs(self):
         pipeline = _make_pipeline(
             input_video=Path("VRKM-0001.mp4"),

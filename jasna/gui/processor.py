@@ -409,6 +409,7 @@ class Processor:
                 progress_callback=progress_callback,
                 lut_path=s.lut_path,
                 retarget_high_fps=settings.retarget_high_fps,
+                fmp4=getattr(settings, "fmp4", False),
                 segments=tuple(segments) or None,
                 splice_plan=splice_plan,
                 working_dir=Path(settings.working_directory) if settings.working_directory else None,

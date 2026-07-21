@@ -307,6 +307,16 @@ def _amf_host_input(packed: torch.Tensor, *, ten_bit: bool) -> torch.Tensor:
     return packed.view(torch.uint16) if ten_bit else packed
 
 
+def _mov_container_options(suffix: str, *, fmp4: bool) -> dict[str, str]:
+    if suffix.lower() not in {".mp4", ".mov"}:
+        return {}
+    # Fragmented MP4 (moof/mdat per keyframe with an up-front moov) keeps the
+    # growing file playable mid-run and after interruption; +faststart instead
+    # relocates a single moov at close, so the file is unreadable until then.
+    flags = "+frag_keyframe+empty_moov" if fmp4 else "+faststart"
+    return {"movflags": flags}
+
+
 class NvidiaVideoEncoder:
     def __init__(
         self,
@@ -322,6 +332,7 @@ class NvidiaVideoEncoder:
         pts_origin: int = 0,
         match_input_bit_depth: bool = False,
         smart_fragment: bool = False,
+        fmp4: bool = False,
     ):
         self.device = torch.device(device)
         self.vendor = vendor_for_device(self.device)
@@ -371,6 +382,7 @@ class NvidiaVideoEncoder:
         self.mux_audio = bool(mux_audio)
         self.pts_origin = int(pts_origin)
         self.smart_fragment = bool(smart_fragment)
+        self.fmp4 = bool(fmp4)
         self.output_fps = Fraction(
             metadata.video_fps_exact if output_fps is None else output_fps
         )
@@ -416,9 +428,9 @@ class NvidiaVideoEncoder:
             ) from exc
         self._src = av.open(self.metadata.video_file)
 
-        container_options = {}
-        if self.output_path.suffix.lower() in {".mp4", ".mov"}:
-            container_options["movflags"] = "+faststart"
+        container_options = _mov_container_options(
+            self.output_path.suffix, fmp4=self.fmp4
+        )
         self.dst = av.open(str(self.output_path), "w", container_options=container_options)
         self.dst.metadata.update(self._src.metadata)
 

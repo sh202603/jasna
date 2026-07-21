@@ -82,3 +82,17 @@ def test_gui_codec_label_maps_round_trip():
     assert translate_cq_for_codec(29, "av1", "hevc") == 22
     assert translate_cq_for_codec(22, "hevc", "h264") == 22
     assert translate_cq_for_codec(35, "hevc", "av1") == 35
+
+
+def test_fmp4_defaults_false_for_old_presets():
+    old = {"codec": "hevc", "encoder_cq": 22}
+    settings = AppSettings(**_migrate_preset_dict(old))
+    assert settings.fmp4 is False
+
+
+def test_fmp4_round_trips():
+    from dataclasses import asdict
+
+    settings = AppSettings(fmp4=True)
+    restored = AppSettings(**_migrate_preset_dict(asdict(settings)))
+    assert restored.fmp4 is True

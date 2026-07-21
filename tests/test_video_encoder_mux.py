@@ -93,11 +93,11 @@ def _make_source(
     return out
 
 
-def _transcode(src: Path, dst: Path, codec: str = "hevc") -> None:
+def _transcode(src: Path, dst: Path, codec: str = "hevc", **encoder_kwargs) -> None:
     metadata = get_video_meta_data(str(src))
     with (
         NvidiaVideoReader(str(src), batch_size=4, device=DEVICE, metadata=metadata) as reader,
-        NvidiaVideoEncoder(str(dst), device=DEVICE, metadata=metadata, codec=codec, encoder_settings={}) as encoder,
+        NvidiaVideoEncoder(str(dst), device=DEVICE, metadata=metadata, codec=codec, encoder_settings={}, **encoder_kwargs) as encoder,
     ):
         for frames, pts_list in reader.frames():
             for i, pts in enumerate(pts_list):
@@ -344,6 +344,70 @@ def test_faststart_moov_before_mdat(tmp_path):
 
     data = dst.read_bytes()
     assert data.index(b"moov") < data.index(b"mdat")
+
+
+def test_fmp4_fragmented_layout(tmp_path):
+    src = _make_source(tmp_path, "src.mp4")
+    dst = tmp_path / "out.mp4"
+    _transcode(src, dst, fmp4=True)
+
+    data = dst.read_bytes()
+    # empty_moov: the (sample-free) moov precedes every fragment and all media
+    # data — the growing file is playable from the first finished fragment.
+    assert b"moof" in data
+    assert data.index(b"moov") < data.index(b"moof")
+    assert data.index(b"moov") < data.index(b"mdat")
+
+
+def test_fmp4_default_output_stays_classic(tmp_path):
+    src = _make_source(tmp_path, "src.mp4")
+    dst = tmp_path / "out.mp4"
+    _transcode(src, dst)
+
+    assert b"moof" not in dst.read_bytes()
+
+
+def test_fmp4_truncated_file_still_decodes(tmp_path):
+    """A prefix of a fragmented file is what a mid-write reader sees; it must
+    open and decode. A +faststart file has no moov until close, so its prefix
+    is unreadable — this is the feature's core property."""
+    src = _make_source(tmp_path, "src.mp4")
+    dst = tmp_path / "out.mp4"
+    _transcode(src, dst, fmp4=True)
+
+    data = dst.read_bytes()
+    cut = tmp_path / "cut.mp4"
+    cut.write_bytes(data[: int(len(data) * 0.7)])
+
+    decoded = 0
+    with av.open(str(cut)) as c:
+        try:
+            for _frame in c.decode(video=0):
+                decoded += 1
+        except (av.error.EOFError, av.error.InvalidDataError):
+            pass  # the final, partially-written fragment is expected to cut off
+    assert decoded > 0
+
+
+def test_fmp4_audio_still_muxed(tmp_path):
+    src = _make_source(tmp_path, "src.mp4", acodec="aac")
+    dst = tmp_path / "out.mp4"
+    _transcode(src, dst, fmp4=True)
+
+    with av.open(str(dst)) as c:
+        assert len(c.streams.audio) == 1
+        assert c.streams.audio[0].codec_context.name == "aac"
+        assert sum(1 for _ in c.decode(video=0)) == 24
+
+
+def test_fmp4_no_effect_on_mkv(tmp_path):
+    src = _make_source(tmp_path, "src.mp4")
+    dst = tmp_path / "out.mkv"
+    _transcode(src, dst, fmp4=True)
+
+    with av.open(str(dst)) as c:
+        assert c.format.name in ("matroska", "matroska,webm")
+        assert sum(1 for _ in c.decode(video=0)) == 24
 
 
 def test_video_pts_deltas_passthrough(tmp_path):
