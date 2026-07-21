@@ -1127,3 +1127,35 @@ class TestCurrentVideoPath:
     def test_initial_current_path_is_none(self):
         server = HlsStreamingServer(segment_duration=4.0, port=0)
         assert server._current_video_path is None
+
+
+class TestStreamingEncoderFailureHandling:
+    """A dead ffmpeg must not leave write_frame blocked forever."""
+
+    @patch('jasna.streaming_encoder.subprocess.Popen')
+    def test_broken_pipe_sets_failed_and_unblocks_write(self, mock_popen, tmp_path):
+        from jasna.streaming_encoder import StreamingEncoder
+        proc = _mock_ffmpeg_process()
+        proc.stdin.write.side_effect = BrokenPipeError()
+        mock_popen.return_value = proc
+        enc = StreamingEncoder(
+            segments_dir=tmp_path,
+            segment_duration=4.0,
+            metadata=_make_metadata(),
+            source_video="nonexistent.mp4",
+        )
+        enc.start(start_number=0)
+        assert enc.failed is False
+        enc.write_frame(_make_rgb_frame(), pts=0)
+
+        deadline = time.monotonic() + 5.0
+        while not enc.failed and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert enc.failed is True
+        assert enc._started is False
+
+        # A dead encoder must never block the caller again.
+        start = time.monotonic()
+        enc.write_frame(_make_rgb_frame(), pts=1)
+        assert time.monotonic() - start < 1.0
+        enc.stop()
