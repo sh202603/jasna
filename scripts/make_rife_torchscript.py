@@ -34,7 +34,7 @@ Preparation (one time)
 
 2. Run this script (uses jasna's venv so torch matches the runtime):
 
-       .\.venv\Scripts\python.exe make_rife_torchscript.py ^
+       .\.venv\Scripts\python.exe scripts/make_rife_torchscript.py ^
            --rife-repo C:\path\to\Practical-RIFE ^
            --output model_weights\rife.pth --validate
 
