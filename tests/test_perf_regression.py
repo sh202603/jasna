@@ -3,7 +3,7 @@
 Run explicitly with ``-m perf``; skipped by default and whenever its
 prerequisites are missing (no CUDA GPU, no torchcodec, or no sample clip).
 
-Two judgments (see ``docs/TORCHCODEC_BACKEND_*.md``):
+Two judgments (see ``docs/{en,ja}/torchcodec_backend.md``):
 
   (1) torchcodec must not be slower than native by more than ``THRESHOLD``.
   (2) the most important one — the native path must not regress vs a baseline

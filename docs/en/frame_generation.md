@@ -35,10 +35,10 @@ train_log/"). You should end up with `train_log\` containing `RIFE_HDv3.py`, `IF
 
 ### 2. Run the converter (use jasna's venv so torch matches the runtime)
 
-The script `make_rife_torchscript.py` lives at the repo root.
+The script lives at `scripts/make_rife_torchscript.py` in the repo.
 
 ```powershell
-.\.venv\Scripts\python.exe make_rife_torchscript.py `
+.\.venv\Scripts\python.exe scripts/make_rife_torchscript.py `
     --rife-repo C:\path\to\Practical-RIFE `
     --output model_weights\rife.pth `
     --validate
@@ -140,11 +140,11 @@ output (or onto an input) is rejected up front.
   the vendored IFNet; results will be wrong - switch to the TorchScript method.
 - **Converter import error**: check `--rife-repo` points at a Practical-RIFE checkout (with `train_log/`).
   If a different version returns a different `flownet.forward` signature, adjust
-  `RifeTorchScriptWrapper.forward` in `make_rife_torchscript.py`.
+  `RifeTorchScriptWrapper.forward` in `scripts/make_rife_torchscript.py`.
 
 ## License
 
-`make_rife_torchscript.py` itself is fine to publish. The **RIFE model code and weights
+`scripts/make_rife_torchscript.py` itself is fine to publish. The **RIFE model code and weights
 (`flownet.pkl` / the generated `rife.pth`) come from Practical-RIFE and carry non-commercial terms** -
 check the upstream license before redistributing. https://github.com/hzwer/Practical-RIFE
 
