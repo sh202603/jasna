@@ -6,7 +6,7 @@ Linux で Jasna のセットアップを行い、**ソースから実行**する
 
 > **v0.8.0 でビルド手順は大幅に簡素化されました。** upstream v0.8.0 でメディア層が PyAV（NVDEC/NVENC）へ移行し、`python_vali` / `PyNvVideoCodec` のネイティブビルドが丸ごと不要になりました。これに伴い、旧ガイドの前提だった CUDA Toolkit、cmake / ninja、ffmpeg dev パッケージ（`libav*-dev`）、`FFMPEG_DIR` prefix、`setuptools<80` の固定、`mkvmerge` はすべて不要です。残る特殊手順は **PyAV wheel の自前ビルド**（4節。PyAV 18.1.0 が PyPI に公開されるまでの暫定）だけです。
 >
-> **このブランチの主な追加機能:** RIFE による 2x/4x フレーム生成（[FRAME_GENERATION_ja.md](FRAME_GENERATION_ja.md)）、torchcodec バックエンド（[TORCHCODEC_BACKEND_ja.md](TORCHCODEC_BACKEND_ja.md)）、cuDNN FP8 復元（[FP8_RECON_ja.md](FP8_RECON_ja.md)）、FlashVSR 二次復元（[FLASHVSR_ja.md](FLASHVSR_ja.md)）。v0.7.2+modi にあった AV1 / 8bit / BT.601 と BT.2020 出力は upstream v0.8.0 に吸収されました。全差分は [CHANGES_vs_upstream_ja.md](CHANGES_vs_upstream_ja.md) を参照してください。
+> **このブランチの主な追加機能:** RIFE による 2x/4x フレーム生成（[frame_generation.md](frame_generation.md)）、torchcodec バックエンド（[torchcodec_backend.md](torchcodec_backend.md)）、cuDNN FP8 復元（[fp8_recon.md](fp8_recon.md)）、FlashVSR 二次復元（[flashvsr.md](flashvsr.md)）。v0.7.2+modi にあった AV1 / 8bit / BT.601 と BT.2020 出力は upstream v0.8.0 に吸収されました。全差分は [changes_vs_upstream.md](changes_vs_upstream.md) を参照してください。
 
 > **パッケージングについて:** この公開フォークは Jasna を**ソースから実行**します。Linux 向けに frozen バイナリを生成する公開手段はありません（同梱の実験的 Nuitka スクリプト `scripts/build_nuitka.py` は Windows 向けで、しかも v0.8.0 のメディア層移行に未追従です）。パッケージ済みバイナリが必要なら upstream Kruk2/jasna の公式リリースを使ってください。
 
@@ -157,9 +157,9 @@ uv pip install -e .[dev,nvidia,torchcodec] \
     --prerelease=allow
 ```
 
-これで `torchcodec>=0.15.0` が入ります。通常のセットアップには不要で、既定の `native` バックエンド（PyAV）は torchcodec なしで動作します。詳細は [TORCHCODEC_BACKEND_ja.md](TORCHCODEC_BACKEND_ja.md)。
+これで `torchcodec>=0.15.0` が入ります。通常のセットアップには不要で、既定の `native` バックエンド（PyAV）は torchcodec なしで動作します。詳細は [torchcodec_backend.md](torchcodec_backend.md)。
 
-**補足: FP8 復元バックエンドに追加のインストール手順は不要です。** 依存 `nvidia-cudnn-frontend` は `pyproject.toml` の通常依存で、上記コマンドで一緒に入ります。cuDNN ランタイム（9.17 以上）は torch cu130 wheel に同梱済みです。機能自体は実行時 opt-in（`--fp8-recon`、FP8 対応 GPU sm89 以上が必要）で、使えない環境では TensorRT エンジンにフォールバックします。詳細は [FP8_RECON_ja.md](FP8_RECON_ja.md)。
+**補足: FP8 復元バックエンドに追加のインストール手順は不要です。** 依存 `nvidia-cudnn-frontend` は `pyproject.toml` の通常依存で、上記コマンドで一緒に入ります。cuDNN ランタイム（9.17 以上）は torch cu130 wheel に同梱済みです。機能自体は実行時 opt-in（`--fp8-recon`、FP8 対応 GPU sm89 以上が必要）で、使えない環境では TensorRT エンジンにフォールバックします。詳細は [fp8_recon.md](fp8_recon.md)。
 
 ### 5.1 mmengine パッチの適用 (torch 2.6+ 対応)
 
@@ -205,7 +205,7 @@ uv pip install onnx onnxslim onnxruntime
 
 ### 6.1 オプション: RIFE フレーム補間モデル (`--frame-gen` 用)
 
-フレームレート倍化 (`--frame-gen {2x,4x}`) を使う場合のみ必要。RIFE 重みは**同梱されない**（非商用条項のため）ので、`make_rife_torchscript.py` で TorchScript チェックポイントを自分で作成する。
+フレームレート倍化 (`--frame-gen {2x,4x}`) を使う場合のみ必要。RIFE 重みは**同梱されない**（非商用条項のため）ので、`scripts/make_rife_torchscript.py` で TorchScript チェックポイントを自分で作成する。
 
 1. Practical-RIFE をクローンし、4.x のモデルパッケージ（**v4.25 で動作確認**）をダウンロードして `<repo>/train_log/` に `RIFE_HDv3.py`, `IFNet_HDv3.py`, `flownet.pkl` が揃う状態にする:
    ```bash
@@ -214,16 +214,16 @@ uv pip install onnx onnxslim onnxruntime
    ```
 2. プロジェクトの venv で TorchScript に変換する（`$WORKSPACE/jasna` で実行）:
    ```bash
-   .venv/bin/python make_rife_torchscript.py \
+   .venv/bin/python scripts/make_rife_torchscript.py \
        --rife-repo /path/to/Practical-RIFE \
        --output model_weights/rife.pth --validate
    ```
 
-**ソースから実行**する場合は `model_weights/rife.pth` を自動で参照する（他のウェイトと同じリゾルバ経由。または `JASNA_MODEL_WEIGHTS_DIR` をそれを含むフォルダに向ける）。詳細手順: [FRAME_GENERATION_ja.md](FRAME_GENERATION_ja.md)。
+**ソースから実行**する場合は `model_weights/rife.pth` を自動で参照する（他のウェイトと同じリゾルバ経由。または `JASNA_MODEL_WEIGHTS_DIR` をそれを含むフォルダに向ける）。詳細手順: [frame_generation.md](frame_generation.md)。
 
 ### 6.2 オプション: FlashVSR 二次復元（実験的）
 
-FlashVSR（`--secondary-restoration flashvsr` / `flashvsr-inline`）は別リポジトリのチェックアウトと専用 venv を必要とし、inline 用にはチェックアウトへの同梱パッチ適用も要る。セットアップ手順は [FLASHVSR_ja.md](FLASHVSR_ja.md) を参照。
+FlashVSR（`--secondary-restoration flashvsr` / `flashvsr-inline`）は別リポジトリのチェックアウトと専用 venv を必要とし、inline 用にはチェックアウトへの同梱パッチ適用も要る。セットアップ手順は [flashvsr.md](flashvsr.md) を参照。
 
 ---
 
@@ -249,7 +249,7 @@ python -m jasna              # GUI を起動（引数なし）
 
 ## 8. パッケージング / frozen ビルド
 
-現時点で、このフォークから **Linux 向けのパッケージ化された frozen バイナリを生成する公開手段はありません。** upstream のパッケージングツールはプライベートな submodule（`jasna/protection`）にあり、この公開フォークには含まれません。フォーク同梱の実験的 Nuitka スクリプト（`scripts/build_nuitka.py`、[FROZEN_BUILD_ja.md](FROZEN_BUILD_ja.md)）は Windows 向けで、v0.8.0 のメディア層移行に未追従です（旧 `python_vali` / `PyNvVideoCodec` の DLL 同梱を前提としたまま）。
+現時点で、このフォークから **Linux 向けのパッケージ化された frozen バイナリを生成する公開手段はありません。** upstream のパッケージングツールはプライベートな submodule（`jasna/protection`）にあり、この公開フォークには含まれません。フォーク同梱の実験的 Nuitka スクリプト（`scripts/build_nuitka.py`、[frozen_build.md](frozen_build.md)）は Windows 向けで、v0.8.0 のメディア層移行に未追従です（旧 `python_vali` / `PyNvVideoCodec` の DLL 同梱を前提としたまま）。
 
 したがって公開でサポートされる経路は**ソースから実行**（7節）です。パッケージ済みバイナリが必要なら upstream Kruk2/jasna の公式リリースを使ってください。
 

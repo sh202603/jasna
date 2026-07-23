@@ -30,10 +30,10 @@ Google Drive / 百度网盘で手動ダウンロードし、展開した `*.py`�
 
 ### 2. 変換スクリプトを実行（jasna の venv を使用）
 
-リポジトリ直下の `make_rife_torchscript.py` を使う。jasna の venv を使うことで torch のバージョンが実行環境と一致する。
+リポジトリの `scripts/make_rife_torchscript.py` を使う。jasna の venv を使うことで torch のバージョンが実行環境と一致する。
 
 ```powershell
-.\.venv\Scripts\python.exe make_rife_torchscript.py `
+.\.venv\Scripts\python.exe scripts/make_rife_torchscript.py `
     --rife-repo C:\path\to\Practical-RIFE `
     --output model_weights\rife.pth `
     --validate
@@ -107,11 +107,11 @@ jasna-framegen --input in_dir --output out_dir --factor 2x --output-pattern "{or
 - **`RTX Video Frame Generation is not available ...`**: `--frame-gen-backend rtx` は未出荷。`rife` を使う。
 - **`RIFE weights not found: ...`**: `model_weights\rife.pth` が無い。手順1〜2で作成するか `--frame-gen-model-path` を指定。
 - **`RIFE state_dict loaded non-strictly (missing=.., unexpected=..)`**: `flownet.pkl` を直接置いた場合に出る警告で、同梱IFNetとキーが合っていない。補間結果が壊れるので **TorchScript方式に切り替える**。
-- **変換スクリプトの import エラー**: `--rife-repo` が Practical-RIFE のチェックアウト（`train_log/` を含む）を指しているか確認。別バージョンで `flownet.forward` の戻り値が異なる場合は、`make_rife_torchscript.py` の `RifeTorchScriptWrapper.forward` を調整する。
+- **変換スクリプトの import エラー**: `--rife-repo` が Practical-RIFE のチェックアウト（`train_log/` を含む）を指しているか確認。別バージョンで `flownet.forward` の戻り値が異なる場合は、`scripts/make_rife_torchscript.py` の `RifeTorchScriptWrapper.forward` を調整する。
 
 ## 注意（ライセンス）
 
-`make_rife_torchscript.py` 自体は公開可能。ただし **RIFE のモデルコードと重み（`flownet.pkl` / 生成した `rife.pth`）は Practical-RIFE 由来で非商用条項がある**。再配布前に上流ライセンスを確認すること。https://github.com/hzwer/Practical-RIFE
+`scripts/make_rife_torchscript.py` 自体は公開可能。ただし **RIFE のモデルコードと重み（`flownet.pkl` / 生成した `rife.pth`）は Practical-RIFE 由来で非商用条項がある**。再配布前に上流ライセンスを確認すること。https://github.com/hzwer/Practical-RIFE
 
 ## 補足（実装メモ）
 
