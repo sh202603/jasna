@@ -12,7 +12,7 @@ Jasna 修复视频和图片中的马赛克。Jasna 免费，提供简单的应�
 > 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1 的改版构建，新增**帧生成**（`--frame-gen` 2x/4x）、**torchcodec 视频后端**、**FP8 修复后端**、**FlashVSR 二级修复**等改进。
 >
 > - **源码（本分支）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
-> - **与上游的完整变更:** [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)
+> - **与上游的完整变更:** [docs/en/changes_vs_upstream.md](docs/en/changes_vs_upstream.md)
 > - **范围 — 仅公开（免费）功能。** 支持者模型（**unet-4x** 和 **SD 1.5 图像修复**）以加密检查点形式提供，需用支持者密钥解锁，而解密代码位于**不属于本公开分支**的私有子模块中 —— 因此这些模型**无法在此下载、解密或运行**。它们的上游代码随附但保持 inert（不激活）。如需支持者模型，请使用上游 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) 并成为支持者。其他一切（检测、视频修复、RTX/TVAI 二级修复、区间编辑器、VR180、导出后操作、帧生成）均正常工作。
 
 ## 目录

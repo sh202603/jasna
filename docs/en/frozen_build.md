@@ -10,7 +10,7 @@ Background: upstream switched its packaging from PyInstaller to Nuitka, but its 
 
 ## 1. Prerequisites
 
-- A working **from-source setup** per [BUILDING_WINDOWS_en.md](BUILDING_WINDOWS_en.md): the venv with all runtime dependencies installed, plus the `[dev]` extra (`uv pip install -e .[dev,nvidia]`), which provides `nuitka>=2.4`. Visual Studio Build Tools (MSVC) must be available — Nuitka compiles jasna to C.
+- A working **from-source setup** per [building_windows.md](building_windows.md): the venv with all runtime dependencies installed, plus the `[dev]` extra (`uv pip install -e .[dev,nvidia]`), which provides `nuitka>=2.4`. Visual Studio Build Tools (MSVC) must be available — Nuitka compiles jasna to C.
 - The required model weights in `model_weights\`:
   `lada_mosaic_restoration_model_generic_v1.2.pth`, `rfdetr-v5.onnx`, `lada_mosaic_detection_model_v4_fast.pt`.
 - Optional: `ffmpeg` / `ffprobe` (major version 8, **shared build** recommended) and `mkvmerge` on `PATH`. If found, they are bundled into `tools\` and `mkvtoolnix\`; if not, the build warns and the frozen app falls back to the end user's `PATH` at runtime. The `tools\` DLLs also serve the torchcodec backend: it loads the plain-named FFmpeg 8 DLLs (`avcodec-62.dll`, ...), which nothing else in the bundle provides (`av.libs` only carries delvewheel-mangled copies), so a build without bundled shared-build ffmpeg produces a distribution whose torchcodec backend only works if the end user has FFmpeg 8 DLLs on their own `PATH`.

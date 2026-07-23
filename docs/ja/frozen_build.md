@@ -18,7 +18,7 @@ upstream はパッケージングを PyInstaller から Nuitka へ切り替え�
 
 ## 1. 前提条件
 
-- [BUILDING_WINDOWS_ja.md](BUILDING_WINDOWS_ja.md) の手順でソース実行できる環境が整っていること。
+- [building_windows.md](building_windows.md) の手順でソース実行できる環境が整っていること。
   venv に全ランタイム依存に加えて `[dev]` extra（`uv pip install -e .[dev,nvidia]`）が入っていれば、`nuitka>=2.4` が使える。
   Nuitka は jasna を C にコンパイルするため、Visual Studio Build Tools（MSVC）も必要である。
 - `model_weights\` に必須の重み 3 ファイルがあること。
