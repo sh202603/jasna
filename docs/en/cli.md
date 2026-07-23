@@ -41,6 +41,7 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 | `--enable-crossfade` / `--no-enable-crossfade` | on | Cross-fade clip boundaries using already-processed frames; no extra GPU cost. |
 | `--denoise` | `none` | Spatial denoising of restored crops: `low`, `medium`, `high`. |
 | `--denoise-step` | `after_primary` | Apply denoising before secondary (`after_primary`) or right before blend (`after_secondary`). |
+| `--fp8-recon` / `--no-fp8-recon` | off | *(+modi, experimental)* Run the BasicVSR++ upsample stage as cuDNN FP8 convolutions; lower peak VRAM, falls back to TensorRT on failure. Needs sm89+ and `--fp16`. See [fp8_recon.md](fp8_recon.md). |
 
 ## Detection
 
@@ -57,7 +58,7 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 
 | Option | Default | Notes |
 | ------ | ------- | ----- |
-| `--secondary-restoration` | `none` | `unet-4x`, `tvai`, or `rtx-super-res`. See [Models](models.md). |
+| `--secondary-restoration` | `none` | `unet-4x`, `tvai`, or `rtx-super-res`. See [Models](models.md). *(+modi)* also `flashvsr` (offline 3-phase pass) and `flashvsr-inline` (single pass); both need `--flashvsr-repo`. See [flashvsr.md](flashvsr.md). |
 | `--rtx-scale` | `4` | RTX Super Res upscale factor (`2` or `4`). |
 | `--rtx-quality` | `high` | `low`–`ultra`. |
 | `--rtx-denoise` | `medium` | `none` disables. |
@@ -68,6 +69,12 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 | `--tvai-args` | see `--help` | Extra `tvai_up` parameters. |
 | `--tvai-workers` | `2` | Parallel TVAI ffmpeg workers. |
 | `--tvai-denoise` | off | Apply TVAI Denoise before enhancement. |
+| `--flashvsr-repo` | — | *(+modi)* Path to your `FlashVSR_plus` checkout. Required for both FlashVSR modes. |
+| `--flashvsr-python` | `<repo>/.venv/bin/python` | *(+modi)* Python of the FlashVSR venv (uv-managed standalone build). |
+| `--flashvsr-model-dir` | `<repo>/models/FlashVSR-v1.1` | *(+modi)* FlashVSR weights directory. |
+| `--flashvsr-version` / `--flashvsr-dtype` | `11` / `bf16` | *(+modi)* Model version and compute dtype. |
+| `--flashvsr-tiles` | `1` | *(+modi)* Horizontal DiT strips for the inline mode (VRAM lever). |
+| `--flashvsr-max-clip-frames`, `--flashvsr-unload-dit`, `--flashvsr-tiled-vae`, `--flashvsr-bundle-dir`, `--flashvsr-keep-bundle` | see `--help` | *(+modi)* Offline-mode memory/disk knobs. See [flashvsr.md](flashvsr.md). |
 
 ## SD 1.5 image restoration
 
@@ -99,6 +106,11 @@ Still images route here automatically; `--restoration-model-name` is video-only.
 | `--sharpen` | `0` | Sharpen the picture before encoding, from `0` (off) to `1` (strongest). Matches ffmpeg's `cas` filter, so no second pass is needed. See [Advanced processing](advanced_processing.md). |
 | `--retarget-high-fps` | off | 60 → 30 FPS (and 59.94 → 29.97) by processing every second frame. Other rates unchanged; audio timing preserved. |
 | `--fmp4` | off | Play `.mp4`/`.mov` output while it is still being made; it also survives an interrupted job. Not available with `--stream` or `--segments`. See [Advanced processing](advanced_processing.md). |
+| `--frame-gen` | `none` | *(+modi)* AI frame interpolation to `2x`/`4x` the output frame rate (RIFE). File output only. See [frame_generation.md](frame_generation.md). |
+| `--frame-gen-backend` | `rife` | *(+modi)* `rife` works today; `rtx` awaits an nvidia-vfx release. |
+| `--frame-gen-model-path` | `model_weights/rife.pth` | *(+modi)* Optional RIFE weights path (TorchScript `.pth` recommended). |
+| `--video-backend` | `native` | *(+modi, experimental)* `native`, `auto`, or `torchcodec`. See [torchcodec_backend.md](torchcodec_backend.md). |
+| `--decode-backend` / `--encode-backend` | `inherit` | *(+modi)* Override the backend per side; `torchcodec` encode is 8-bit only and must be forced. |
 | `--segments` | — | Restore only selected ranges, e.g. `10-25,01:10-01:30.5`. Cannot be combined with `--stream`, `--retarget-high-fps`, or `--fmp4`. See [Segments](segments.md). |
 | `--working-directory` | output dir | Where segment temp files are written. See [Segments](segments.md). |
 

@@ -2,7 +2,7 @@
 
 How to set up Jasna on Windows and run it **from source**.
 
-> **Verification status (2026-07-19, `v0.8.1+modi`)**: These instructions are **verified on real hardware at `v0.8.1+modi`** — Windows 11 + RTX 5080 (driver 610.62, Python 3.13.9) (the v0.8.0 hardware verification was 2026-07-18). For the Linux side see [BUILDING_LINUX_en.md](BUILDING_LINUX_en.md).
+> **Verification status (2026-07-19, `v0.8.1+modi`)**: These instructions are **verified on real hardware at `v0.8.1+modi`** — Windows 11 + RTX 5080 (driver 610.62, Python 3.13.9) (the v0.8.0 hardware verification was 2026-07-18). For the Linux side see [building_linux.md](building_linux.md).
 
 > **This guide covers the `v0.8.1+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
 
@@ -17,7 +17,7 @@ How to set up Jasna on Windows and run it **from source**.
 >
 > Leftovers of these in an existing environment do no harm (`CUDA_PATH` can even help: the torchcodec backend's DLL-resolution fallback consults it). On the other hand, **the NVIDIA driver requirement rose to 610+** (the startup check rejects anything below 610 on Windows). The one special step that remains is the **PyAV wheel** (Section 4; an interim measure until PyAV 18.1.0 reaches PyPI).
 >
-> **Main additions on this branch:** 2x/4x frame generation via RIFE ([FRAME_GENERATION_en.md](FRAME_GENERATION_en.md)), the torchcodec backend ([TORCHCODEC_BACKEND_en.md](TORCHCODEC_BACKEND_en.md)), the cuDNN FP8 restoration backend ([FP8_RECON_en.md](FP8_RECON_en.md)), and FlashVSR secondary restoration ([FLASHVSR_en.md](FLASHVSR_en.md)). The AV1 / 8-bit / BT.601 and BT.2020 output features of v0.7.2+modi were absorbed into upstream v0.8.0. See [CHANGES_vs_upstream_en.md](CHANGES_vs_upstream_en.md) for the full delta.
+> **Main additions on this branch:** 2x/4x frame generation via RIFE ([frame_generation.md](frame_generation.md)), the torchcodec backend ([torchcodec_backend.md](torchcodec_backend.md)), the cuDNN FP8 restoration backend ([fp8_recon.md](fp8_recon.md)), and FlashVSR secondary restoration ([flashvsr.md](flashvsr.md)). The AV1 / 8-bit / BT.601 and BT.2020 output features of v0.7.2+modi were absorbed into upstream v0.8.0. See [changes_vs_upstream.md](changes_vs_upstream.md) for the full delta.
 
 > **Packaging note:** This fork ships an experimental Nuitka build script (`scripts\build_nuitka.py`), but it is ⚠️ **not yet updated for the v0.8.0 media-layer migration** (it still assumes bundling the old `python_vali` / `PyNvVideoCodec` DLLs and is not expected to work as-is). Details: [Packaging / frozen builds](#8-packaging--frozen-builds).
 
@@ -179,9 +179,9 @@ uv pip install -e .[dev,nvidia,torchcodec] `
     --prerelease=allow
 ```
 
-This installs `torchcodec>=0.15.0`. torchcodec needs the FFmpeg DLLs at runtime, so keep the BtbN shared build's `bin\` on PATH (Section 1.1). It is not needed for a normal setup; the default `native` backend (PyAV) works without torchcodec. Details: [TORCHCODEC_BACKEND_en.md](TORCHCODEC_BACKEND_en.md).
+This installs `torchcodec>=0.15.0`. torchcodec needs the FFmpeg DLLs at runtime, so keep the BtbN shared build's `bin\` on PATH (Section 1.1). It is not needed for a normal setup; the default `native` backend (PyAV) works without torchcodec. Details: [torchcodec_backend.md](torchcodec_backend.md).
 
-**Note: the FP8 restoration backend needs no extra install steps.** Its dependencies `nvidia-cudnn-frontend` and (on Windows) `triton-windows` are regular dependencies in `pyproject.toml` and come in with the command above. The cuDNN runtime (9.17+) ships inside the torch cu130 wheels. The feature is a runtime opt-in (`--fp8-recon`, needs an FP8-capable GPU, sm89+) and falls back to the TensorRT engines where unavailable. Verified on hardware (Windows 11 + RTX 5080) on v0.8.0+modi as well (2026-07-18; confirmed `CudnnFP8Upsample: enabled` with `--log-level info` — note the default `--log-level error` suppresses the activation log line). Details: [FP8_RECON_en.md](FP8_RECON_en.md).
+**Note: the FP8 restoration backend needs no extra install steps.** Its dependencies `nvidia-cudnn-frontend` and (on Windows) `triton-windows` are regular dependencies in `pyproject.toml` and come in with the command above. The cuDNN runtime (9.17+) ships inside the torch cu130 wheels. The feature is a runtime opt-in (`--fp8-recon`, needs an FP8-capable GPU, sm89+) and falls back to the TensorRT engines where unavailable. Verified on hardware (Windows 11 + RTX 5080) on v0.8.0+modi as well (2026-07-18; confirmed `CudnnFP8Upsample: enabled` with `--log-level info` — note the default `--log-level error` suppresses the activation log line). Details: [fp8_recon.md](fp8_recon.md).
 
 ### 5.1 Apply the mmengine patch (torch 2.6+ compatibility)
 
@@ -236,7 +236,7 @@ The two test clips normally ship with the repository in `$Workspace\jasna\assets
 
 ### 6.1 Optional: RIFE frame-interpolation model (for `--frame-gen`)
 
-Needed only for frame-rate doubling (`--frame-gen {2x,4x}`). The RIFE weights are **not bundled** (non-commercial license terms), so create the TorchScript checkpoint yourself with `make_rife_torchscript.py`.
+Needed only for frame-rate doubling (`--frame-gen {2x,4x}`). The RIFE weights are **not bundled** (non-commercial license terms), so create the TorchScript checkpoint yourself with `scripts/make_rife_torchscript.py`.
 
 1. Clone Practical-RIFE and download a 4.x model package (**verified with v4.25**) so that `<repo>\train_log\` contains `RIFE_HDv3.py`, `IFNet_HDv3.py`, `flownet.pkl`:
    ```powershell
@@ -245,16 +245,16 @@ Needed only for frame-rate doubling (`--frame-gen {2x,4x}`). The RIFE weights ar
    ```
 2. Convert to TorchScript with the project venv (run in `$Workspace\jasna`):
    ```powershell
-   .\.venv\Scripts\python.exe make_rife_torchscript.py `
+   .\.venv\Scripts\python.exe scripts\make_rife_torchscript.py `
        --rife-repo C:\path\to\Practical-RIFE `
        --output model_weights\rife.pth --validate
    ```
 
-When **running from source**, `model_weights\rife.pth` is picked up automatically (same resolver as the other weights; or point `JASNA_MODEL_WEIGHTS_DIR` at a folder containing it). Full walkthrough: [FRAME_GENERATION_en.md](FRAME_GENERATION_en.md).
+When **running from source**, `model_weights\rife.pth` is picked up automatically (same resolver as the other weights; or point `JASNA_MODEL_WEIGHTS_DIR` at a folder containing it). Full walkthrough: [frame_generation.md](frame_generation.md).
 
 ### 6.2 Optional: FlashVSR secondary restoration (experimental)
 
-FlashVSR (`--secondary-restoration flashvsr` / `flashvsr-inline`) needs a separate repository checkout with its own venv, and the inline mode additionally needs a bundled patch applied to that checkout. Windows is supported (inline is re-verified on v0.8.0+modi on a 16 GB Windows card with `--flashvsr-tiles 2`; v0.8.0 automatically caps `--max-clip-size` to 32 in inline mode, leaving more VRAM headroom than in the v0.7.2 era). Setup instructions: [FLASHVSR_en.md](FLASHVSR_en.md).
+FlashVSR (`--secondary-restoration flashvsr` / `flashvsr-inline`) needs a separate repository checkout with its own venv, and the inline mode additionally needs a bundled patch applied to that checkout. Windows is supported (inline is re-verified on v0.8.0+modi on a 16 GB Windows card with `--flashvsr-tiles 2`; v0.8.0 automatically caps `--max-clip-size` to 32 in inline mode, leaving more VRAM headroom than in the v0.7.2 era). Setup instructions: [flashvsr.md](flashvsr.md).
 
 ---
 
@@ -284,7 +284,7 @@ Check:
 
 ## 8. Packaging / frozen builds
 
-This fork ships an experimental Nuitka build script (`scripts\build_nuitka.py`) that in the v0.7.2 era produced a standalone distribution with a single `jasna.exe` ([FROZEN_BUILD_en.md](FROZEN_BUILD_en.md)).
+This fork ships an experimental Nuitka build script (`scripts\build_nuitka.py`) that in the v0.7.2 era produced a standalone distribution with a single `jasna.exe` ([frozen_build.md](frozen_build.md)).
 
 ⚠️ **The script has not been updated for the v0.8.0 media-layer migration.** It still assumes bundling the old `python_vali` / `PyNvVideoCodec` DLLs (CUDA NPP / nvJPEG etc.) and is not expected to work as-is. It will be updated after the Windows hardware verification.
 
