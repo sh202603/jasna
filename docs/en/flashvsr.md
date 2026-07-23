@@ -220,7 +220,7 @@ explicit error (pointing you to the offline `flashvsr` mode, which uses tiny and
 needs no patch) if it is unpatched.
 
 The patch ships at
-[`patches/flashvsr_plus_tinylong_multichunk_fix.patch`](../patches/flashvsr_plus_tinylong_multichunk_fix.patch).
+[`patches/flashvsr_plus_tinylong_multichunk_fix.patch`](../../patches/flashvsr_plus_tinylong_multichunk_fix.patch).
 Apply it to the FlashVSR_plus checkout:
 
 ```bash

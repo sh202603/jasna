@@ -6,7 +6,7 @@ optional ``torchcodec`` backend. Callers construct readers/encoders through the
 factories here instead of instantiating the concrete classes directly, so the
 backend can be chosen per request with automatic fallback to native.
 
-Design constraints (see ``docs/TORCHCODEC_BACKEND_*.md``):
+Design constraints (see ``docs/{en,ja}/torchcodec_backend.md``):
 
 - The native path must stay byte-/perf-identical to before. For
   ``VideoBackend.NATIVE`` (and any request torchcodec cannot satisfy) the

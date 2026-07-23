@@ -6,7 +6,7 @@ metadata. The contract matches the native encoder: a context manager plus
 ``encode(frame, pts)`` (the ``FrameWriter`` surface the pipeline drives through
 ``_OfflineFrameWriter``).
 
-Scope (see ``docs/TORCHCODEC_BACKEND_*.md`` and ``torchcodec_encoder_eligibility``):
+Scope (see ``docs/{en,ja}/torchcodec_backend.md`` and ``torchcodec_encoder_eligibility``):
 HEVC or AV1, 8-bit sources, limited range, source frame rate, mappable settings,
 non-streaming, no smart-render fragments. Everything else stays on the native
 encoder. Note that since upstream v0.8.0 the native encoder always outputs
@@ -183,7 +183,7 @@ class TorchcodecVideoEncoder:
 
         # Encoding runs on a dedicated worker thread so the synchronous
         # torchcodec ``add_frames`` does not block the BlendEncode thread (see
-        # docs/TORCHCODEC_BACKEND_ja.md 付録A). The whole torchcodec ``Encoder``
+        # docs/ja/torchcodec_backend.md 付録A). The whole torchcodec ``Encoder``
         # lifecycle (add_video / open_file / add_frames / close) lives on that
         # worker to avoid cross-thread use of its internal CUDA stream.
         self._queue: queue.Queue = queue.Queue(maxsize=8)

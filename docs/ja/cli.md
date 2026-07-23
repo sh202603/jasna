@@ -41,6 +41,7 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 | `--enable-crossfade` / `--no-enable-crossfade` | オン | 処理済みフレームを再利用してクリップ境界をクロスフェード。追加の GPU コストはありません。 |
 | `--denoise` | `none` | 復元済みクロップの空間ノイズ除去: `low`、`medium`、`high`。 |
 | `--denoise-step` | `after_primary` | ノイズ除去をセカンダリの前（`after_primary`）に適用するか、合成の直前（`after_secondary`）に適用するか。 |
+| `--fp8-recon` / `--no-fp8-recon` | オフ | *(+modi、実験的)* BasicVSR++ のアップサンプル段を cuDNN FP8 畳み込みで実行。ピーク VRAM が下がり、失敗時は TensorRT にフォールバック。sm89 以上と `--fp16` が必要。詳細: [fp8_recon.md](fp8_recon.md)。 |
 
 ## 検出
 
@@ -56,7 +57,7 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 
 | オプション | デフォルト | 説明 |
 | ------ | ------- | ----- |
-| `--secondary-restoration` | `none` | `unet-4x`、`tvai`、または `rtx-super-res`。詳しくは[モデル](models.md)。 |
+| `--secondary-restoration` | `none` | `unet-4x`、`tvai`、または `rtx-super-res`。詳しくは[モデル](models.md)。*(+modi)* さらに `flashvsr`（オフライン 3 段パス）と `flashvsr-inline`（単一パス）。いずれも `--flashvsr-repo` が必要。詳細: [flashvsr.md](flashvsr.md)。 |
 | `--rtx-scale` | `4` | RTX Super Res の拡大倍率（`2` または `4`）。 |
 | `--rtx-quality` | `high` | `low`～`ultra`。 |
 | `--rtx-denoise` | `medium` | `none` で無効。 |
@@ -66,6 +67,12 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 | `--tvai-scale` | `4` | 出力サイズは `256*scale`。`1` = 拡大なし。 |
 | `--tvai-args` | `--help` を参照 | 追加の `tvai_up` パラメータ。 |
 | `--tvai-workers` | `2` | 並列で動かす TVAI ffmpeg ワーカー数。 |
+| `--flashvsr-repo` | — | *(+modi)* `FlashVSR_plus` checkout のパス。FlashVSR 両モードで必須。 |
+| `--flashvsr-python` | `<repo>/.venv/bin/python` | *(+modi)* FlashVSR venv の Python（uv-managed standalone ビルド）。 |
+| `--flashvsr-model-dir` | `<repo>/models/FlashVSR-v1.1` | *(+modi)* FlashVSR 重みのディレクトリ。 |
+| `--flashvsr-version` / `--flashvsr-dtype` | `11` / `bf16` | *(+modi)* モデルバージョンと計算 dtype。 |
+| `--flashvsr-tiles` | `1` | *(+modi)* inline モードの DiT 水平ストリップ数（VRAM 調整用）。 |
+| `--flashvsr-max-clip-frames`、`--flashvsr-unload-dit`、`--flashvsr-tiled-vae`、`--flashvsr-bundle-dir`、`--flashvsr-keep-bundle` | `--help` 参照 | *(+modi)* オフラインモードのメモリ/ディスク調整。詳細: [flashvsr.md](flashvsr.md)。 |
 
 ## SD 1.5 画像復元
 
@@ -95,6 +102,11 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 | `--lut` | — | エンコード前に GPU で適用される `.cube` カラー LUT（1D または 3D）。GUI のエンコードセクションでも設定できます。 |
 | `--retarget-high-fps` | オフ | 1 フレームおきに処理して 60 → 30 FPS（および 59.94 → 29.97）に変換。他のレートは変更せず、音声のタイミングは維持されます。 |
 | `--fmp4` | オフ | `.mp4`/`.mov` 出力をフラグメント化 MP4（fMP4）で書き出し、処理中でも再生できるようにします。`--stream` および `--segments` では無視されます。 |
+| `--frame-gen` | `none` | *(+modi)* AI フレーム補間で出力フレームレートを `2x`/`4x` に（RIFE）。ファイル出力のみ。詳細: [frame_generation.md](frame_generation.md)。 |
+| `--frame-gen-backend` | `rife` | *(+modi)* `rife` は現在利用可能。`rtx` は nvidia-vfx のリリース待ち。 |
+| `--frame-gen-model-path` | `model_weights/rife.pth` | *(+modi)* RIFE 重みの任意パス（TorchScript `.pth` 推奨）。 |
+| `--video-backend` | `native` | *(+modi、実験的)* `native`、`auto`、`torchcodec`。詳細: [torchcodec_backend.md](torchcodec_backend.md)。 |
+| `--decode-backend` / `--encode-backend` | `inherit` | *(+modi)* デコード側・エンコード側を個別に上書き。`torchcodec` エンコードは 8bit 専用で強制指定時のみ。 |
 | `--segments` | — | 選択した範囲だけを復元します。例: `10-25,01:10-01:30.5`。`--stream` および `--retarget-high-fps` とは併用できません。詳しくは[区間](segments.md)。 |
 | `--working-directory` | 出力ディレクトリ | 区間処理の一時ファイルの書き込み先。詳しくは[区間](segments.md)。 |
 

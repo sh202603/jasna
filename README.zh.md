@@ -13,7 +13,7 @@ Jasna 是免费的。支持者会获得一个密钥，用于解锁为本项目�
 > 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1 的改版构建，新增**帧生成**（`--frame-gen` 2x/4x）、**torchcodec 视频后端**、**FP8 修复后端**、**FlashVSR 二级修复**等改进。
 >
 > - **源码（本分支）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
-> - **与上游的完整变更:** [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)
+> - **与上游的完整变更:** [docs/en/changes_vs_upstream.md](docs/en/changes_vs_upstream.md)
 > - **范围 — 仅公开（免费）功能。** 支持者模型（**unet-4x** 和 **SD 1.5 图像修复**）以加密检查点形式提供，需用支持者密钥解锁，而解密代码位于**不属于本公开分支**的私有子模块中 —— 因此这些模型**无法在此下载、解密或运行**。它们的上游代码随附但保持 inert（不激活）。如需支持者模型，请使用上游 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) 并成为支持者。其他一切（检测、视频修复、RTX/TVAI 二级修复、区间编辑器、VR180、导出后操作、帧生成）均正常工作。
 
 <img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
@@ -44,7 +44,7 @@ Jasna 是免费的。支持者会获得一个密钥，用于解锁为本项目�
 
 ## `+modi` 新增功能
 
-这些功能为 `+modi` 分支专有。完整变更列表见 [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)。
+这些功能为 `+modi` 分支专有。完整变更列表见 [docs/en/changes_vs_upstream.md](docs/en/changes_vs_upstream.md)。
 
 ### 帧生成（帧率提升）
 
@@ -54,7 +54,7 @@ Jasna 是免费的。支持者会获得一个密钥，用于解锁为本项目�
 jasna --input input.mp4 --output output.mkv --frame-gen 2x
 ```
 
-后端通过 `--frame-gen-backend {rife,rtx}` 选择（`rife` 为默认且当前可用；`rtx` 等待 NVIDIA 的 `nvidia-vfx` 发布）。详情: [docs/FRAME_GENERATION_en.md](docs/FRAME_GENERATION_en.md)。
+后端通过 `--frame-gen-backend {rife,rtx}` 选择（`rife` 为默认且当前可用；`rtx` 等待 NVIDIA 的 `nvidia-vfx` 发布）。详情: [docs/en/frame_generation.md](docs/en/frame_generation.md)。
 
 ### 视频后端（实验性）
 
@@ -64,7 +64,7 @@ Jasna 默认通过 PyAV（NVDEC/NVENC）解码与编码（`--video-backend nativ
 jasna --input input.mp4 --output output.mkv --video-backend auto
 ```
 
-`--video-backend {native,auto,torchcodec}`（默认 `native`，即原有行为）：`auto` 在可用时将 torchcodec 用于**解码**，否则回退到 native；`torchcodec` 强制使用。`--decode-backend` / `--encode-backend` 可分别覆盖解码侧与编码侧。自 v0.8.0 起，native 编码器对 HEVC/AV1 始终输出 10-bit，而 torchcodec 的 NVENC 仅支持 8-bit，两者输出无法一致，因此 **torchcodec 编码仅在强制指定（`--encode-backend torchcodec`）时运行**，且仅限 8-bit 源与可映射的 NVENC 设置；流式传输、`--segments`、`--retarget-high-fps` 与帧生成保持 native。色彩空间元数据在两种情况下都会保留。需要可选依赖（从 cu130 wheel index 执行 `pip install "torchcodec>=0.15.0"`）。详情: [docs/TORCHCODEC_BACKEND_en.md](docs/TORCHCODEC_BACKEND_en.md)。
+`--video-backend {native,auto,torchcodec}`（默认 `native`，即原有行为）：`auto` 在可用时将 torchcodec 用于**解码**，否则回退到 native；`torchcodec` 强制使用。`--decode-backend` / `--encode-backend` 可分别覆盖解码侧与编码侧。自 v0.8.0 起，native 编码器对 HEVC/AV1 始终输出 10-bit，而 torchcodec 的 NVENC 仅支持 8-bit，两者输出无法一致，因此 **torchcodec 编码仅在强制指定（`--encode-backend torchcodec`）时运行**，且仅限 8-bit 源与可映射的 NVENC 设置；流式传输、`--segments`、`--retarget-high-fps` 与帧生成保持 native。色彩空间元数据在两种情况下都会保留。需要可选依赖（从 cu130 wheel index 执行 `pip install "torchcodec>=0.15.0"`）。详情: [docs/en/torchcodec_backend.md](docs/en/torchcodec_backend.md)。
 
 ### FP8 修复后端（实验性）
 
@@ -74,7 +74,7 @@ jasna --input input.mp4 --output output.mkv --video-backend auto
 jasna --input input.mp4 --output output.mp4 --fp8-recon
 ```
 
-主要收益在 VRAM：不再分配 TensorRT upsample 引擎加载时的内部工作区（默认 `--max-clip-size 90` 下约 2.2GB），实测 480p 至 4K 片源的 VRAM 峰值降低 1.2–1.7GB。该阶段本身快约 1.5 倍，但流水线瓶颈在检测侧，整体 fps 不变。输出与 FP16 引擎在视觉上无法区分，且多次运行按位一致。需要支持 FP8 的 GPU（sm89 及以上，即 RTX 40 系或更新；加速仅在 Blackwell 上验证）和 fp16 模式；任何失败都会自动回退到 TensorRT 引擎。已在 Linux 和 Windows 上验证。详情: [docs/FP8_RECON_en.md](docs/FP8_RECON_en.md)。
+主要收益在 VRAM：不再分配 TensorRT upsample 引擎加载时的内部工作区（默认 `--max-clip-size 90` 下约 2.2GB），实测 480p 至 4K 片源的 VRAM 峰值降低 1.2–1.7GB。该阶段本身快约 1.5 倍，但流水线瓶颈在检测侧，整体 fps 不变。输出与 FP16 引擎在视觉上无法区分，且多次运行按位一致。需要支持 FP8 的 GPU（sm89 及以上，即 RTX 40 系或更新；加速仅在 Blackwell 上验证）和 fp16 模式；任何失败都会自动回退到 TensorRT 引擎。已在 Linux 和 Windows 上验证。详情: [docs/en/fp8_recon.md](docs/en/fp8_recon.md)。
 
 ### FlashVSR 二级修复（实验性）
 
@@ -84,7 +84,7 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvsr-repo ~/FlashVSR_plus
 ```
 
-FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存。它以**峰值 VRAM 在时间上互不重叠的三个子进程**运行:(1) 一级修复 → 将裁剪块序列化到磁盘 *bundle*，(2) 在其专用 venv 中执行 FlashVSR 4x，(3) 重新混合并编码最终输出。你需自备 `FlashVSR_plus` 检出、其 v1.1 权重以及一个 **uv 托管的独立 Python venv**（系统 Python 无法 JIT 编译 FlashVSR 的 Triton 注意力内核）。仅文件输出；不兼容 `--stream` / `--frame-gen`。单趟版本 `--secondary-restoration flashvsr-inline` 在流水线内运行 FlashVSR，**无中间文件**（需 16GB 显卡以及打了 tiny-long 多块修复补丁的检出）。详情: [docs/FLASHVSR_en.md](docs/FLASHVSR_en.md)。
+FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存。它以**峰值 VRAM 在时间上互不重叠的三个子进程**运行:(1) 一级修复 → 将裁剪块序列化到磁盘 *bundle*，(2) 在其专用 venv 中执行 FlashVSR 4x，(3) 重新混合并编码最终输出。你需自备 `FlashVSR_plus` 检出、其 v1.1 权重以及一个 **uv 托管的独立 Python venv**（系统 Python 无法 JIT 编译 FlashVSR 的 Triton 注意力内核）。仅文件输出；不兼容 `--stream` / `--frame-gen`。单趟版本 `--secondary-restoration flashvsr-inline` 在流水线内运行 FlashVSR，**无中间文件**（需 16GB 显卡以及打了 tiny-long 多块修复补丁的检出）。详情: [docs/en/flashvsr.md](docs/en/flashvsr.md)。
 
 ### 分段式 MP4 输出（`--fmp4`）
 
@@ -94,7 +94,7 @@ FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存
 jasna --input in.mp4 --output out.mp4 --fmp4
 ```
 
-对处理速度没有可测量的影响。默认关闭（行为不变）。GUI 的编码设置中也有同样的开关。对 `--segments`、`--stream` 和 torchcodec 编码后端会警告并回退为普通 MP4。详情: [docs/FMP4_en.md](docs/FMP4_en.md)。
+对处理速度没有可测量的影响。默认关闭（行为不变）。GUI 的编码设置中也有同样的开关。对 `--segments`、`--stream` 和 torchcodec 编码后端会警告并回退为普通 MP4。详情: [docs/en/fmp4.md](docs/en/fmp4.md)。
 
 ## 社区
 
@@ -157,8 +157,18 @@ jasna --input input_folder --output output_folder
 - **[从源代码运行](docs/en/development.md)** — 开发者环境搭建和构建说明。
 
 > **`+modi` 构建指南:** 本分支构建原生 GPU 库并**从源码运行** Jasna。没有公开的打包/冻结二进制 —— 打包工具位于私有的 `jasna/protection` 子模块中（与上游相同）。涵盖 CUDA 13.0 工具链、原生库、ffmpeg 8 / mkvmerge 和 TensorRT 引擎设置的分步指南:
-> - Linux: [docs/BUILDING_LINUX_en.md](docs/BUILDING_LINUX_en.md)（[日本語](docs/BUILDING_LINUX_ja.md)）
-> - Windows: [docs/BUILDING_WINDOWS_en.md](docs/BUILDING_WINDOWS_en.md)（[日本語](docs/BUILDING_WINDOWS_ja.md)）
+> - Linux: [docs/en/building_linux.md](docs/en/building_linux.md)（[日本語](docs/ja/building_linux.md)）
+> - Windows: [docs/en/building_windows.md](docs/en/building_windows.md)（[日本語](docs/ja/building_windows.md)）
+
+`+modi` 功能指南（英文/日文）:
+
+- **[帧生成](docs/en/frame_generation.md)** — RIFE 2x/4x 帧率提升与独立工具 `jasna-framegen`。
+- **[视频后端](docs/en/torchcodec_backend.md)** — 实验性 torchcodec 解码/编码后端。
+- **[FP8 修复后端](docs/en/fp8_recon.md)** — cuDNN FP8 上采样阶段，降低峰值显存。
+- **[FlashVSR 二级修复](docs/en/flashvsr.md)** — 离线/内联扩散 4x 放大。
+- **[分段式 MP4 输出](docs/en/fmp4.md)** — `--fmp4`，处理中即可播放的输出。
+- **[冻结构建](docs/en/frozen_build.md)** — 实验性 Nuitka 独立构建。
+- **[与上游的完整变更](docs/en/changes_vs_upstream.md)** — 本分支的全部差异。
 
 ## 基准测试
 
