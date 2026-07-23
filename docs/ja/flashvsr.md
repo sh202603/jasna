@@ -211,7 +211,7 @@ checkout が必須**。jasna は起動時に checkout を検査し、未パッ�
 `flashvsr`(オフライン、tiny、パッチ不要)を案内する。
 
 パッチ本体は
-[`patches/flashvsr_plus_tinylong_multichunk_fix.patch`](../patches/flashvsr_plus_tinylong_multichunk_fix.patch)
+[`patches/flashvsr_plus_tinylong_multichunk_fix.patch`](../../patches/flashvsr_plus_tinylong_multichunk_fix.patch)
 に同梱。FlashVSR_plus checkout で当てる:
 
 ```bash

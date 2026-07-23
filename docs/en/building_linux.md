@@ -6,7 +6,7 @@ How to set up Jasna on Linux and run it **from source**.
 
 > **v0.8.0 simplified the setup considerably.** Upstream v0.8.0 moved the media layer to PyAV (NVDEC/NVENC), which removed the native builds of `python_vali` / `PyNvVideoCodec` entirely. With them went every prerequisite the old guide needed for those builds: the CUDA Toolkit, cmake / ninja, the ffmpeg dev packages (`libav*-dev`), the `FFMPEG_DIR` prefix, the `setuptools<80` pin, and `mkvmerge`. The one special step that remains is **building a PyAV wheel yourself** (Section 4; an interim measure until PyAV 18.1.0 reaches PyPI).
 >
-> **Main additions on this branch:** 2x/4x frame generation via RIFE ([FRAME_GENERATION_en.md](FRAME_GENERATION_en.md)), the torchcodec backend ([TORCHCODEC_BACKEND_en.md](TORCHCODEC_BACKEND_en.md)), the cuDNN FP8 restoration backend ([FP8_RECON_en.md](FP8_RECON_en.md)), and FlashVSR secondary restoration ([FLASHVSR_en.md](FLASHVSR_en.md)). The AV1 / 8-bit / BT.601 and BT.2020 output features of v0.7.2+modi were absorbed into upstream v0.8.0. See [CHANGES_vs_upstream_en.md](CHANGES_vs_upstream_en.md) for the full delta.
+> **Main additions on this branch:** 2x/4x frame generation via RIFE ([frame_generation.md](frame_generation.md)), the torchcodec backend ([torchcodec_backend.md](torchcodec_backend.md)), the cuDNN FP8 restoration backend ([fp8_recon.md](fp8_recon.md)), and FlashVSR secondary restoration ([flashvsr.md](flashvsr.md)). The AV1 / 8-bit / BT.601 and BT.2020 output features of v0.7.2+modi were absorbed into upstream v0.8.0. See [changes_vs_upstream.md](changes_vs_upstream.md) for the full delta.
 
 > **Packaging note:** This public fork runs Jasna **from source**. There is no public way to produce a frozen Linux binary from it (the bundled experimental Nuitka script `scripts/build_nuitka.py` targets Windows, and has not been updated for the v0.8.0 media-layer migration either). If you want a pre-packaged binary, use upstream Kruk2/jasna's official releases.
 
@@ -157,9 +157,9 @@ uv pip install -e .[dev,nvidia,torchcodec] \
     --prerelease=allow
 ```
 
-This installs `torchcodec>=0.15.0`. It is not needed for a normal setup; the default `native` backend (PyAV) works without torchcodec. Details: [TORCHCODEC_BACKEND_en.md](TORCHCODEC_BACKEND_en.md).
+This installs `torchcodec>=0.15.0`. It is not needed for a normal setup; the default `native` backend (PyAV) works without torchcodec. Details: [torchcodec_backend.md](torchcodec_backend.md).
 
-**Note: the FP8 restoration backend needs no extra install steps.** Its dependency `nvidia-cudnn-frontend` is a regular dependency in `pyproject.toml` and comes in with the command above. The cuDNN runtime (9.17+) ships inside the torch cu130 wheels. The feature itself is a runtime opt-in (`--fp8-recon`, needs an FP8-capable GPU, sm89+) and falls back to the TensorRT engines where unavailable. Details: [FP8_RECON_en.md](FP8_RECON_en.md).
+**Note: the FP8 restoration backend needs no extra install steps.** Its dependency `nvidia-cudnn-frontend` is a regular dependency in `pyproject.toml` and comes in with the command above. The cuDNN runtime (9.17+) ships inside the torch cu130 wheels. The feature itself is a runtime opt-in (`--fp8-recon`, needs an FP8-capable GPU, sm89+) and falls back to the TensorRT engines where unavailable. Details: [fp8_recon.md](fp8_recon.md).
 
 ### 5.1 Apply the mmengine patch (torch 2.6+ compatibility)
 
@@ -205,7 +205,7 @@ The two test clips normally ship with the repository in `$WORKSPACE/jasna/assets
 
 ### 6.1 Optional: RIFE frame-interpolation model (for `--frame-gen`)
 
-Needed only for frame-rate doubling (`--frame-gen {2x,4x}`). The RIFE weights are **not bundled** (non-commercial license terms), so create the TorchScript checkpoint yourself with `make_rife_torchscript.py`.
+Needed only for frame-rate doubling (`--frame-gen {2x,4x}`). The RIFE weights are **not bundled** (non-commercial license terms), so create the TorchScript checkpoint yourself with `scripts/make_rife_torchscript.py`.
 
 1. Clone Practical-RIFE and download a 4.x model package (**verified with v4.25**) so that `<repo>/train_log/` contains `RIFE_HDv3.py`, `IFNet_HDv3.py`, `flownet.pkl`:
    ```bash
@@ -214,16 +214,16 @@ Needed only for frame-rate doubling (`--frame-gen {2x,4x}`). The RIFE weights ar
    ```
 2. Convert to TorchScript with the project venv (run in `$WORKSPACE/jasna`):
    ```bash
-   .venv/bin/python make_rife_torchscript.py \
+   .venv/bin/python scripts/make_rife_torchscript.py \
        --rife-repo /path/to/Practical-RIFE \
        --output model_weights/rife.pth --validate
    ```
 
-When **running from source**, `model_weights/rife.pth` is picked up automatically (same resolver as the other weights; or point `JASNA_MODEL_WEIGHTS_DIR` at a folder containing it). Full walkthrough: [FRAME_GENERATION_en.md](FRAME_GENERATION_en.md).
+When **running from source**, `model_weights/rife.pth` is picked up automatically (same resolver as the other weights; or point `JASNA_MODEL_WEIGHTS_DIR` at a folder containing it). Full walkthrough: [frame_generation.md](frame_generation.md).
 
 ### 6.2 Optional: FlashVSR secondary restoration (experimental)
 
-FlashVSR (`--secondary-restoration flashvsr` / `flashvsr-inline`) needs a separate repository checkout with its own venv, and the inline mode additionally needs a bundled patch applied to that checkout. Setup instructions: [FLASHVSR_en.md](FLASHVSR_en.md).
+FlashVSR (`--secondary-restoration flashvsr` / `flashvsr-inline`) needs a separate repository checkout with its own venv, and the inline mode additionally needs a bundled patch applied to that checkout. Setup instructions: [flashvsr.md](flashvsr.md).
 
 ---
 
@@ -249,7 +249,7 @@ python -m jasna              # launch the GUI (no arguments)
 
 ## 8. Packaging / frozen builds
 
-There is currently **no public way to produce a packaged frozen Linux binary from this fork.** Upstream's packaging tooling lives in a **private submodule (`jasna/protection`)** that this public fork does not include. The fork's experimental Nuitka script (`scripts/build_nuitka.py`, [FROZEN_BUILD_en.md](FROZEN_BUILD_en.md)) targets Windows, and has not been updated for the v0.8.0 media-layer migration (it still assumes bundling the old `python_vali` / `PyNvVideoCodec` DLLs).
+There is currently **no public way to produce a packaged frozen Linux binary from this fork.** Upstream's packaging tooling lives in a **private submodule (`jasna/protection`)** that this public fork does not include. The fork's experimental Nuitka script (`scripts/build_nuitka.py`, [frozen_build.md](frozen_build.md)) targets Windows, and has not been updated for the v0.8.0 media-layer migration (it still assumes bundling the old `python_vali` / `PyNvVideoCodec` DLLs).
 
 The publicly supported path is therefore **running from source** (Section 7). If you need a packaged binary, use upstream Kruk2/jasna's official releases.
 
