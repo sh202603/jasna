@@ -66,6 +66,7 @@ def _fake_section_widgets() -> dict:
         "detection_model": _FakeWidget("rfdetr-v5"),
         "detection_score_threshold": _FakeWidget(0.25),
         "compile_basicvsrpp": _FakeWidget(1),
+        "fp8_recon": _FakeWidget(1),
         "file_conflict": _FakeValueMenu({"auto_rename": "A", "overwrite": "B", "skip": "C"}, "skip"),
         "temporal_overlap": _FakeWidget(8),
         "max_detection_gap": _FakeWidget(2),
@@ -92,6 +93,11 @@ def _fake_section_widgets() -> dict:
         "encoder_cq": _FakeWidget(29),
         "encoder_custom_args": _FakeWidget("cq=22"),
         "retarget_high_fps": _FakeWidget(1),
+        "frame_gen": _FakeWidget("2x"),
+        "frame_gen_backend": _FakeWidget("RIFE"),
+        "frame_gen_model_path": _FakeWidget(" /weights/rife.pth "),
+        "video_backend": _FakeWidget("TorchCodec"),
+        "fmp4": _FakeWidget(1),
         "lut_path": _FakeWidget(" /luts/a.cube "),
         "working_directory": _FakeWidget(""),
         "post_export_action": _FakeValueMenu({"none": "何も", "command": "コマンド"}, "command"),
@@ -131,6 +137,12 @@ def test_sections_collect_internal_values_without_translation_lookups() -> None:
     assert values["lut_path"] == "/luts/a.cube"
     assert values["enable_crossfade"] is False
     assert values["retarget_high_fps"] is True
+    assert values["frame_gen"] == "2x"
+    assert values["frame_gen_backend"] == "rife"
+    assert values["frame_gen_model_path"] == "/weights/rife.pth"
+    assert values["video_backend"] == "torchcodec"
+    assert values["fp8_recon"] is True
+    assert values["fmp4"] is True
 
 
 def test_sections_collect_covers_all_widget_backed_appsettings_fields() -> None:
