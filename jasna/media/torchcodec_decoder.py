@@ -5,7 +5,7 @@ tensors — exactly what jasna's detection/restoration models consume. The contr
 matches the native reader: a context manager whose ``frames(seek_ts=None)`` yields
 ``(uint8 [B,3,H,W] CUDA, list[int] PTS)``.
 
-Differences from native (``media/video_decoder.py``), see ``docs/TORCHCODEC_BACKEND_*.md``:
+Differences from native (``media/video_decoder.py``), see ``docs/{en,ja}/torchcodec_backend.md``:
 
 - torchcodec always outputs 8-bit RGB; there is no 10-bit dither step (the models
   are 8-bit RGB anyway).
