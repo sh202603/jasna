@@ -381,6 +381,42 @@ Note that on Windows (threaded), native vs torchcodec is 208 s vs 201 s for lada
 threading it is parity even on Linux (rfdetr 192 = 192) and a slight win on Windows. It was specific
 to the inline era (the first table in this appendix).
 
+### Follow-up (2026-07-23, Linux / RTX 5080): auto isolation, fp8-recon, 8-bit codec
+
+**Confirming the encoder is the lever, via auto.** Appendix A concluded "the encoder is decisive" from
+the stage split; adding `--video-backend auto` (torchcodec decode + native 10-bit encode) isolates it
+directly. On test2 / lada-yolo / fp16: native 236.8 fps, auto 239.9 fps (+1.3%), full torchcodec
+262.9 fps (+11%). auto and full share torchcodec decode and differ only in the encoder, so the lever
+behind the +11% is the encode backend. detect-track likewise shrinks in steps — native 103.5s → auto
+94.6s → torchcodec 82.8s — where auto's 9s gain (torchcodec decode) is nearly cancelled by its +7s of
+decode sub-time, and torchcodec encode removes another 12s. So the SM-contention relief that speeds up
+detection comes **chiefly from the native 10-bit encode side (the rgb→p010 two-pass color conversion +
+hevc_nvenc), not the decode-side conversion Appendix A pointed at**. The encode-`write` seconds are not
+a proxy for e2e (native write=0.7s yet slower e2e; torchcodec write=10.8s yet fastest e2e — `write` is
+only where the synchronization is billed).
+
+**Interaction with `--fp8-recon`.** No e2e change on this material (±0.4%): the bottleneck is
+detection, and the upsample stage that fp8 shrinks is not the bottleneck. It does cut VRAM peak by
+~1.5GB (test2 / lada-yolo 6911→5333MB, rfdetr 7084→5685MB). Here fp8-recon buys VRAM, not speed.
+
+**Practical 8-bit-output comparison (adding native H.264).** "8-bit is faster" does not hold. e2e fps
+(test2, no secondary):
+
+```
+                     native HEVC 10bit  native H264 8bit  torchcodec HEVC 8bit
+lada-yolo               236.8             193.4             262.9
+rfdetr                  152.4             144.7             158.3
+```
+
+native H.264 8-bit is the slowest of the three; torchcodec HEVC 8-bit is the fastest and lowest-VRAM.
+`h264_nvenc` under the high-quality settings (4 B-frames, b_ref_mode, AQ, lookahead) is heavier than
+`hevc_nvenc`, and H.264 is a less efficient codec, so NVENC works harder and contends with detection.
+What sets the speed is the codec / encoder implementation, not the bit depth: **when 8-bit output is
+acceptable, torchcodec HEVC 8-bit (`--video-backend torchcodec`) is the fastest option.** Native HEVC
+cannot emit 8-bit (spec-fixed; `--codec` fixes codec and bit depth — HEVC/AV1=p010 10bit, H264=nv12
+8bit, independent of source). Data in `~/testdata/backend_ab{,_auto,_h264}/`; details in
+`BACKEND_PERF_EVAL_v081_ja.md`.
+
 ## Appendix B: why the advantage depends on the GPU
 
 Whether torchcodec wins depends on the GPU's engine layout. The mechanism is not "torchcodec has a
