@@ -274,6 +274,22 @@ Windows が 34〜68% 遅く、差は **launch-bound な TRT 段（検出と Basi
 
 なお Windows threaded での native vs torchcodec は、lada-yolo が 208秒 対 201秒、rfdetr が 265秒 対 258秒で、**両検出器とも torchcodec ≤ native**（差は試行間ばらつきの範囲）。よって「重い検出器で auto が torchcodec を選んで悲観化する」懸念は、threaded 化後は Linux でも rfdetr 同等（192=192）であり、Windows では再現しない。inline 時代（本付録の最初の表）に固有の注意だった。
 
+### 追試（2026-07-23, Linux / RTX 5080）: auto 分離・fp8-recon・8-bit コーデック
+
+**encode がレバーであることの auto による確認。** 付録Aは段分解から「決定打は符号化」と結論したが、`--video-backend auto`（torchcodec decode + native 10-bit encode）を加えると直接切り分けられる。test2 / lada-yolo / fp16 で native 236.8 fps、auto 239.9 fps（+1.3%）、full torchcodec 262.9 fps（+11%）。auto と full は torchcodec デコードを共有し encode だけ違うので、+11% を生むレバーは encode バックエンドである。detect-track も native 103.5s → auto 94.6s → torchcodec 82.8s と段階的に縮み、auto（torchcodec decode）での短縮 9s は decode サブ時間の +7s でほぼ相殺され、torchcodec encode で更に 12s 縮む。したがって検出段を軽くする SM 競合の解消は、付録Aが挙げるデコード側の色変換よりも、**native 10-bit encode 側（rgb→p010 の 2 パス色変換 + hevc_nvenc）の寄与が大きい**。encode-write の秒数は e2e の proxy にならない（native write=0.7s で e2e 遅め、torchcodec write=10.8s で e2e 最速。write は同期の計上先にすぎない）。
+
+**`--fp8-recon` との相互作用。** 本素材群では e2e に変化なし（±0.4%）。律速が検出段で、fp8 が縮める upsample 段が非律速のため。ただし VRAM peak は約 1.5GB 下がる（test2 / lada-yolo 6911→5333MB、rfdetr 7084→5685MB）。fp8-recon の価値はここでは速度でなく VRAM。
+
+**8-bit 出力前提の実利比較（native H.264 を追加）。** 「8-bit だから速い」は成立しない。e2e fps は次のとおり（test2、secondary なし）。
+
+```
+                     native HEVC 10bit  native H264 8bit  torchcodec HEVC 8bit
+lada-yolo               236.8             193.4             262.9
+rfdetr                  152.4             144.7             158.3
+```
+
+native H.264 8-bit が 3 者最遅で、torchcodec HEVC 8-bit が最速かつ VRAM 最小。`h264_nvenc` は高品質設定（B4枚・b_ref_mode・AQ・lookahead）で `hevc_nvenc` より重く、H.264 は符号化効率も劣るため NVENC がより働き検出と競合する。速度を決めるのはビット深度でなくコーデック/エンコーダ実装であり、**8-bit 出力が許容できるなら torchcodec HEVC 8-bit（`--video-backend torchcodec`）が最速解**になる。native HEVC の 8-bit 出力は spec 固定で不可（`--codec` でコーデックとビット深度が決まる。HEVC/AV1=p010 10bit, H264=nv12 8bit、ソース非依存）。データは `~/testdata/backend_ab{,_auto,_h264}/`、詳細は `BACKEND_PERF_EVAL_v081_ja.md`。
+
 ## 付録B: 優劣が GPU に依存する理由
 
 torchcodec の優位が出るかどうかは GPU のエンジン構成に依存する。
