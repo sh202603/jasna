@@ -11,7 +11,7 @@ Jasna is free. Supporters get a key that unlocks the extra models trained for th
 > A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1, adding **frame generation** (`--frame-gen` 2x/4x), an experimental **torchcodec video backend**, an experimental **FP8 restoration backend**, and **FlashVSR secondary restoration**, among other improvements.
 >
 > - **Source (this fork/branch):** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
-> - **Full list of changes vs upstream:** [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md)
+> - **Full list of changes vs upstream:** [docs/en/changes_vs_upstream.md](docs/en/changes_vs_upstream.md)
 > - **Scope — public (free) features only.** The supporter models (**unet-4x** and **SD 1.5 image restoration**) ship as encrypted checkpoints unlocked by a supporter key, and the decryption code lives in a private submodule that is **not part of this public fork** — so those models **cannot be downloaded, decrypted, or run here**. The upstream code for them rides along but stays inert. If you want the supporter models, use upstream [**Kruk2/jasna**](https://github.com/Kruk2/jasna) and become a supporter. Everything else (detection, video restoration, RTX/TVAI secondary, the segment editor, VR180, post-export actions, frame generation) works normally.
 
 <img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
@@ -45,7 +45,7 @@ Jasna is free. Supporters get a key that unlocks the extra models trained for th
 
 ## `+modi` Additions
 
-These features are exclusive to the `+modi` fork. See [docs/CHANGES_vs_upstream_en.md](docs/CHANGES_vs_upstream_en.md) for the full list of changes against upstream.
+These features are exclusive to the `+modi` fork. See [docs/en/changes_vs_upstream.md](docs/en/changes_vs_upstream.md) for the full list of changes against upstream.
 
 ### Frame Generation (frame-rate up-conversion)
 
@@ -64,7 +64,7 @@ jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x
 jasna-framegen --input in_dir --output out_dir --factor 2x --output-pattern "{original}_2x.mkv"
 ```
 
-Details: [docs/FRAME_GENERATION_en.md](docs/FRAME_GENERATION_en.md).
+Details: [docs/en/frame_generation.md](docs/en/frame_generation.md).
 
 ### Video Backend (experimental)
 
@@ -74,7 +74,7 @@ Jasna decodes and encodes through PyAV (NVDEC/NVENC) by default (`--video-backen
 jasna --input input.mp4 --output output.mkv --video-backend auto
 ```
 
-`--video-backend {native,auto,torchcodec}` (default `native`, i.e. unchanged behavior): `auto` uses torchcodec for **decode** where available and falls back to native otherwise; `torchcodec` forces it. `--decode-backend` / `--encode-backend` override each side independently. Since v0.8.0 the native encoder always outputs 10-bit HEVC/AV1, which torchcodec's 8-bit NVENC cannot match, so **torchcodec encode runs only when forced** (`--encode-backend torchcodec`), and only for 8-bit sources with mappable NVENC settings; streaming, `--segments`, `--retarget-high-fps`, and frame generation stay on native. Colorspace metadata is preserved either way. Requires the optional dependency (`pip install "torchcodec>=0.15.0"` from the cu130 wheel index). Details: [docs/TORCHCODEC_BACKEND_en.md](docs/TORCHCODEC_BACKEND_en.md).
+`--video-backend {native,auto,torchcodec}` (default `native`, i.e. unchanged behavior): `auto` uses torchcodec for **decode** where available and falls back to native otherwise; `torchcodec` forces it. `--decode-backend` / `--encode-backend` override each side independently. Since v0.8.0 the native encoder always outputs 10-bit HEVC/AV1, which torchcodec's 8-bit NVENC cannot match, so **torchcodec encode runs only when forced** (`--encode-backend torchcodec`), and only for 8-bit sources with mappable NVENC settings; streaming, `--segments`, `--retarget-high-fps`, and frame generation stay on native. Colorspace metadata is preserved either way. Requires the optional dependency (`pip install "torchcodec>=0.15.0"` from the cu130 wheel index). Details: [docs/en/torchcodec_backend.md](docs/en/torchcodec_backend.md).
 
 ### FP8 Restoration Backend (experimental)
 
@@ -84,7 +84,7 @@ jasna --input input.mp4 --output output.mkv --video-backend auto
 jasna --input input.mp4 --output output.mp4 --fp8-recon
 ```
 
-The main benefit is VRAM: the TensorRT upsample engine's load-time arena (~2.2 GB at the default `--max-clip-size 90`) is never allocated, measured as 1.2–1.7 GB lower peak VRAM across 480p–4K clips. The stage itself also runs ~1.5x faster, though end-to-end fps is unchanged because the pipeline is detection-bound. Output stays visually indistinguishable from the FP16 engine and is bit-deterministic across runs. Requires an FP8-capable GPU (sm89+, i.e. RTX 40 series or newer; the speedup is validated on Blackwell only) and fp16 mode; falls back to the TensorRT engine on any failure. Verified on both Linux and Windows. Details: [docs/FP8_RECON_en.md](docs/FP8_RECON_en.md).
+The main benefit is VRAM: the TensorRT upsample engine's load-time arena (~2.2 GB at the default `--max-clip-size 90`) is never allocated, measured as 1.2–1.7 GB lower peak VRAM across 480p–4K clips. The stage itself also runs ~1.5x faster, though end-to-end fps is unchanged because the pipeline is detection-bound. Output stays visually indistinguishable from the FP16 engine and is bit-deterministic across runs. Requires an FP8-capable GPU (sm89+, i.e. RTX 40 series or newer; the speedup is validated on Blackwell only) and fp16 mode; falls back to the TensorRT engine on any failure. Verified on both Linux and Windows. Details: [docs/en/fp8_recon.md](docs/en/fp8_recon.md).
 
 ### FlashVSR secondary restoration (experimental)
 
@@ -94,7 +94,7 @@ The main benefit is VRAM: the TensorRT upsample engine's load-time arena (~2.2 G
 jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvsr-repo ~/FlashVSR_plus
 ```
 
-FlashVSR peaks at 12–16 GB VRAM on its own, so it cannot co-reside with the ~9 GB primary pipeline. It runs **offline in three subprocesses whose peak VRAM never overlaps**: (1) primary restoration → serialize crops to a disk *bundle*, (2) FlashVSR 4x under its own venv, (3) re-blend + encode the final output. You supply the `FlashVSR_plus` checkout, its v1.1 weights, and a **uv-managed standalone Python venv** (system Python can't JIT FlashVSR's Triton attention kernel). File-output only; not compatible with `--stream` / `--frame-gen`. A single-pass variant, `--secondary-restoration flashvsr-inline`, runs FlashVSR inside the streaming pipeline with **no intermediate files** (needs a 16 GB card and a checkout with the tiny-long multi-chunk patch). Details: [docs/FLASHVSR_en.md](docs/FLASHVSR_en.md).
+FlashVSR peaks at 12–16 GB VRAM on its own, so it cannot co-reside with the ~9 GB primary pipeline. It runs **offline in three subprocesses whose peak VRAM never overlaps**: (1) primary restoration → serialize crops to a disk *bundle*, (2) FlashVSR 4x under its own venv, (3) re-blend + encode the final output. You supply the `FlashVSR_plus` checkout, its v1.1 weights, and a **uv-managed standalone Python venv** (system Python can't JIT FlashVSR's Triton attention kernel). File-output only; not compatible with `--stream` / `--frame-gen`. A single-pass variant, `--secondary-restoration flashvsr-inline`, runs FlashVSR inside the streaming pipeline with **no intermediate files** (needs a 16 GB card and a checkout with the tiny-long multi-chunk patch). Details: [docs/en/flashvsr.md](docs/en/flashvsr.md).
 
 ## Community
 
@@ -157,6 +157,20 @@ If you run out of VRAM during processing, reduce **max clip size** first, for ex
 - **[Streaming](docs/en/streaming.md)** — watch restored video on the fly in your browser or through Stash.
 - **[CLI reference](docs/en/cli.md)** — every command-line option, including output templates, encoder settings per codec, and post-export actions.
 - **[Running from source](docs/en/development.md)** — developer setup and build notes.
+
+> **`+modi` build guides:** this fork builds the native GPU libraries and runs Jasna **from source** — there is no public packaged/frozen binary (the packaging tooling lives in the private `jasna/protection` submodule, same as upstream). Step-by-step guides covering the CUDA 13.0 toolchain, native libraries, ffmpeg 8, and TensorRT engine setup:
+> - Linux: [docs/en/building_linux.md](docs/en/building_linux.md)（[日本語](docs/ja/building_linux.md)）
+> - Windows: [docs/en/building_windows.md](docs/en/building_windows.md)（[日本語](docs/ja/building_windows.md)）
+
+`+modi` feature guides:
+
+- **[Frame generation](docs/en/frame_generation.md)** — RIFE 2x/4x frame-rate up-conversion and the standalone `jasna-framegen` tool.
+- **[Video backend](docs/en/torchcodec_backend.md)** — the experimental torchcodec decode/encode backend.
+- **[FP8 restoration backend](docs/en/fp8_recon.md)** — the cuDNN FP8 upsample stage with lower peak VRAM.
+- **[FlashVSR secondary restoration](docs/en/flashvsr.md)** — offline and inline diffusion 4x upscaling.
+- **[Fragmented MP4 output](docs/en/fmp4.md)** — `--fmp4`, output playable during processing.
+- **[Frozen build](docs/en/frozen_build.md)** — the experimental Nuitka standalone build.
+- **[Changes vs upstream](docs/en/changes_vs_upstream.md)** — the full delta of this fork.
 
 ## Benchmarks
 

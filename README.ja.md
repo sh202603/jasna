@@ -11,7 +11,7 @@ Jasna は無料です。支援者には、このプロジェクト用に訓練�
 > 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1 をベースにした改変ビルドで、**フレーム生成**（`--frame-gen` 2x/4x）、**torchcodec 動画バックエンド**、**FP8 復元バックエンド**、**FlashVSR セカンダリ復元**などを追加しています。
 >
 > - **ソース（このフォーク/ブランチ）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
-> - **上流との変更点一覧:** [docs/CHANGES_vs_upstream_ja.md](docs/CHANGES_vs_upstream_ja.md)
+> - **上流との変更点一覧:** [docs/ja/changes_vs_upstream.md](docs/ja/changes_vs_upstream.md)
 > - **対象範囲 — 公開（無料）機能のみ。** 支援者モデル（**unet-4x** と **SD 1.5 画像復元**）は支援者キーで解錠される暗号化チェックポイントで、復号コードは**この公開フォークに含まれない**プライベートサブモジュールにあります。そのため、これらのモデルは**ここではダウンロード・復号・実行できません**。上流のコードは同梱されますが inert（不活性）のままです。支援者モデルが必要な場合は上流 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) を使い支援者になってください。それ以外（検出・動画復元・RTX/TVAI セカンダリ・区間エディター・VR180・エクスポート後アクション・フレーム生成）は通常通り動作します。
 
 <img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
@@ -45,7 +45,7 @@ Jasna は無料です。支援者には、このプロジェクト用に訓練�
 
 ## `+modi` の追加機能
 
-これらの機能は `+modi` フォーク専用です。変更点の全一覧は [docs/CHANGES_vs_upstream_ja.md](docs/CHANGES_vs_upstream_ja.md) を参照してください。
+これらの機能は `+modi` フォーク専用です。変更点の全一覧は [docs/ja/changes_vs_upstream.md](docs/ja/changes_vs_upstream.md) を参照してください。
 
 ### フレーム生成（フレームレート アップコンバート）
 
@@ -64,7 +64,7 @@ jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x
 jasna-framegen --input in_dir --output out_dir --factor 2x --output-pattern "{original}_2x.mkv"
 ```
 
-詳細: [docs/FRAME_GENERATION_ja.md](docs/FRAME_GENERATION_ja.md)。
+詳細: [docs/ja/frame_generation.md](docs/ja/frame_generation.md)。
 
 ### 動画バックエンド（実験的）
 
@@ -74,7 +74,7 @@ Jasna は既定でデコード・エンコードとも PyAV（NVDEC/NVENC）を�
 jasna --input input.mp4 --output output.mkv --video-backend auto
 ```
 
-`--video-backend {native,auto,torchcodec}`（既定 `native`、つまり従来挙動）: `auto` は**デコード**に torchcodec が使える場面で使い、それ以外はネイティブにフォールバックします。`torchcodec` は強制します。`--decode-backend` / `--encode-backend` でデコード側・エンコード側を個別に上書きできます。v0.8.0 以降、ネイティブエンコーダは HEVC/AV1 を常に 10-bit で出力するため、8-bit 専用の torchcodec エンコードでは出力が一致しません。そのため **torchcodec エンコードは強制指定（`--encode-backend torchcodec`）時のみ**動作し、対象は 8-bit ソース + マッピング可能な NVENC 設定に限られます。ストリーミング、`--segments`、`--retarget-high-fps`、フレーム生成はネイティブ側のままです。色空間メタデータはどちらでも保持されます。オプション依存（cu130 wheel index から `pip install "torchcodec>=0.15.0"`）が必要です。詳細: [docs/TORCHCODEC_BACKEND_ja.md](docs/TORCHCODEC_BACKEND_ja.md)。
+`--video-backend {native,auto,torchcodec}`（既定 `native`、つまり従来挙動）: `auto` は**デコード**に torchcodec が使える場面で使い、それ以外はネイティブにフォールバックします。`torchcodec` は強制します。`--decode-backend` / `--encode-backend` でデコード側・エンコード側を個別に上書きできます。v0.8.0 以降、ネイティブエンコーダは HEVC/AV1 を常に 10-bit で出力するため、8-bit 専用の torchcodec エンコードでは出力が一致しません。そのため **torchcodec エンコードは強制指定（`--encode-backend torchcodec`）時のみ**動作し、対象は 8-bit ソース + マッピング可能な NVENC 設定に限られます。ストリーミング、`--segments`、`--retarget-high-fps`、フレーム生成はネイティブ側のままです。色空間メタデータはどちらでも保持されます。オプション依存（cu130 wheel index から `pip install "torchcodec>=0.15.0"`）が必要です。詳細: [docs/ja/torchcodec_backend.md](docs/ja/torchcodec_backend.md)。
 
 ### FP8 復元バックエンド（実験的）
 
@@ -84,7 +84,7 @@ jasna --input input.mp4 --output output.mkv --video-backend auto
 jasna --input input.mp4 --output output.mp4 --fp8-recon
 ```
 
-主な利点は VRAM です。TensorRT upsample エンジンがロード時に確保するアリーナ（既定 `--max-clip-size 90` で約 2.2GB）を確保しなくなり、480p〜4K のクリップで peak VRAM が 1.2〜1.7GB 下がることを実測しています。ステージ単体は約 1.5 倍速くなりますが、パイプラインの律速は検出側なので全体 fps は変わりません。出力は FP16 エンジンと目視で区別できず、走行間でビット決定的です。FP8 対応 GPU（sm89 以上、RTX 40 系以降。速度利得の実測は Blackwell のみ）と fp16 モードが必要で、失敗時は TensorRT エンジンへ自動フォールバックします。Linux と Windows の両方で動作確認済みです。詳細: [docs/FP8_RECON_ja.md](docs/FP8_RECON_ja.md)。
+主な利点は VRAM です。TensorRT upsample エンジンがロード時に確保するアリーナ（既定 `--max-clip-size 90` で約 2.2GB）を確保しなくなり、480p〜4K のクリップで peak VRAM が 1.2〜1.7GB 下がることを実測しています。ステージ単体は約 1.5 倍速くなりますが、パイプラインの律速は検出側なので全体 fps は変わりません。出力は FP16 エンジンと目視で区別できず、走行間でビット決定的です。FP8 対応 GPU（sm89 以上、RTX 40 系以降。速度利得の実測は Blackwell のみ）と fp16 モードが必要で、失敗時は TensorRT エンジンへ自動フォールバックします。Linux と Windows の両方で動作確認済みです。詳細: [docs/ja/fp8_recon.md](docs/ja/fp8_recon.md)。
 
 ### FlashVSR セカンダリ復元（実験的）
 
@@ -94,7 +94,7 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvsr-repo ~/FlashVSR_plus
 ```
 
-FlashVSR は単体で 12〜16GB VRAM を消費するため、一次パイプライン（約 9GB）と同時常駐できません。**ピーク VRAM が時間的に重ならない 3 つのサブプロセス**として動きます:(1) 一次復元 → クロップをディスクの *bundle* へ直列化、(2) 専用 venv で FlashVSR 4x、(3) 最終出力を再 blend + encode。`FlashVSR_plus` の checkout・v1.1 重み・**uv-managed の standalone Python venv**（system Python では FlashVSR の Triton アテンションカーネルを JIT できない）は利用者が用意します。ファイル出力専用で、`--stream` / `--frame-gen` とは併用不可。単一パス版 `--secondary-restoration flashvsr-inline` は、FlashVSR をストリーミングパイプラインに挟んで**中間ファイル無し**で実行します（16GB カード + tiny-long マルチチャンク修正パッチを当てた checkout が前提）。詳細: [docs/FLASHVSR_ja.md](docs/FLASHVSR_ja.md)。
+FlashVSR は単体で 12〜16GB VRAM を消費するため、一次パイプライン（約 9GB）と同時常駐できません。**ピーク VRAM が時間的に重ならない 3 つのサブプロセス**として動きます:(1) 一次復元 → クロップをディスクの *bundle* へ直列化、(2) 専用 venv で FlashVSR 4x、(3) 最終出力を再 blend + encode。`FlashVSR_plus` の checkout・v1.1 重み・**uv-managed の standalone Python venv**（system Python では FlashVSR の Triton アテンションカーネルを JIT できない）は利用者が用意します。ファイル出力専用で、`--stream` / `--frame-gen` とは併用不可。単一パス版 `--secondary-restoration flashvsr-inline` は、FlashVSR をストリーミングパイプラインに挟んで**中間ファイル無し**で実行します（16GB カード + tiny-long マルチチャンク修正パッチを当てた checkout が前提）。詳細: [docs/ja/flashvsr.md](docs/ja/flashvsr.md)。
 
 ## コミュニティ
 
@@ -157,8 +157,18 @@ jasna --input input_folder --output output_folder
 - **[ソースから実行](docs/en/development.md)** — 開発者向けセットアップとビルドメモ（英語）。
 
 > **`+modi` ビルドガイド:** このフォークはネイティブ GPU ライブラリをビルドし、Jasna を**ソースから実行**します。公開のパッケージ済み/凍結バイナリはありません — パッケージングツールはプライベートな `jasna/protection` サブモジュールにあります（上流と同じ構成）。CUDA 13.0 ツールチェーン、ネイティブライブラリ、ffmpeg 8 / mkvmerge、TensorRT エンジン設定を網羅した手順:
-> - Linux: [docs/BUILDING_LINUX_ja.md](docs/BUILDING_LINUX_ja.md)（[English](docs/BUILDING_LINUX_en.md)）
-> - Windows: [docs/BUILDING_WINDOWS_ja.md](docs/BUILDING_WINDOWS_ja.md)（[English](docs/BUILDING_WINDOWS_en.md)）
+> - Linux: [docs/ja/building_linux.md](docs/ja/building_linux.md)（[English](docs/en/building_linux.md)）
+> - Windows: [docs/ja/building_windows.md](docs/ja/building_windows.md)（[English](docs/en/building_windows.md)）
+
+`+modi` 機能ガイド:
+
+- **[フレーム生成](docs/ja/frame_generation.md)** — RIFE 2x/4x フレームレート アップコンバートとスタンドアロン `jasna-framegen`。
+- **[ビデオバックエンド](docs/ja/torchcodec_backend.md)** — 実験的な torchcodec デコード/エンコードバックエンド。
+- **[FP8 復元バックエンド](docs/ja/fp8_recon.md)** — cuDNN FP8 アップサンプル段でピーク VRAM を削減。
+- **[FlashVSR セカンダリ復元](docs/ja/flashvsr.md)** — オフライン/インラインの拡散 4x アップスケール。
+- **[フラグメント化 MP4 出力](docs/ja/fmp4.md)** — `--fmp4`、処理中に再生できる出力。
+- **[フローズンビルド](docs/ja/frozen_build.md)** — 実験的な Nuitka スタンドアロンビルド。
+- **[上流との変更点一覧](docs/ja/changes_vs_upstream.md)** — このフォークの全差分。
 
 ## ベンチマーク
 
