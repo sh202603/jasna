@@ -2,7 +2,7 @@
 
 How to set up Jasna on Windows and run it **from source**.
 
-> **Verification status (2026-07-19, `v0.8.1+modi`)**: These instructions are **verified on real hardware at `v0.8.1+modi`** — Windows 11 + RTX 5080 (driver 610.62, Python 3.13.9) (the v0.8.0 hardware verification was 2026-07-18). For the Linux side see [building_linux.md](building_linux.md).
+> **Verification status (2026-07-23, `0.8.1+modi` on the upstream main `d7a99bd` base)**: These instructions are **verified on real hardware on the d7a99bd base** — Windows 11 + RTX 5080 (driver 610.62, Python 3.13.9, CUDA 13.2, ffmpeg 8.1); pytest shows known failures only, and the CLI runs (native / fMP4 / frame-gen / torchcodec / fp8), flashvsr-inline, and the GUI smoke all pass (the v0.8.1 verification was 2026-07-19, v0.8.0 was 2026-07-18). For the Linux side see [building_linux.md](building_linux.md).
 
 > **This guide covers the `v0.8.1+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
 
