@@ -10,7 +10,7 @@ How to set up Jasna on Linux and run it **from source**.
 
 > **Packaging note:** This public fork runs Jasna **from source**. There is no public way to produce a frozen Linux binary from it (the bundled experimental Nuitka script `scripts/build_nuitka.py` targets Windows, and has not been updated for the v0.8.0 media-layer migration either). If you want a pre-packaged binary, use upstream Kruk2/jasna's official releases.
 
-> This guide is verified at **`v0.8.1+modi`** on **Ubuntu 26.04 LTS** with an **RTX 5080** and **driver 595.71.05** (2026-07-19: pytest plus full-pipeline runs; the v0.8.0 verification was 2026-07-18). Other distributions work too, but package names and the ffmpeg install steps will differ.
+> This guide is verified at **`0.8.1+modi` on the upstream main `d7a99bd` base** on **Ubuntu 26.04 LTS** with an **RTX 5080** (2026-07-23: pytest including e2e with known failures only, CLI/GUI smoke, and backend performance re-measurement; the v0.8.1 verification was 2026-07-19, v0.8.0 was 2026-07-18). Other distributions work too, but package names and the ffmpeg install steps will differ.
 
 ---
 
