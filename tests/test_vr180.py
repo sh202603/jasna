@@ -237,28 +237,50 @@ def test_fisheye_projector_keeps_eyes_isolated() -> None:
     assert projected[:, :, 8:].min().item() == 0
 
 
-def test_fisheye_delta_composition_preserves_untouched_source_pixels() -> None:
+def test_fisheye_composition_preserves_untouched_source_pixels() -> None:
     projector = FisheyeProjector(eye_width=16, height=16, device=torch.device("cpu"))
     source = torch.randint(0, 256, (3, 16, 32), dtype=torch.uint8)
-    projected = projector.forward_sbs(source)
+    blended = projector.forward_sbs(source).clone()
+    blended[:, 3:6, 3:6] = 200
+    coverage = torch.zeros((16, 32))
 
-    restored = projector.restore_delta_to_source(source, projected, projected.clone())
+    restored = projector.restore_blended_to_source(source, blended, coverage)
 
     assert torch.equal(restored, source)
 
 
-def test_fisheye_delta_composition_applies_changes_without_background_roundtrip() -> None:
+def test_fisheye_composition_applies_changes_only_under_coverage() -> None:
     projector = FisheyeProjector(eye_width=16, height=16, device=torch.device("cpu"))
     source = torch.full((3, 16, 32), 100, dtype=torch.uint8)
-    projected = projector.forward_sbs(source)
-    blended = projected.clone()
+    blended = projector.forward_sbs(source).clone()
     blended[:, 7:9, 7:9] = 140
+    coverage = torch.zeros((16, 32))
+    coverage[7:9, 7:9] = 1.0
 
-    restored = projector.restore_delta_to_source(source, projected, blended)
+    restored = projector.restore_blended_to_source(source, blended, coverage)
 
     changed = restored != source
     assert changed.any()
-    assert torch.equal(restored[~changed], source[~changed])
+    assert not changed[:, :, 16:].any()
+
+
+def test_fisheye_composition_ignores_content_outside_circle() -> None:
+    projector = FisheyeProjector(eye_width=16, height=16, device=torch.device("cpu"))
+    source = torch.full((3, 16, 32), 100, dtype=torch.uint8)
+    blended = projector.forward_sbs(source).clone()
+    outside = projector.circle_mask == 0
+    for eye in range(2):
+        eye_view = blended[:, :, eye * 16:(eye + 1) * 16]
+        eye_view[:, outside] = 255
+    coverage = torch.ones((16, 32))
+
+    restored = projector.restore_blended_to_source(source, blended, coverage)
+
+    # 255 の円外ガベージは出力に漏れない (rim 近傍のソース端画素は
+    # forward_sbs 由来の既存の減光があるため、上振れのみを禁止する)
+    assert int(restored.max()) <= 100
+    assert torch.equal(restored[:, 2:14, 2:14], source[:, 2:14, 2:14])
+    assert torch.equal(restored[:, 2:14, 18:30], source[:, 2:14, 18:30])
 
 
 def test_fisheye_inverse_mask_keeps_full_sbs_shape_and_eye_isolation() -> None:

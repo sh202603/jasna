@@ -81,7 +81,12 @@ class BlendBuffer:
         with self._lock:
             return bool(self.pending_map.get(frame_idx))
 
-    def blend_frame(self, frame_idx: int, original_frame: torch.Tensor) -> torch.Tensor:
+    def blend_frame(
+        self,
+        frame_idx: int,
+        original_frame: torch.Tensor,
+        coverage_out: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         with self._lock:
             pending = self.pending_map.pop(frame_idx, None)
             if not pending:
@@ -97,7 +102,10 @@ class BlendBuffer:
         for track_id, sr in results_snapshot:
             if sr is None:
                 continue
-            self._apply_blend(blended, original_frame, frame_idx, track_id, sr, device)
+            self._apply_blend(
+                blended, original_frame, frame_idx, track_id, sr, device,
+                coverage_out=coverage_out,
+            )
 
         with self._lock:
             for track_id, sr in results_snapshot:
@@ -115,6 +123,7 @@ class BlendBuffer:
         track_id: int,
         sr: SecondaryRestoreResult,
         device: torch.device,
+        coverage_out: torch.Tensor | None = None,
     ) -> None:
         clip_offset = sr.clip_keep_offset
         local_i = frame_idx - sr.start_frame - clip_offset
@@ -143,6 +152,11 @@ class BlendBuffer:
         ).squeeze(0)
 
         blend_mask = self.blend_mask_fn(mask_lr, (x1, y1, x2, y2), sr.frame_shape)
+
+        if coverage_out is not None:
+            effective = blend_mask * cw if cw < 1.0 else blend_mask
+            region = coverage_out[y1:y2, x1:x2]
+            torch.maximum(region, effective, out=region)
 
         if cw < 1.0:
             blend_mask = blend_mask * cw

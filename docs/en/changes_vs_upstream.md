@@ -165,3 +165,12 @@ Up to v0.7.x a raw .hevc stream was written to the output folder during processi
 ## 12. Incidental fix (modi): `StreamingEncoder` could wait forever
 
 `write_frame` in `jasna/streaming_encoder.py` could spin its retry loop forever after ffmpeg died, because `_started` stayed set. A kill-switch was added: when the writer thread catches `BrokenPipeError` / `OSError` it clears `_started` and raises a `failed` flag, so callers give up instead of waiting. This also benefits `--stream`.
+
+---
+
+## 13. Bug fix (modi): `sbs-fisheye` left a transparent mosaic ghost / halo in restored regions
+
+The `--vr-mode sbs-fisheye` merge step (`FisheyeProjector.restore_delta_to_source`) inverse-warped only the fisheye-space delta and **added** it to the source frame. Because `grid_sample` is linear, the composited output inside a fully restored region is exactly `W⁻¹(restored) + (x − W⁻¹(W(x)))` — the second term is the source frame's round-trip resample residual, i.e. a **high-pass ghost of the original mosaic** superimposed on the restoration (plus unsharp-mask-style halos at strong edges). Measured on synthetic mosaics, 28–72% of the mosaic's grid-edge energy survived into the output (worst at high latitudes, where the equirect→fisheye mapping compresses hardest); on real 8K VR frames the round trip destroys 15–20% of high-frequency detail across the field and 62–82% near the rim (`scripts/evaluation/vr_roundtrip_residual.py`).
+
+Fix: `restore_blended_to_source` composites with an inverse-warped **coverage mask** instead — `BlendBuffer.blend_frame(..., coverage_out=...)` records the per-pixel blend strength in fisheye space, and the merge lerps `x → W⁻¹(blended)` under `W⁻¹(coverage)`. Coverage and blended content are premultiplied by the fisheye circle mask (and un-premultiplied by the shared warped validity), so restored garbage from the out-of-circle black corners can no longer bleed into the output and rim pixels keep their brightness. Untouched pixels remain bit-exact. Grid-edge ghost drops to 0–8% on the same synthetic benchmark. Files: `jasna/vr180.py`, `jasna/blend_buffer.py`, `jasna/pipeline_threads.py`; tests in `tests/test_vr180.py`, `tests/test_pipeline_threads.py`.
+

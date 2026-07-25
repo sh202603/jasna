@@ -432,14 +432,20 @@ def blend_encode_loop(
                         and blend_buffer.has_pending(meta.frame_idx)
                     ):
                         projected_source = vr_projector.forward_sbs(original_frame)
+                        coverage = torch.zeros(
+                            projected_source.shape[-2:],
+                            dtype=torch.float32,
+                            device=projected_source.device,
+                        )
                         blended_fisheye = blend_buffer.blend_frame(
                             meta.frame_idx,
                             projected_source,
+                            coverage_out=coverage,
                         )
-                        blended = vr_projector.restore_delta_to_source(
+                        blended = vr_projector.restore_blended_to_source(
                             original_frame,
-                            projected_source,
                             blended_fisheye,
+                            coverage,
                         )
                     else:
                         blended = blend_buffer.blend_frame(

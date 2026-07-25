@@ -165,3 +165,12 @@ v0.7.x では処理中に生 .hevc が出力フォルダへ書かれ途中経過
 ## 12. 付随修正（modi）: `StreamingEncoder` の永久待ちバグ
 
 `jasna/streaming_encoder.py` の `write_frame` は、ffmpeg が死亡した後も `_started` が立ったままリトライループを回り続け、永久に待ち続ける可能性があった。writer スレッドが `BrokenPipeError` / `OSError` を捕まえた時点で `_started` を落として `failed` フラグを立てる kill-switch を追加し、呼び出し側が待ち続けずに諦められるようにした。`--stream` にも効く。
+
+---
+
+## 13. バグ修正（modi）: `sbs-fisheye` の復元領域に残る「透明なモザイク痕」・halo
+
+`--vr-mode sbs-fisheye` の合成段（`FisheyeProjector.restore_delta_to_source`）は、fisheye 空間の差分だけを逆変換して元フレームに**加算**していた。`grid_sample` は線形なので、完全復元領域の出力は厳密に `W⁻¹(restored) + (x − W⁻¹(W(x)))` となり、第 2 項＝元フレームの往復リサンプル残差、すなわち**元モザイクのハイパスゴースト**が復元結果に重畳される（強エッジではアンシャープマスク状の halo）。合成モザイクでの計測では格子エッジ成分の 28〜72% が出力に残存（equirect→fisheye の圧縮が強い高緯度で最悪）。実 8K VR フレームでは往復リサンプルが全域で高周波の 15〜20%、rim 付近で 62〜82% を破壊する（`scripts/evaluation/vr_roundtrip_residual.py`）。
+
+修正: `restore_blended_to_source` は逆変換した**カバレッジマスク**で合成する方式に変更。`BlendBuffer.blend_frame(..., coverage_out=...)` が fisheye 空間の画素別合成強度を記録し、合成段は `W⁻¹(coverage)` を重みに `x → W⁻¹(blended)` を lerp する。カバレッジと合成結果には fisheye 円マスクを乗算（共有の逆変換 validity で un-premultiply）するため、円外の黒領域由来の復元ゴミが出力に混入せず、rim の輝度も保たれる。未処理画素は bit-exact のまま。同じ合成ベンチマークで格子ゴーストは 0〜8% に低下。対象: `jasna/vr180.py`、`jasna/blend_buffer.py`、`jasna/pipeline_threads.py`。テスト: `tests/test_vr180.py`、`tests/test_pipeline_threads.py`。
+

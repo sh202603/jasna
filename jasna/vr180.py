@@ -290,6 +290,17 @@ class FisheyeProjector:
             self.height,
             fov_degrees,
         ).to(device)
+        ys = self._pixel_centers(self.height) * 2.0 - 1.0
+        xs = self._pixel_centers(self.eye_width) * 2.0 - 1.0
+        radius = (ys[:, None].square() + xs[None, :].square()).sqrt()
+        self.circle_mask = (radius <= 1.0).float().to(device)
+        self._inverse_validity = F.grid_sample(
+            self.circle_mask[None, None],
+            self.inverse_grid,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=False,
+        )[0, 0].clamp_(0.0, 1.0)
 
     @staticmethod
     def _pixel_centers(length: int) -> torch.Tensor:
@@ -427,37 +438,86 @@ class FisheyeProjector:
                 )
         return output[0] if single else output
 
+    def _validate_coverage(
+        self, coverage_sbs: torch.Tensor, batch: int
+    ) -> torch.Tensor:
+        if coverage_sbs.ndim == 2:
+            coverage_sbs = coverage_sbs.unsqueeze(0)
+        if coverage_sbs.ndim != 3:
+            raise ValueError(
+                f"Expected (H,W) or (N,H,W) coverage, got {tuple(coverage_sbs.shape)}"
+            )
+        expected = (self.height, self.eye_width * 2)
+        if coverage_sbs.shape[-2:] != expected:
+            raise ValueError(
+                f"Coverage size {tuple(coverage_sbs.shape[-2:])} does not match "
+                f"{expected}"
+            )
+        if coverage_sbs.shape[0] not in (1, batch):
+            raise ValueError(
+                f"Coverage batch {coverage_sbs.shape[0]} does not match {batch}"
+            )
+        return coverage_sbs
+
     @torch.inference_mode()
-    def restore_delta_to_source(
+    def restore_blended_to_source(
         self,
         source_sbs: torch.Tensor,
-        projected_source_sbs: torch.Tensor,
         blended_fisheye_sbs: torch.Tensor,
+        coverage_sbs: torch.Tensor,
     ) -> torch.Tensor:
+        """Composite the fisheye-space blend result back onto the source frame.
+
+        The naive alternative — inverse-warping only the delta and adding it to
+        the source — leaves the source's round-trip resample residual (a
+        high-pass ghost of the original mosaic) inside restored regions, so the
+        blended content is lerped in with the inverse-warped coverage mask
+        instead. Pixels with zero coverage keep their exact source values.
+        Coverage and blended content are multiplied by the fisheye circle mask
+        before warping so restored garbage from outside the circle never
+        reaches the output; the shared warped-circle validity un-premultiplies
+        both so rim pixels keep their true brightness.
+        """
         source_sbs, single = self._validate_sbs(source_sbs)
-        projected_source_sbs, _ = self._validate_sbs(projected_source_sbs)
         blended_fisheye_sbs, _ = self._validate_sbs(blended_fisheye_sbs)
-        if (
-            source_sbs.shape != projected_source_sbs.shape
-            or source_sbs.shape != blended_fisheye_sbs.shape
-        ):
-            raise ValueError("Source, projected source, and blended frames must match")
+        if source_sbs.shape != blended_fisheye_sbs.shape:
+            raise ValueError("Source and blended frames must match")
+        coverage_sbs = self._validate_coverage(coverage_sbs, source_sbs.shape[0])
 
         output = source_sbs.float()
+        validity = self._inverse_validity.clamp(min=1e-6)
         for index in range(source_sbs.shape[0]):
+            cov_index = min(index, coverage_sbs.shape[0] - 1)
             for eye_index in range(2):
                 start = eye_index * self.eye_width
                 end = start + self.eye_width
-                delta = (
-                    blended_fisheye_sbs[index, :, :, start:end].float()
-                    - projected_source_sbs[index, :, :, start:end].float()
+                cov = (
+                    coverage_sbs[cov_index, :, start:end].float()
+                    * self.circle_mask
                 )
-                source_delta = self._sample_eye(
-                    delta,
+                if not bool(cov.any()):
+                    continue
+                blended = (
+                    blended_fisheye_sbs[index, :, :, start:end].float()
+                    * self.circle_mask
+                )
+                blended_src = self._sample_eye(
+                    blended,
                     self.inverse_grid,
                     preserve_dtype=False,
+                ) / validity
+                cov_src = F.grid_sample(
+                    cov[None, None],
+                    self.inverse_grid,
+                    mode="bilinear",
+                    padding_mode="zeros",
+                    align_corners=False,
+                )[0, 0] / validity
+                output[index, :, :, start:end] = torch.lerp(
+                    output[index, :, :, start:end],
+                    blended_src,
+                    cov_src.clamp_(0.0, 1.0),
                 )
-                output[index, :, :, start:end].add_(source_delta)
         output = output.round_().clamp_(0, 255).to(source_sbs.dtype)
         return output[0] if single else output
 
