@@ -19,6 +19,7 @@ def _build_yolo_model(*, batch_size=2, imgsz=640):
     mock_runner = MagicMock()
     mock_runner.input_names = ["images"]
     mock_runner.input_dtypes = {"images": torch.float32}
+    mock_runner.input_shapes = {"images": (batch_size, 3, imgsz, imgsz)}
 
     pred = torch.zeros(batch_size, 4 + 1 + 32, 100)
     proto = torch.zeros(batch_size, 32, imgsz // 4, imgsz // 4)
@@ -51,6 +52,7 @@ class TestYoloInit:
         mock_runner_cls = MagicMock()
         mock_runner_cls.return_value.input_names = ["images"]
         mock_runner_cls.return_value.input_dtypes = {"images": torch.float32}
+        mock_runner_cls.return_value.input_shapes = {"images": (2, 3, 640, 640)}
         engine = _mock_engine_path()
 
         with (
@@ -322,3 +324,68 @@ class TestYoloAutoBackendCall:
 
         assert scores.shape == (1,)
         assert masks.shape == (1, 90, 160)
+
+
+class TestYoloEngineBatchChunking:
+    def _build_with_engine_batch(self, engine_batch, batch_size, imgsz=640):
+        mock_runner = MagicMock()
+        mock_runner.input_names = ["images"]
+        mock_runner.input_dtypes = {"images": torch.float32}
+        mock_runner.input_shapes = {"images": (engine_batch, 3, imgsz, imgsz)}
+        calls = []
+
+        def fake_infer(inputs):
+            x = inputs["images"]
+            calls.append(x.clone())
+            assert x.shape[0] == engine_batch
+            pred = x[:, 0, 0, 0].reshape(-1, 1, 1).expand(-1, 37, 100).clone()
+            proto = x[:, 0, 0, 0].reshape(-1, 1, 1, 1).expand(-1, 32, 160, 160).clone()
+            return {"pred": pred, "proto": proto}
+
+        mock_runner.infer.side_effect = fake_infer
+
+        with (
+            patch("jasna.mosaic.yolo.get_yolo_tensorrt_engine_path", return_value=_mock_engine_path()),
+            patch("jasna.mosaic.yolo.TrtRunner", return_value=mock_runner),
+        ):
+            model = YoloMosaicDetectionModel(
+                model_path=Path("model.pt"),
+                batch_size=batch_size,
+                device=torch.device("cuda:0"),
+                imgsz=imgsz,
+            )
+        return model, mock_runner, calls
+
+    def test_smaller_batch_is_padded_to_engine_batch(self):
+        model, runner, calls = self._build_with_engine_batch(4, 2)
+        x = torch.arange(2, dtype=torch.float32).reshape(2, 1, 1, 1).expand(2, 3, 640, 640).contiguous()
+
+        pred, proto = model._infer_engine(x)
+
+        assert len(calls) == 1
+        assert pred.shape[0] == 2
+        assert proto.shape[0] == 2
+        # パディング行は末尾フレームの繰り返し
+        assert torch.equal(calls[0][2, 0, 0, 0], torch.tensor(1.0))
+        assert torch.equal(calls[0][3, 0, 0, 0], torch.tensor(1.0))
+
+    def test_larger_batch_is_chunked(self):
+        model, runner, calls = self._build_with_engine_batch(4, 6)
+        x = torch.arange(6, dtype=torch.float32).reshape(6, 1, 1, 1).expand(6, 3, 640, 640).contiguous()
+
+        pred, proto = model._infer_engine(x)
+
+        assert len(calls) == 2
+        assert pred.shape[0] == 6
+        assert proto.shape[0] == 6
+        # 各行の値が入力順のまま保存されている (persistent buffer の上書き対策)
+        assert torch.equal(pred[:, 0, 0], torch.arange(6, dtype=torch.float32))
+
+    def test_matching_batch_uses_fast_path(self):
+        model, runner, calls = self._build_with_engine_batch(4, 4)
+        x = torch.zeros(4, 3, 640, 640)
+
+        pred, proto = model._infer_engine(x)
+
+        assert len(calls) == 1
+        assert pred.shape[0] == 4

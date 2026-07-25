@@ -174,3 +174,11 @@ v0.7.x では処理中に生 .hevc が出力フォルダへ書かれ途中経過
 
 修正: `restore_blended_to_source` は逆変換した**カバレッジマスク**で合成する方式に変更。`BlendBuffer.blend_frame(..., coverage_out=...)` が fisheye 空間の画素別合成強度を記録し、合成段は `W⁻¹(coverage)` を重みに `x → W⁻¹(blended)` を lerp する。カバレッジと合成結果には fisheye 円マスクを乗算（共有の逆変換 validity で un-premultiply）するため、円外の黒領域由来の復元ゴミが出力に混入せず、rim の輝度も保たれる。未処理画素は bit-exact のまま。同じ合成ベンチマークで格子ゴーストは 0〜8% に低下。対象: `jasna/vr180.py`、`jasna/blend_buffer.py`、`jasna/pipeline_threads.py`。テスト: `tests/test_vr180.py`、`tests/test_pipeline_threads.py`。
 
+---
+
+## 14. バグ修正（modi）: 静的 TensorRT エンジンが過小入力バッファで実行される（Xid 31 クラッシュ）
+
+`TrtRunner._setup` は `set_input_shape` の失敗を無視するため、**静的**エンジン（例: YOLO 検出エンジン。キャッシュファイル名にバッチサイズが入らない）はビルド時形状のまま実行され、呼び出し側が小さいバッファを渡すと毎推論バッファ外読み出しになる。アロケータ圧で当該ページが unmap されると `CUDA error: an illegal memory access`（カーネルログでは `Xid 31` MMU read fault）としてパイプラインの任意箇所に現れる。実際の踏み方: デフォルト `--batch-size 4` で検出エンジンをコンパイルした後、16GB カード + 8K 入力の OOM 回避で `--batch-size 1/2` を指定して再実行するケース。
+
+修正: `TrtRunner` は静的エンジンにはエンジン自身の形状をバインドし、確定形状を `input_shapes` として公開、TensorRT が形状を拒否した場合は例外を送出。`infer()` は入力テンソル形状を検証してフォールトの代わりにエラーにする。`YoloMosaicDetectionModel._infer_engine` は任意のバッチをエンジンの静的バッチへチャンク分割＋末尾フレーム複製でパディングし、出力を切り戻す。対象: `jasna/trt/trt_runner.py`、`jasna/mosaic/yolo.py`。テスト: `tests/test_trt_runner.py`、`tests/test_yolo_call.py`。
+

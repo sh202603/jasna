@@ -174,3 +174,11 @@ The `--vr-mode sbs-fisheye` merge step (`FisheyeProjector.restore_delta_to_sourc
 
 Fix: `restore_blended_to_source` composites with an inverse-warped **coverage mask** instead — `BlendBuffer.blend_frame(..., coverage_out=...)` records the per-pixel blend strength in fisheye space, and the merge lerps `x → W⁻¹(blended)` under `W⁻¹(coverage)`. Coverage and blended content are premultiplied by the fisheye circle mask (and un-premultiplied by the shared warped validity), so restored garbage from the out-of-circle black corners can no longer bleed into the output and rim pixels keep their brightness. Untouched pixels remain bit-exact. Grid-edge ghost drops to 0–8% on the same synthetic benchmark. Files: `jasna/vr180.py`, `jasna/blend_buffer.py`, `jasna/pipeline_threads.py`; tests in `tests/test_vr180.py`, `tests/test_pipeline_threads.py`.
 
+---
+
+## 14. Bug fix (modi): static TensorRT engines executed with undersized input buffers (Xid 31 crash)
+
+`TrtRunner._setup` ignored the return of `set_input_shape`, so a **static** engine (e.g. the YOLO detection engine, whose cache filename does not encode the batch size) ran with its build-time shape while the caller bound a smaller buffer — every inference read out of bounds, surfacing as `CUDA error: an illegal memory access` (kernel-log `Xid 31` MMU read faults) anywhere in the pipeline once allocator pressure unmapped the overread pages. Trigger in practice: compiling the detection engine at the default `--batch-size 4`, then re-running with `--batch-size 1/2` (a natural OOM-avoidance move on 16 GB cards with 8K input).
+
+Fix: `TrtRunner` now binds the engine's own shape for static engines, exposes the bound shapes as `input_shapes`, raises if TensorRT rejects a shape, and `infer()` validates input tensor shapes instead of faulting. `YoloMosaicDetectionModel._infer_engine` chunks/pads any batch to the engine's static batch (repeating the last frame, slicing outputs back). Files: `jasna/trt/trt_runner.py`, `jasna/mosaic/yolo.py`; tests in `tests/test_trt_runner.py`, `tests/test_yolo_call.py`.
+

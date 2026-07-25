@@ -170,6 +170,11 @@ class YoloMosaicDetectionModel:
             )
             self._input_name = self.runner.input_names[0]
             self.input_dtype = self.runner.input_dtypes[self._input_name]
+            # Static engines bind their build-time batch, which may differ
+            # from self.batch_size; _infer_engine chunks/pads to it.
+            self._engine_batch = int(
+                self.runner.input_shapes[self._input_name][0]
+            )
         else:
             from ultralytics.nn.autobackend import AutoBackend
 
@@ -210,15 +215,40 @@ class YoloMosaicDetectionModel:
             self._empty_masks_cache[key] = t
         return t
 
+    def _infer_engine(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        engine_batch = self._engine_batch
+        total = int(x.shape[0])
+        if total == engine_batch:
+            outs = self.runner.infer({self._input_name: x})
+            pred = next(t for t in outs.values() if t.ndim == 3)
+            proto = next(t for t in outs.values() if t.ndim == 4)
+            return pred, proto
+
+        preds: list[torch.Tensor] = []
+        protos: list[torch.Tensor] = []
+        for start in range(0, total, engine_batch):
+            chunk = x[start:start + engine_batch]
+            keep = int(chunk.shape[0])
+            if keep < engine_batch:
+                chunk = torch.cat(
+                    (chunk, chunk[-1:].expand(engine_batch - keep, -1, -1, -1)),
+                    dim=0,
+                )
+            outs = self.runner.infer({self._input_name: chunk})
+            # runner.infer returns persistent buffers, so copy out the kept
+            # rows before the next chunk overwrites them
+            preds.append(next(t for t in outs.values() if t.ndim == 3)[:keep].clone())
+            protos.append(next(t for t in outs.values() if t.ndim == 4)[:keep].clone())
+        if len(preds) == 1:
+            return preds[0], protos[0]
+        return torch.cat(preds, dim=0), torch.cat(protos, dim=0)
+
     def _forward_raw(
         self, x: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, int]:
         with torch.inference_mode():
             if self.runner is not None:
-                outs = self.runner.infer({self._input_name: x})
-                pred = next(t for t in outs.values() if t.ndim == 3)
-                proto = next(t for t in outs.values() if t.ndim == 4)
-                raw = (pred, proto)
+                raw = self._infer_engine(x)
             else:
                 raw = self.model(x)
 

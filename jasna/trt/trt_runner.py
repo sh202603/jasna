@@ -51,8 +51,22 @@ class TrtRunner:
             input_shapes = dict(zip(self.input_names, input_shapes))
 
         self.input_dtypes: dict[str, torch.dtype] = {}
+        self.input_shapes: dict[str, tuple[int, ...]] = {}
         for name in self.input_names:
-            self.context.set_input_shape(name, input_shapes[name])
+            requested = tuple(int(d) for d in input_shapes[name])
+            engine_shape = tuple(int(d) for d in self.engine.get_tensor_shape(name))
+            # Static engines only accept their build-time shape; silently
+            # executing with a smaller caller buffer reads out of bounds
+            # (Xid 31), so bind the engine shape and let callers pad.
+            is_static = all(d >= 0 for d in engine_shape)
+            shape = engine_shape if is_static and engine_shape != requested else requested
+            self.context.set_input_shape(name, shape)
+            if tuple(int(d) for d in self.context.get_tensor_shape(name)) != shape:
+                raise RuntimeError(
+                    f"TensorRT rejected input shape {shape} for '{name}' "
+                    f"(engine shape {engine_shape}, requested {requested}): {source}"
+                )
+            self.input_shapes[name] = shape
             self.input_dtypes[name] = _trt_dtype_to_torch(self.engine.get_tensor_dtype(name))
 
         dev = torch.device(self.device)
@@ -72,6 +86,12 @@ class TrtRunner:
 
     def infer(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         for name, tensor in inputs.items():
+            expected = self.input_shapes.get(name)
+            if expected is not None and tuple(tensor.shape) != expected:
+                raise ValueError(
+                    f"Input '{name}' shape {tuple(tensor.shape)} does not match "
+                    f"the bound engine shape {expected}"
+                )
             self.context.set_tensor_address(name, int(tensor.data_ptr()))
         self.context.execute_async_v3(torch.cuda.current_stream(self.device).cuda_stream)
         return self.outputs
