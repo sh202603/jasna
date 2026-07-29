@@ -169,7 +169,6 @@ If you run out of VRAM during processing, reduce **max clip size** first, for ex
 - **[Video backend](docs/en/torchcodec_backend.md)** — the experimental torchcodec decode/encode backend.
 - **[FP8 restoration backend](docs/en/fp8_recon.md)** — the cuDNN FP8 upsample stage with lower peak VRAM.
 - **[FlashVSR secondary restoration](docs/en/flashvsr.md)** — offline and inline diffusion 4x upscaling.
-- **[Fragmented MP4 output](docs/en/fmp4.md)** — `--fmp4`, output playable during processing.
 - **[Frozen build](docs/en/frozen_build.md)** — the experimental Nuitka standalone build.
 - **[Changes vs upstream](docs/en/changes_vs_upstream.md)** — the full delta of this fork.
 
