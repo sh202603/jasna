@@ -157,7 +157,6 @@ jasna --input input_folder --output output_folder
 - **[视频后端](docs/en/torchcodec_backend.md)** — 实验性 torchcodec 解码/编码后端。
 - **[FP8 修复后端](docs/en/fp8_recon.md)** — cuDNN FP8 上采样阶段，降低峰值显存。
 - **[FlashVSR 二级修复](docs/en/flashvsr.md)** — 离线/内联扩散 4x 放大。
-- **[分段式 MP4 输出](docs/en/fmp4.md)** — `--fmp4`，处理中即可播放的输出。
 - **[冻结构建](docs/en/frozen_build.md)** — 实验性 Nuitka 独立构建。
 - **[与上游的完整变更](docs/en/changes_vs_upstream.md)** — 本分支的全部差异。
 

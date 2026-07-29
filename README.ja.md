@@ -166,7 +166,6 @@ jasna --input input_folder --output output_folder
 - **[ビデオバックエンド](docs/ja/torchcodec_backend.md)** — 実験的な torchcodec デコード/エンコードバックエンド。
 - **[FP8 復元バックエンド](docs/ja/fp8_recon.md)** — cuDNN FP8 アップサンプル段でピーク VRAM を削減。
 - **[FlashVSR セカンダリ復元](docs/ja/flashvsr.md)** — オフライン/インラインの拡散 4x アップスケール。
-- **[フラグメント化 MP4 出力](docs/ja/fmp4.md)** — `--fmp4`、処理中に再生できる出力。
 - **[フローズンビルド](docs/ja/frozen_build.md)** — 実験的な Nuitka スタンドアロンビルド。
 - **[上流との変更点一覧](docs/ja/changes_vs_upstream.md)** — このフォークの全差分。
 
