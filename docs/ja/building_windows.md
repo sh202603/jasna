@@ -114,7 +114,9 @@ v0.8.0 の GPU パスは PyAV 18.1.0 で入る **current_ctx API**（torch が�
 
 PyPI に av 18.1.0 が出ていれば本節の残りは不要です。PyPI のバイナリ wheel は対応済みの FFmpeg を同梱しているため、`uv pip install "av>=18.1"` するだけで済みます（5節のインストールでも解決されます）。
 
-### (B) PyAV main `61e4aa8` から自前ビルド（実機検証済み）
+> **⚠️ v0.9.1 ベースでの更新（2026-07-30、Windows は未再検証）:** v0.9.1 ベースのエンコーダは PyAV の CUDA stream 明示指定（`CudaContext(cuda_stream=...)`）を追加で必要とし、`61e4aa8` にはこの API がありません。PyAV **main** からビルドしてください（Linux での検証コミットは `f6f0a5e`。以下のビルド手順自体は不変）。`0.9.1+modi` の Windows 実機検証は未実施で、以下の注記は最終検証ベース（`d7a99bd`）時点のものです。
+
+### (B) PyAV main から自前ビルド（実機検証済み）
 
 current_ctx マージ済みの upstream main `61e4aa8` をチェックアウトし、BtbN の shared ビルドにリンクして wheel を作ります。追加の前提は VS Build Tools 2022 だけです（**Developer PowerShell for VS 2022** セッションで実行する）。
 
@@ -124,7 +126,8 @@ current_ctx マージ済みの upstream main `61e4aa8` をチェックアウト�
 cd $Workspace
 git clone https://github.com/PyAV-Org/PyAV.git
 cd PyAV
-git checkout 61e4aa8
+# v0.9.1 ベースは main からビルド（Linux 検証コミット f6f0a5e）。61e4aa8 には CUDA stream API がない
+git checkout f6f0a5e
 
 # cl.exe は INCLUDE を、link.exe は LIB を参照する（Developer PowerShell の既存値に追記）
 $env:INCLUDE = "$env:INCLUDE;$Workspace\ffmpeg-n8.1-shared\include"
