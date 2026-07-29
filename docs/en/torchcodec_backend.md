@@ -1,6 +1,8 @@
 # torchcodec backend (experimental, with vali / PyNvVideoCodec fallback)
 
 > **⚠️ Semantics changed with the v0.8.0 rebase (2026-07-18)**: the native backend is now PyAV (NVDEC/NVENC), and torchcodec **encode** is no longer selected by `auto` (native always outputs 10-bit HEVC/AV1, so output parity with the 8-bit-only torchcodec encoder no longer holds). It runs only when forced (`--encode-backend torchcodec`), and only for 8-bit sources. `docs/en/changes_vs_upstream.md` §7 is authoritative for the current semantics; the rest of this document (selection layer, NVENC mapping, fallback machinery) still applies.
+>
+> **v0.9.1-base update (2026-07-30)**: `native` decode is now itself a chain — upstream's reader tries VALI NVDEC first (with Kruk2's `python_vali` fork wheel installed), then PyAV hwaccel, then PyAV software (in-code `DECODE_BACKEND` toggle). `--video-backend` sits **above** that chain: `native` hands the file to upstream's reader as-is, `torchcodec`/`auto` behave as before. On the encode side upstream added CAS sharpening (`--sharpen`) and fMP4; both stay native-only (CAS is an eligibility gate, `--fmp4` logs a warning and remuxes with `+faststart` at the end under the torchcodec encoder).
 
 
 Design for the torchcodec-based decode/encode path selectable via `--video-backend`.
