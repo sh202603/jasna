@@ -2,7 +2,7 @@
 
 How to set up Jasna on Linux and run it **from source**.
 
-> **This guide covers the `v0.8.1+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
+> **This guide covers the `v0.9.1+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
 
 > **v0.8.0 simplified the setup considerably.** Upstream v0.8.0 moved the media layer to PyAV (NVDEC/NVENC), which removed the native builds of `python_vali` / `PyNvVideoCodec` entirely. With them went every prerequisite the old guide needed for those builds: the CUDA Toolkit, cmake / ninja, the ffmpeg dev packages (`libav*-dev`), the `FFMPEG_DIR` prefix, the `setuptools<80` pin, and `mkvmerge`. The one special step that remains is **building a PyAV wheel yourself** (Section 4; an interim measure until PyAV 18.1.0 reaches PyPI).
 >
@@ -10,7 +10,7 @@ How to set up Jasna on Linux and run it **from source**.
 
 > **Packaging note:** This public fork runs Jasna **from source**. There is no public way to produce a frozen Linux binary from it (the bundled experimental Nuitka script `scripts/build_nuitka.py` targets Windows, and has not been updated for the v0.8.0 media-layer migration either). If you want a pre-packaged binary, use upstream Kruk2/jasna's official releases.
 
-> This guide is verified at **`0.8.1+modi` on the upstream main `d7a99bd` base** on **Ubuntu 26.04 LTS** with an **RTX 5080** (2026-07-23: pytest including e2e with known failures only, CLI/GUI smoke, and backend performance re-measurement; the v0.8.1 verification was 2026-07-19, v0.8.0 was 2026-07-18). Other distributions work too, but package names and the ffmpeg install steps will differ.
+> This guide is verified at **`0.9.1+modi` on the upstream `v0.9.1` tag (`a7cdaf8`)** on **Ubuntu 26.04 LTS** with an **RTX 5080** (2026-07-30: full pytest including e2e with a failure set identical to the vanilla v0.9.1 baseline measured on the same machine, plus CLI smokes for native / torchcodec+fp8-recon / fmp4 / rfdetr-v6 / frame-gen / segments / streaming / flashvsr-inline and a GUI launch smoke; earlier bases: d7a99bd 2026-07-23, v0.8.1 2026-07-19, v0.8.0 2026-07-18). Other distributions work too, but package names and the ffmpeg install steps will differ.
 
 ---
 
@@ -80,7 +80,7 @@ The old guide's tool pre-install (`cmake ninja scikit-build "setuptools<80" whee
 
 ## 4. Build and install the PyAV wheel (interim)
 
-The v0.8.0 GPU path uses the **current_ctx API** landing in PyAV 18.1.0 (it lets NVDEC/NVENC share the CUDA context torch already initialized), but 18.1.0 is not published yet and PyPI's av 18.0.0 lacks the API. So you build a wheel from PyAV upstream main at `61e4aa8` (which has current_ctx merged).
+The GPU path needs PyAV's **current_ctx API** plus (since the v0.9.1 base) the **explicit CUDA stream support** the encoder passes via `CudaContext(cuda_stream=...)`. PyPI's av 18.0.0 has neither, so you build a wheel from PyAV upstream **main** (upstream docs say the same; `f6f0a5e` is the commit verified with this guide).
 
 **Once av 18.1.0 reaches PyPI, this whole section becomes unnecessary.** The `av>=18,<19` requirement in `pyproject.toml` will resolve on its own (the PyPI binary wheels bundle a compatible FFmpeg).
 
@@ -103,7 +103,8 @@ ls "$WORKSPACE/ffmpeg-n8.1-shared/lib/pkgconfig"   # should list libavcodec.pc e
 cd "$WORKSPACE"
 git clone https://github.com/PyAV-Org/PyAV.git
 cd PyAV
-git checkout 61e4aa8
+# build from main; f6f0a5e is the commit verified with this guide
+git checkout f6f0a5e
 
 export PKG_CONFIG_PATH="$WORKSPACE/ffmpeg-n8.1-shared/lib/pkgconfig"
 export VIRTUAL_ENV="$WORKSPACE/jasna/.venv"        # already set if you did Section 3 in this shell
@@ -233,7 +234,7 @@ With Sections 1–6 done, run Jasna directly from the source checkout inside the
 
 ```bash
 cd "$WORKSPACE/jasna"
-python -m jasna --version    # -> 0.8.1+modi
+python -m jasna --version    # -> 0.9.1+modi
 python -m jasna --help
 jasna --input assets/test_clip1_1080p.mp4 --output /tmp/out.mp4   # process a short clip
 python -m jasna              # launch the GUI (no arguments)
