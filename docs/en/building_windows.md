@@ -114,7 +114,9 @@ In addition, the link target must be an **FFmpeg 8 built with nv-codec-headers 1
 
 If PyPI already has av 18.1.0, the rest of this section is unnecessary. The PyPI binary wheels bundle a compatible FFmpeg, so `uv pip install "av>=18.1"` is all it takes (the Section 5 install resolves it too).
 
-### (B) Build from PyAV main `61e4aa8` yourself (verified on hardware)
+> **⚠️ v0.9.1-base update (2026-07-30, not yet re-verified on Windows):** the v0.9.1-base encoder additionally needs PyAV's explicit CUDA-stream support (`CudaContext(cuda_stream=...)`), which `61e4aa8` predates. Build from PyAV **main** instead (`f6f0a5e` is the commit verified on Linux); the build procedure below is otherwise unchanged. The Windows hardware verification of `0.9.1+modi` is still pending — the notes below describe the last verified base (`d7a99bd`).
+
+### (B) Build from PyAV main yourself (verified on hardware)
 
 Check out upstream main `61e4aa8`, which has current_ctx merged, and link against the BtbN shared build. The only additional prerequisite is VS Build Tools 2022 (run inside a **Developer PowerShell for VS 2022** session).
 
@@ -124,7 +126,8 @@ Check out upstream main `61e4aa8`, which has current_ctx merged, and link agains
 cd $Workspace
 git clone https://github.com/PyAV-Org/PyAV.git
 cd PyAV
-git checkout 61e4aa8
+# v0.9.1 base: build from main (f6f0a5e verified on Linux); 61e4aa8 lacks the CUDA-stream API
+git checkout f6f0a5e
 
 # cl.exe reads INCLUDE, link.exe reads LIB (append to the Developer PowerShell values)
 $env:INCLUDE = "$env:INCLUDE;$Workspace\ffmpeg-n8.1-shared\include"
