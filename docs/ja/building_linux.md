@@ -2,7 +2,7 @@
 
 Linux で Jasna のセットアップを行い、**ソースから実行**する手順です。
 
-> **本ガイドは `v0.8.1+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）は v0.7.2 期から変わらず、依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
+> **本ガイドは `v0.9.1+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）は v0.7.2 期から変わらず、依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
 
 > **v0.8.0 でビルド手順は大幅に簡素化されました。** upstream v0.8.0 でメディア層が PyAV（NVDEC/NVENC）へ移行し、`python_vali` / `PyNvVideoCodec` のネイティブビルドが丸ごと不要になりました。これに伴い、旧ガイドの前提だった CUDA Toolkit、cmake / ninja、ffmpeg dev パッケージ（`libav*-dev`）、`FFMPEG_DIR` prefix、`setuptools<80` の固定、`mkvmerge` はすべて不要です。残る特殊手順は **PyAV wheel の自前ビルド**（4節。PyAV 18.1.0 が PyPI に公開されるまでの暫定）だけです。
 >
@@ -10,7 +10,7 @@ Linux で Jasna のセットアップを行い、**ソースから実行**する
 
 > **パッケージングについて:** この公開フォークは Jasna を**ソースから実行**します。Linux 向けに frozen バイナリを生成する公開手段はありません（同梱の実験的 Nuitka スクリプト `scripts/build_nuitka.py` は Windows 向けで、しかも v0.8.0 のメディア層移行に未追従です）。パッケージ済みバイナリが必要なら upstream Kruk2/jasna の公式リリースを使ってください。
 
-> 本ガイドは **Ubuntu 26.04 LTS** + **RTX 5080** で **upstream main `d7a99bd` ベースの `0.8.1+modi` を検証済み**です（2026-07-23、pytest（e2e 込み、既知失敗のみ）と CLI/GUI スモーク、バックエンド性能追試。v0.8.1 の検証は 2026-07-19、v0.8.0 は 2026-07-18）。他のディストリでも動作しますが、パッケージ名や ffmpeg の導入手順は異なります。
+> 本ガイドは **Ubuntu 26.04 LTS** + **RTX 5080** で **upstream `v0.9.1` タグ（`a7cdaf8`）ベースの `0.9.1+modi` を検証済み**です（2026-07-30、full pytest（e2e 込み）の失敗集合が同一マシンで測った素の v0.9.1 ベースラインと完全一致、CLI スモークは native / torchcodec+fp8-recon / fmp4 / rfdetr-v6 / frame-gen / segments / streaming / flashvsr-inline、GUI 起動スモーク込み。過去ベース: d7a99bd 2026-07-23、v0.8.1 2026-07-19、v0.8.0 2026-07-18）。他のディストリでも動作しますが、パッケージ名や ffmpeg の導入手順は異なります。
 
 ---
 
@@ -80,7 +80,7 @@ python --version                                # -> Python 3.13.x（3.14 なら
 
 ## 4. PyAV wheel のビルドと導入（暫定手順）
 
-v0.8.0 の GPU パスは PyAV 18.1.0 で入る **current_ctx API**（torch が初期化済みの CUDA コンテキストを NVDEC/NVENC と共有する仕組み）を使いますが、18.1.0 は未公開で、PyPI の av 18.0.0 にはこの API がありません。そのため PyAV upstream main の `61e4aa8`（current_ctx マージ済み）から wheel を自前ビルドします。
+GPU パスは PyAV の **current_ctx API** に加え、v0.9.1 ベースからはエンコーダが `CudaContext(cuda_stream=...)` で渡す **CUDA stream 明示指定**を使います。PyPI の av 18.0.0 にはどちらもないため、PyAV upstream **main** から wheel を自前ビルドします（上流 docs も同じ指示。本ガイドの検証コミットは `f6f0a5e`）。
 
 **av 18.1.0 が PyPI に公開されたら本節は丸ごと不要になります。** `pyproject.toml` の `av>=18,<19` がそのまま解決します（PyPI のバイナリ wheel は対応済みの FFmpeg を同梱しています）。
 
@@ -103,7 +103,8 @@ ls "$WORKSPACE/ffmpeg-n8.1-shared/lib/pkgconfig"   # libavcodec.pc などが見�
 cd "$WORKSPACE"
 git clone https://github.com/PyAV-Org/PyAV.git
 cd PyAV
-git checkout 61e4aa8
+# main からビルドする。本ガイドの検証コミットは f6f0a5e
+git checkout f6f0a5e
 
 export PKG_CONFIG_PATH="$WORKSPACE/ffmpeg-n8.1-shared/lib/pkgconfig"
 export VIRTUAL_ENV="$WORKSPACE/jasna/.venv"        # 3節で設定済みなら不要
@@ -233,7 +234,7 @@ FlashVSR（`--secondary-restoration flashvsr` / `flashvsr-inline`）は別リポ
 
 ```bash
 cd "$WORKSPACE/jasna"
-python -m jasna --version    # -> 0.8.1+modi
+python -m jasna --version    # -> 0.9.1+modi
 python -m jasna --help
 jasna --input assets/test_clip1_1080p.mp4 --output /tmp/out.mp4   # 短いクリップを処理
 python -m jasna              # GUI を起動（引数なし）
