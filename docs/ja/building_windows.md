@@ -2,9 +2,9 @@
 
 Windows で Jasna のセットアップを行い、**ソースから実行**する手順。
 
-> **検証状態（2026-07-23、`0.8.1+modi`・upstream main `d7a99bd` ベース）**: 本ガイドの手順は Windows 11 + RTX 5080（driver 610.62、Python 3.13.9、CUDA 13.2、ffmpeg 8.1）で **d7a99bd ベースの `0.8.1+modi` を実機検証済み**です（pytest は既知失敗のみ、CLI 実走 5 系統 + flashvsr-inline + GUI スモーク合格。v0.8.1 の検証は 2026-07-19、v0.8.0 は 2026-07-18）。Linux 側は [building_linux.md](building_linux.md) を参照してください。
+> **検証状態（2026-07-30、`0.9.1+modi`・upstream `a7cdaf8` = v0.9.1 タグベース）**: 本ガイドの手順は Windows 11 + RTX 5080（driver 610.62、Python 3.13.9、CUDA 13.2、ffmpeg 8.1）で **a7cdaf8 ベースの `0.9.1+modi` を実機検証済み**です（full pytest の失敗集合は素の v0.9.1 ベースラインと一致、CLI 実走 9 系統 + AV1 入力 + GUI スモーク合格、VALI フォーク wheel の Windows ビルドも 5.3 節で検証済み。前回 d7a99bd ベースの検証は 2026-07-23）。Linux 側は [building_linux.md](building_linux.md) を参照してください。
 
-> **本ガイドは `v0.8.1+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）は v0.7.2 期から変わらず、依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
+> **本ガイドは `v0.9.1+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）は v0.7.2 期から変わらず、依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
 
 > **v0.8.0 でビルド手順は大幅に簡素化されました。** upstream v0.8.0 でメディア層が PyAV（NVDEC/NVENC）へ移行し、`python_vali` / `PyNvVideoCodec` の C++ ビルドが丸ごと不要になりました。これに伴い、旧ガイドの前提だった以下はすべて不要です:
 >
@@ -114,11 +114,11 @@ v0.8.0 の GPU パスは PyAV 18.1.0 で入る **current_ctx API**（torch が�
 
 PyPI に av 18.1.0 が出ていれば本節の残りは不要です。PyPI のバイナリ wheel は対応済みの FFmpeg を同梱しているため、`uv pip install "av>=18.1"` するだけで済みます（5節のインストールでも解決されます）。
 
-> **⚠️ v0.9.1 ベースでの更新（2026-07-30、Windows は未再検証）:** v0.9.1 ベースのエンコーダは PyAV の CUDA stream 明示指定（`CudaContext(cuda_stream=...)`）を追加で必要とし、`61e4aa8` にはこの API がありません。PyAV **main** からビルドしてください（Linux での検証コミットは `f6f0a5e`。以下のビルド手順自体は不変）。`0.9.1+modi` の Windows 実機検証は未実施で、以下の注記は最終検証ベース（`d7a99bd`）時点のものです。任意の VALI デコードバックエンド（フォーク `python_vali` wheel。Linux 手順は building_linux.md §5.3）の Windows ビルド手順は本ガイドでは未検証です。無くてもリーダーは PyAV にフォールバックし、全機能が動作します。
+> **v0.9.1 ベースでの更新（2026-07-30、Windows 実機検証済み）:** v0.9.1 ベースのエンコーダは PyAV の CUDA stream 明示指定（`CudaContext(cuda_stream=...)`）を追加で必要とし、`61e4aa8` にはこの API がありません。PyAV **main** からビルドしてください（検証コミットは Linux/Windows とも `f6f0a5e`。以下のビルド手順自体は不変で、(B) は `f6f0a5e` で Windows 実機検証済み）。任意の VALI デコードバックエンド（フォーク `python_vali` wheel）の Windows ビルドは 5.3 節を参照。無くてもリーダーは PyAV にフォールバックし、全機能が動作します。
 
 ### (B) PyAV main から自前ビルド（実機検証済み）
 
-current_ctx マージ済みの upstream main `61e4aa8` をチェックアウトし、BtbN の shared ビルドにリンクして wheel を作ります。追加の前提は VS Build Tools 2022 だけです（**Developer PowerShell for VS 2022** セッションで実行する）。
+CUDA stream API まで入った upstream main `f6f0a5e` をチェックアウトし、BtbN の shared ビルドにリンクして wheel を作ります。追加の前提は VS Build Tools 2022 だけです（**Developer PowerShell for VS 2022** セッションで実行する）。
 
 > **pkg-config / pkgconf は不要です。** PyAV の setup.py は pkg-config を **Windows では呼びません**（非 Windows のみの分岐）。`PKG_CONFIG_PATH` を設定しても無視され、FFmpeg のヘッダ/ライブラリの場所は MSVC 標準の環境変数 `INCLUDE` / `LIB` からしか伝わりません。これを設定せずにビルドすると `fatal error C1083: libavcodec/avcodec.h: No such file or directory` で失敗します。
 
@@ -164,6 +164,8 @@ uv pip install -e .[dev,nvidia] `
     --index-strategy unsafe-best-match `
     --prerelease=allow
 ```
+
+> **⚠️ v0.9.1 ベースの Windows では、このコマンドはそのままだと解決に失敗します。** `[nvidia]` extra の `python_vali==4.8.7` ピンに PyPI の Windows wheel が存在しないためです（`No wheels with a matching platform tag` エラー）。回避手順: まず `[dev,torchcodec]`（`nvidia` 抜き）で venv を作り、5.3 節でフォーク wheel（4.8.7）をビルド・導入してから、上記の `[dev,nvidia,...]` を再実行します。導入済みの 4.8.7 がピンを満たすため、2 回目は解決に成功します（実機確認済み）。
 
 各フラグの役割:
 
@@ -220,6 +222,47 @@ uv pip install onnx onnxslim onnxruntime
 
 > **これらが未導入だと**、`--detection-model lada-yolo-v4` 実行時にエンジンコンパイルが `ERROR ONNX: export failure ... No module named 'onnx'` → `RuntimeError: Engine compilation subprocess failed` で中断する。venv に 3 パッケージを入れれば解消する。
 
+### 5.3 オプション: VALI NVDEC デコードバックエンドのビルド（`python_vali` フォーク）
+
+v0.9.1 ベースの native デコードは、まず VALI NVDEC デコーダを試し、使えなければ PyAV へエスカレーションします。フォーク専用 API `DecodeSingleSurfaceAsyncDetailed` を持つ wheel が無いと、リーダーは警告を出して毎回 PyAV にフォールバックします（本節なしでもすべて動作します）。Windows では `[nvidia]` extra の解決にも 4.8.7 の wheel が要るため（5 節の注記）、フォーク wheel のビルドが実質前提になります。
+
+1 節に対する追加の前提:
+
+- **VS Build Tools 2022**（4 節 (B) と同じ。ビルドは vcvars64 を通した cmd / Developer PowerShell セッションで行う）
+- **CUDA Toolkit 13.x**（`nvcc`。vali の CMake は `CUDA_PATH` から toolkit を解決する）
+- **FFmpeg 8 の shared ビルド**: vali の CMake は `FFMPEG_ROOT` を **`C:\Program Files\ffmpeg8` にハードコード**しているため、`include\`/`lib\`/`bin\` を持つ shared ビルド（gyan.dev の full-shared 等）をそこに置くか、junction を張る（`New-Item -ItemType Junction -Path "C:\Program Files\ffmpeg8" -Target <展開先>`）。BtbN ビルド（1.1 節）でも要件は同じ。
+- cmake、ninja、scikit-build、`pkg_resources` 入りの setuptools（<80）: いずれも 5 節の `[dev]` で venv に導入済み。
+
+```powershell
+cd $Workspace
+git clone https://codeberg.org/Kruk2/vali.git       # 既存 checkout があれば省略
+cd vali
+git checkout 3ad0d54      # = 4.8.7 ピン、DecodeSingleSurfaceAsyncDetailed あり
+git submodule update --init --recursive
+```
+
+ビルドは MSVC + CUDA の環境変数を通した **cmd セッション**で `setup.py bdist_wheel` を実行する（vcvars64 が PowerShell を汚さないよう bat 化が楽）:
+
+```bat
+call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+set "CL=/utf-8"
+set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2"
+set "PATH=%CUDA_PATH%\bin;%PATH%"
+cd /d <ワークスペース>\vali
+<ワークスペース>\jasna\.venv\Scripts\python.exe setup.py bdist_wheel
+REM -> dist\python_vali-4.8.7-cp313-cp313-win_amd64.whl
+```
+
+Linux と違い、Windows の wheel は FFmpeg の DLL 群を `python_vali\` 内に同梱するため（CMake の `PYPI_BUILD=0` 既定）、delvewheel は不要です。導入と確認:
+
+```powershell
+uv pip install --force-reinstall --no-deps (Get-Item $Workspace\vali\dist\python_vali-4.8.7-*.whl)
+python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurfaceAsyncDetailed'))"   # -> True
+# jasna を --log-level info で実行すると "Using VALI NVDEC decoder for <file>" が出ます
+```
+
+> フォークコミット `3ad0d54`（= 4.8.7 ピン、2026-07-30、RTX 5080 + CUDA 13.2 + gyan.dev 8.1 shared）で Windows 実機検証済み: パイプラインの 2 つのデコードパスが両方 VALI を通り、同梱テストクリップの出力は PyAV デコード時と**ビットストリーム md5 完全一致**、av wheel および torchcodec バックエンドとの共存も確認（av は delvewheel 同梱、vali は自前同梱、torchcodec は PATH 解決で、それぞれ別コピーの FFmpeg DLL を持つが、Windows は DLL ごとにシンボル空間が独立しており衝突しない）。
+
 ---
 
 ## 6. モデルウェイトとアセットの配置
@@ -267,7 +310,7 @@ FlashVSR（`--secondary-restoration flashvsr` / `flashvsr-inline`）は別リポ
 
 ```powershell
 cd $Workspace\jasna
-python -m jasna --version    # -> 0.8.1+modi
+python -m jasna --version    # -> 0.9.1+modi
 python -m jasna --help
 jasna --input assets\test_clip1_1080p.mp4 --output $env:TEMP\out.mp4   # 短いクリップを処理
 python -m jasna              # GUI を起動（引数なし）
