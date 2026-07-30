@@ -114,7 +114,7 @@ v0.8.0 の GPU パスは PyAV 18.1.0 で入る **current_ctx API**（torch が�
 
 PyPI に av 18.1.0 が出ていれば本節の残りは不要です。PyPI のバイナリ wheel は対応済みの FFmpeg を同梱しているため、`uv pip install "av>=18.1"` するだけで済みます（5節のインストールでも解決されます）。
 
-> **⚠️ v0.9.1 ベースでの更新（2026-07-30、Windows は未再検証）:** v0.9.1 ベースのエンコーダは PyAV の CUDA stream 明示指定（`CudaContext(cuda_stream=...)`）を追加で必要とし、`61e4aa8` にはこの API がありません。PyAV **main** からビルドしてください（Linux での検証コミットは `f6f0a5e`。以下のビルド手順自体は不変）。`0.9.1+modi` の Windows 実機検証は未実施で、以下の注記は最終検証ベース（`d7a99bd`）時点のものです。
+> **⚠️ v0.9.1 ベースでの更新（2026-07-30、Windows は未再検証）:** v0.9.1 ベースのエンコーダは PyAV の CUDA stream 明示指定（`CudaContext(cuda_stream=...)`）を追加で必要とし、`61e4aa8` にはこの API がありません。PyAV **main** からビルドしてください（Linux での検証コミットは `f6f0a5e`。以下のビルド手順自体は不変）。`0.9.1+modi` の Windows 実機検証は未実施で、以下の注記は最終検証ベース（`d7a99bd`）時点のものです。任意の VALI デコードバックエンド（フォーク `python_vali` wheel。Linux 手順は building_linux.md §5.3）の Windows ビルド手順は本ガイドでは未検証です。無くてもリーダーは PyAV にフォールバックし、全機能が動作します。
 
 ### (B) PyAV main から自前ビルド（実機検証済み）
 
