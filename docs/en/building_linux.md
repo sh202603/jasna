@@ -4,13 +4,13 @@ How to set up Jasna on Linux and run it **from source**.
 
 > **This guide covers the `v0.9.1+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
 
-> **v0.8.0 simplified the setup considerably.** Upstream v0.8.0 moved the media layer to PyAV (NVDEC/NVENC), which removed the native builds of `python_vali` / `PyNvVideoCodec` entirely. With them went every prerequisite the old guide needed for those builds: the CUDA Toolkit, cmake / ninja, the ffmpeg dev packages (`libav*-dev`), the `FFMPEG_DIR` prefix, the `setuptools<80` pin, and `mkvmerge`. The one special step that remains is **building a PyAV wheel yourself** (Section 4; an interim measure until PyAV 18.1.0 reaches PyPI).
+> **v0.8.0 simplified the setup considerably.** Upstream v0.8.0 moved the media layer to PyAV (NVDEC/NVENC), which removed the native builds of `python_vali` / `PyNvVideoCodec` entirely. With them went every prerequisite the old guide needed for those builds: the CUDA Toolkit, cmake / ninja, the ffmpeg dev packages (`libav*-dev`), the `FFMPEG_DIR` prefix, the `setuptools<80` pin, and `mkvmerge`. The one special step that remains is **building a PyAV wheel yourself** (Section 4). Since the v0.9.1 base, an **optional** VALI decode backend can be built again (Section 5.3), but nothing requires it.
 >
 > **Main additions on this branch:** 2x/4x frame generation via RIFE ([frame_generation.md](frame_generation.md)), the torchcodec backend ([torchcodec_backend.md](torchcodec_backend.md)), the cuDNN FP8 restoration backend ([fp8_recon.md](fp8_recon.md)), and FlashVSR secondary restoration ([flashvsr.md](flashvsr.md)). The AV1 / 8-bit / BT.601 and BT.2020 output features of v0.7.2+modi were absorbed into upstream v0.8.0. See [changes_vs_upstream.md](changes_vs_upstream.md) for the full delta.
 
 > **Packaging note:** This public fork runs Jasna **from source**. There is no public way to produce a frozen Linux binary from it (the bundled experimental Nuitka script `scripts/build_nuitka.py` targets Windows, and has not been updated for the v0.8.0 media-layer migration either). If you want a pre-packaged binary, use upstream Kruk2/jasna's official releases.
 
-> This guide is verified at **`0.9.1+modi` on the upstream `v0.9.1` tag (`a7cdaf8`)** on **Ubuntu 26.04 LTS** with an **RTX 5080** (2026-07-30: full pytest including e2e with a failure set identical to the vanilla v0.9.1 baseline measured on the same machine, plus CLI smokes for native / torchcodec+fp8-recon / fmp4 / rfdetr-v6 / frame-gen / segments / streaming / flashvsr-inline and a GUI launch smoke; earlier bases: d7a99bd 2026-07-23, v0.8.1 2026-07-19, v0.8.0 2026-07-18). Other distributions work too, but package names and the ffmpeg install steps will differ.
+> This guide is verified at **`0.9.1+modi` on the upstream `v0.9.1` tag (`a7cdaf8`)** on **Ubuntu 26.04 LTS** with an **RTX 5080** (2026-07-30: full pytest including e2e with a failure set identical to the vanilla v0.9.1 baseline measured on the same machine, plus CLI smokes for native / torchcodec+fp8-recon / fmp4 / rfdetr-v6 / frame-gen / segments / streaming / flashvsr-inline, a GUI launch smoke, and the optional VALI fork wheel of Section 5.3 built and active; earlier bases: d7a99bd 2026-07-23, v0.8.1 2026-07-19, v0.8.0 2026-07-18). Other distributions work too, but package names and the ffmpeg install steps will differ.
 
 ---
 
@@ -43,7 +43,7 @@ Install `uv` if you don't have it:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-> ⚠ **The apt ffmpeg is used as a CLI only.** Linking the PyAV wheel against the distro's FFmpeg libraries makes every encode fail right at startup (see Section 4 for why). The `libav*-dev` packages the old guide required are no longer needed (having them installed does no harm as long as `PKG_CONFIG_PATH` is set correctly).
+> ⚠ **The apt ffmpeg is used as a CLI only.** Linking the PyAV wheel against the distro's FFmpeg libraries makes every encode fail right at startup (see Section 4 for why). The `libav*-dev` packages the old guide required are no longer needed for the core setup (having them installed does no harm as long as `PKG_CONFIG_PATH` is set correctly); only the optional VALI backend build needs them again (Section 5.3).
 
 ---
 
@@ -186,6 +186,43 @@ uv pip install onnx onnxslim onnxruntime
 ```
 
 When running from source, ultralytics auto-downloads them on the first export if missing, but pre-installing avoids the wait on the first YOLO run.
+
+---
+
+### 5.3 Optional: build the VALI NVDEC decode backend (`python_vali` fork)
+
+Since the v0.9.1 base, the native decode path tries a VALI NVDEC decoder first and escalates to PyAV when it is unavailable (in-code `DECODE_BACKEND` toggle, default `auto`). Section 5 installs the stock PyPI `python_vali` wheel, which lacks the fork-only `DecodeSingleSurfaceAsyncDetailed` API, so the reader logs a warning and falls back to PyAV for every file. Everything works without this section; build the fork wheel only if you want the actual VALI decode path and its corrupt-packet tolerance.
+
+Additional prerequisites on top of Section 1:
+
+- **CUDA Toolkit 13.x** under `/usr/local/cuda-13.3`. The bare distro `nvcc` at `/usr/bin/nvcc` does not satisfy CMake's `FindCUDAToolkit`, so the toolkit paths are passed explicitly below.
+- **FFmpeg 8 dev packages**: `sudo apt-get install -y libavcodec-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev`. Unlike the av wheel (Section 4), the vali build links the distro FFmpeg and vendors nothing into the wheel. VALI only demuxes/parses with FFmpeg, so the nv-codec-headers problem that rules out distro FFmpeg for the av wheel does not apply here.
+- cmake, ninja, scikit-build and a setuptools that still ships `pkg_resources`: all already present in the venv after Section 5.
+
+```bash
+cd "$WORKSPACE"
+git clone https://codeberg.org/Kruk2/vali.git       # skip if you already have the checkout
+cd vali
+git submodule update --init --recursive
+
+CUDACXX=/usr/local/cuda-13.3/bin/nvcc \
+CUDAToolkit_ROOT=/usr/local/cuda-13.3 \
+CMAKE_ARGS="-DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.3/bin/nvcc" \
+VIRTUAL_ENV="$WORKSPACE/jasna/.venv" \
+  uv build --wheel --no-build-isolation
+uv pip install --force-reinstall dist/python_vali-4.8.7-*.whl
+```
+
+`--no-build-isolation` is required because vali's `setup.py` imports `pkg_resources`, which an isolated build environment does not provide. `--force-reinstall` is required because the wheel carries the same version (4.8.7) as the PyPI package it replaces.
+
+Verify:
+
+```bash
+python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurfaceAsyncDetailed'))"   # -> True
+# a jasna run with --log-level info now prints: "Using VALI NVDEC decoder for <file>"
+```
+
+> Verified with fork commit `3ad0d54` (= the 4.8.7 pin, 2026-07-30, RTX 5080): both pipeline decode passes go through VALI, the output is md5-identical to the PyAV-decode output on the bundled test clip, and the wheel coexists with the av wheel and the torchcodec backend (those two carry auditwheel-mangled / vendored FFmpeg copies; vali resolves the distro's via ldconfig).
 
 ---
 
