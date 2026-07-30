@@ -114,7 +114,7 @@ In addition, the link target must be an **FFmpeg 8 built with nv-codec-headers 1
 
 If PyPI already has av 18.1.0, the rest of this section is unnecessary. The PyPI binary wheels bundle a compatible FFmpeg, so `uv pip install "av>=18.1"` is all it takes (the Section 5 install resolves it too).
 
-> **⚠️ v0.9.1-base update (2026-07-30, not yet re-verified on Windows):** the v0.9.1-base encoder additionally needs PyAV's explicit CUDA-stream support (`CudaContext(cuda_stream=...)`), which `61e4aa8` predates. Build from PyAV **main** instead (`f6f0a5e` is the commit verified on Linux); the build procedure below is otherwise unchanged. The Windows hardware verification of `0.9.1+modi` is still pending — the notes below describe the last verified base (`d7a99bd`).
+> **⚠️ v0.9.1-base update (2026-07-30, not yet re-verified on Windows):** the v0.9.1-base encoder additionally needs PyAV's explicit CUDA-stream support (`CudaContext(cuda_stream=...)`), which `61e4aa8` predates. Build from PyAV **main** instead (`f6f0a5e` is the commit verified on Linux); the build procedure below is otherwise unchanged. The Windows hardware verification of `0.9.1+modi` is still pending — the notes below describe the last verified base (`d7a99bd`). The optional VALI decode backend (fork `python_vali` wheel; Linux procedure in building_linux.md §5.3) has no verified Windows build procedure in this guide yet; without it the reader falls back to PyAV, which is fully functional.
 
 ### (B) Build from PyAV main yourself (verified on hardware)
 
