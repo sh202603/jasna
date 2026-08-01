@@ -13,7 +13,7 @@ import customtkinter as ctk
 from PIL import Image
 from tkinter import messagebox
 
-from jasna.gui import scaling
+from jasna.gui import preview_zoom, scaling
 from jasna.gui.locales import t
 from jasna.gui.models import AppSettings, JobItem
 from jasna.gui.components import AutoHidingScrollableFrame, Tooltip, format_duration, grab_modal
@@ -427,6 +427,16 @@ class SegmentEditor(ctk.CTkToplevel):
 
         preview_options = ctk.CTkFrame(preview_card, fg_color="transparent")
         preview_options.grid(row=3, column=0, sticky="ew", padx=8, pady=(2, 8))
+        self._ab_btn = ctk.CTkButton(
+            preview_options,
+            text=t("segments_ab_compare"),
+            height=28,
+            fg_color=Colors.BG_PANEL,
+            hover_color=Colors.BORDER_LIGHT,
+            command=self._open_ab_compare,
+        )
+        self._ab_btn.pack(side="left")
+        Tooltip(self._ab_btn, t("segments_ab_compare_hint"))
         restore_control = ctk.CTkFrame(preview_options, fg_color="transparent")
         restore_control.pack(side="right")
         self._restore_toggle = CompactSwitch(
@@ -1330,21 +1340,10 @@ class SegmentEditor(ctk.CTkToplevel):
         self,
         source: Image.Image,
     ) -> tuple[float, float, float, float]:
-        widget_width = max(2, self._preview.winfo_width())
-        widget_height = max(2, self._preview.winfo_height())
-        available_width = max(2, widget_width - 16)
-        available_height = max(2, widget_height - 16)
-        scale = min(
-            available_width / source.width,
-            available_height / source.height,
-        )
-        display_width = max(1.0, source.width * scale)
-        display_height = max(1.0, source.height * scale)
-        return (
-            (widget_width - display_width) / 2,
-            (widget_height - display_height) / 2,
-            display_width,
-            display_height,
+        return preview_zoom.image_geometry(
+            self._preview.winfo_width(),
+            self._preview.winfo_height(),
+            source.size,
         )
 
     def _preview_crop(self, source: Image.Image) -> Image.Image:
@@ -1431,26 +1430,7 @@ class SegmentEditor(ctk.CTkToplevel):
         return "break" if was_panning else None
 
     def _fit_to_label(self, label: ctk.CTkLabel, source: Image.Image) -> ctk.CTkImage:
-        # winfo_* measures physical pixels while CTkImage's size is multiplied
-        # by the widget scaling factor at render time; divide it back out so
-        # HiDPI displays do not overflow and clip the preview (issue #229).
-        widget_scaling = scaling.widget_scaling(label)
-        width = max(2, label.winfo_width() - 16)
-        height = max(2, label.winfo_height() - 16)
-        source_width, source_height = source.size
-        scale = min(width / source_width, height / source_height)
-        pixel_size = (
-            max(2, round(source_width * scale)),
-            max(2, round(source_height * scale)),
-        )
-        image = source.resize(pixel_size, Image.Resampling.LANCZOS)
-        return ctk.CTkImage(
-            image,
-            size=(
-                max(1, round(pixel_size[0] / widget_scaling)),
-                max(1, round(pixel_size[1] / widget_scaling)),
-            ),
-        )
+        return preview_zoom.fit_to_label(label, source, scaling.widget_scaling(label))
 
     def _refresh_preview_image(self) -> None:
         self._resize_after = None
@@ -1798,6 +1778,7 @@ class SegmentEditor(ctk.CTkToplevel):
             self._step_forward,
             self._play,
             self._restore_toggle,
+            self._ab_btn,
             self._start_entry,
             self._end_entry,
             self._suggest_btn,
@@ -2258,6 +2239,9 @@ class SegmentEditor(ctk.CTkToplevel):
             return
         self._set_playing(False)
         self._closed.set()
+        if self._ab_window is not None:
+            self._ab_window.close()
+            self._ab_window = None
         self._preview_worker.close()
         if self._restoration_worker is not None:
             self._restoration_worker.close()
