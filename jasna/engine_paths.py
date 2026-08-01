@@ -20,6 +20,13 @@ def model_weights_dir() -> Path:
     return resolve_model_weights_dir()
 
 
+def default_restoration_model_path() -> Path:
+    """The BasicVSR++ checkpoint used when no explicit restoration model is
+    selected. Single source of truth for the GUI default (session build and
+    engine preflight)."""
+    return model_weights_dir() / "lada_mosaic_restoration_model_generic_v1.2.pth"
+
+
 def engine_system_suffix() -> str:
     return ".win" if os.name == "nt" else ".linux"
 
