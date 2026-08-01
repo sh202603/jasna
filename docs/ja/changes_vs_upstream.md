@@ -171,4 +171,4 @@ upstream v0.8.0 の PyAV エンコード経路は、RGB→YUV 変換結果のテ
 
 新規 UI 文字列は locales 5 ファイル（en/ja/ko/th/zh）すべてに追加。実装は `jasna/gui/ab_compare.py`（ウィンドウ）+ `ab_compare_worker.py`（ワーカー）+ `preview_zoom.py` + `jasna/restorer/checkpoint_info.py`、エディタ側の起動導線は `jasna/gui/segment_editor.py`。
 
-**検証**: ユニット `tests/test_ab_compare_{worker,window}.py`・`test_preview_zoom.py`・`test_checkpoint_info.py` + `test_segment_editor.py` の統合分（CPU-safe、GPU 不要）。ワーカー逐次性（A 完了前に B 不開始、レグ間の新リクエストで B 中断）はテストで固定。実機（RTX 5080）では 720p / 1080p / 4K / 8K VR 60fps の各素材で 3 ビューの動作を確認済み。利用者向けの説明は `docs/{ja,en,zh}/segments.md` の「A/B モデル比較」節。
+**検証**: ユニット `tests/test_ab_compare_{worker,window}.py`・`test_preview_zoom.py`・`test_checkpoint_info.py` + `test_segment_editor.py` の統合分（CPU-safe、GPU 不要）。ワーカー逐次性（A 完了前に B 不開始、レグ間の新リクエストで B 中断）はテストで固定。実機（RTX 5080）では、Linux で 720p / 1080p / 4K / 8K VR 60fps の各素材の 3 ビュー動作を確認済み。Windows 11 でも機能一巡（1080p）に加えて Windows 固有の懸念点 — HiDPI 125%/150% での表示崩れなし、Tk grab によるモーダル制御と Escape/閉じるでの復帰、コンパイル subprocess（`CREATE_NO_WINDOW`、ログのステータス行中継）、A/B 表示中のキュー開始ボタン無効化と復帰、8K VR 60fps の復元/クリップビュー — を確認済み。利用者向けの説明は `docs/{ja,en,zh}/segments.md` の「A/B モデル比較」節。
