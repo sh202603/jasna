@@ -150,7 +150,7 @@ If you run out of VRAM during processing, reduce **max clip size** first, for ex
 
 - **[Using the GUI](docs/en/gui.md)** — the queue (drag & drop, reordering), presets, output patterns and file conflicts, and other easy-to-miss features.
 - **[Choosing models](docs/en/models.md)** — which detection model to pick, sharper results with secondary restoration (unet-4x / RTX Super Resolution / Topaz), and SD 1.5 still-image restoration.
-- **[Restoring only parts of a video](docs/en/segments.md)** — the Segment Editor, built-in mosaic scanning, suggesting better masks, and the `--segments` CLI flag.
+- **[Restoring only parts of a video](docs/en/segments.md)** — the Segment Editor, built-in mosaic scanning, A/B comparison of detection/restoration models, suggesting better masks, and the `--segments` CLI flag.
 - **[VR180 videos](docs/en/vr180.md)** — how Jasna handles side-by-side VR and picks the right settings per studio.
 - **[Tuning VRAM and GPU usage](docs/en/tuning.md)** — clip size, temporal overlap, model compilation, and what to do when VRAM runs out.
 - **[Advanced processing](docs/en/advanced_processing.md)** — denoising, 60→30 FPS export, color LUTs, sharpening, custom encoder settings, and post-export actions.
