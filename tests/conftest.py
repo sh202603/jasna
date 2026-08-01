@@ -28,6 +28,17 @@ collect_ignore = [] if _HAS_TENSORRT else [
 ]
 
 
+@pytest.fixture(autouse=True)
+def _isolate_model_weights_dir(monkeypatch):
+    """Tests resolve model_weights CWD-relative (usually after chdir to tmp_path).
+
+    A machine-level JASNA_MODEL_WEIGHTS_DIR overrides that resolution, so tests
+    that write fake engine/weight files (e.g. engine preflight's 1-byte
+    placeholders) would clobber the user's real engines and checkpoints.
+    """
+    monkeypatch.delenv("JASNA_MODEL_WEIGHTS_DIR", raising=False)
+
+
 @pytest.fixture
 def hidpi(request):
     """Reproduce Windows display scaling on a platform whose DPI factor is always 1.
