@@ -11,7 +11,7 @@ import customtkinter as ctk
 from PIL import Image
 from tkinter import messagebox
 
-from jasna.gui import scaling
+from jasna.gui import preview_zoom, scaling
 from jasna.gui.locales import t
 from jasna.gui.models import AppSettings, JobItem
 from jasna.gui.components import Tooltip
@@ -64,9 +64,9 @@ from jasna.segments import SegmentRange, format_timestamp, parse_timestamp
 class SegmentEditor(ctk.CTkToplevel):
     """Modal, frame-aware editor for per-job restoration ranges."""
 
-    _PREVIEW_ZOOM_MIN = 1.0
-    _PREVIEW_ZOOM_MAX = 8.0
-    _PREVIEW_ZOOM_STEP = 0.25
+    _PREVIEW_ZOOM_MIN = preview_zoom.ZOOM_MIN
+    _PREVIEW_ZOOM_MAX = preview_zoom.ZOOM_MAX
+    _PREVIEW_ZOOM_STEP = preview_zoom.ZOOM_STEP
 
     def __init__(
         self,
@@ -145,6 +145,7 @@ class SegmentEditor(ctk.CTkToplevel):
         self._timeline_zoom_buttons: list = []
         self._mask_feedback_worker = MaskFeedbackWorker()
         self._suggest_busy = False
+        self._ab_window = None
 
         self.title(t("segments_title"))
         self.configure(fg_color=Colors.BG_MAIN)
@@ -400,6 +401,16 @@ class SegmentEditor(ctk.CTkToplevel):
 
         preview_options = ctk.CTkFrame(preview_card, fg_color="transparent")
         preview_options.grid(row=3, column=0, sticky="ew", padx=8, pady=(2, 8))
+        self._ab_btn = ctk.CTkButton(
+            preview_options,
+            text=t("segments_ab_compare"),
+            height=28,
+            fg_color=Colors.BG_PANEL,
+            hover_color=Colors.BORDER_LIGHT,
+            command=self._open_ab_compare,
+        )
+        self._ab_btn.pack(side="left")
+        Tooltip(self._ab_btn, t("segments_ab_compare_hint"))
         restore_control = ctk.CTkFrame(preview_options, fg_color="transparent")
         restore_control.pack(side="right")
         self._restore_toggle = create_compact_switch(
@@ -998,31 +1009,16 @@ class SegmentEditor(ctk.CTkToplevel):
         center: tuple[float, float],
         zoom: float,
     ) -> tuple[float, float]:
-        half_visible = 0.5 / zoom
-        return (
-            min(1.0 - half_visible, max(half_visible, float(center[0]))),
-            min(1.0 - half_visible, max(half_visible, float(center[1]))),
-        )
+        return preview_zoom.clamp_center(center, zoom)
 
     def _preview_image_geometry(
         self,
         source: Image.Image,
     ) -> tuple[float, float, float, float]:
-        widget_width = max(2, self._preview.winfo_width())
-        widget_height = max(2, self._preview.winfo_height())
-        available_width = max(2, widget_width - 16)
-        available_height = max(2, widget_height - 16)
-        scale = min(
-            available_width / source.width,
-            available_height / source.height,
-        )
-        display_width = max(1.0, source.width * scale)
-        display_height = max(1.0, source.height * scale)
-        return (
-            (widget_width - display_width) / 2,
-            (widget_height - display_height) / 2,
-            display_width,
-            display_height,
+        return preview_zoom.image_geometry(
+            self._preview.winfo_width(),
+            self._preview.winfo_height(),
+            source.size,
         )
 
     def _preview_crop(self, source: Image.Image) -> Image.Image:
@@ -1030,15 +1026,8 @@ class SegmentEditor(ctk.CTkToplevel):
         if zoom <= self._PREVIEW_ZOOM_MIN:
             self._preview_center = (0.5, 0.5)
             return source
-        center = self._clamp_preview_center(self._preview_center, zoom)
-        self._preview_center = center
-        crop_width = max(1, min(source.width, round(source.width / zoom)))
-        crop_height = max(1, min(source.height, round(source.height / zoom)))
-        left = round(center[0] * source.width - crop_width / 2)
-        top = round(center[1] * source.height - crop_height / 2)
-        left = min(source.width - crop_width, max(0, left))
-        top = min(source.height - crop_height, max(0, top))
-        return source.crop((left, top, left + crop_width, top + crop_height))
+        self._preview_center = preview_zoom.clamp_center(self._preview_center, zoom)
+        return preview_zoom.crop_normalized(source, zoom, self._preview_center)
 
     def _update_preview_zoom_controls(self) -> None:
         zoom = float(getattr(self, "_preview_zoom", self._PREVIEW_ZOOM_MIN))
@@ -1157,26 +1146,7 @@ class SegmentEditor(ctk.CTkToplevel):
         return "break" if was_panning else None
 
     def _fit_to_label(self, label: ctk.CTkLabel, source: Image.Image) -> ctk.CTkImage:
-        # winfo_* measures physical pixels while CTkImage's size is multiplied
-        # by the widget scaling factor at render time; divide it back out so
-        # HiDPI displays do not overflow and clip the preview (issue #229).
-        widget_scaling = scaling.widget_scaling(label)
-        width = max(2, label.winfo_width() - 16)
-        height = max(2, label.winfo_height() - 16)
-        source_width, source_height = source.size
-        scale = min(width / source_width, height / source_height)
-        pixel_size = (
-            max(2, round(source_width * scale)),
-            max(2, round(source_height * scale)),
-        )
-        image = source.resize(pixel_size, Image.Resampling.LANCZOS)
-        return ctk.CTkImage(
-            image,
-            size=(
-                max(1, round(pixel_size[0] / widget_scaling)),
-                max(1, round(pixel_size[1] / widget_scaling)),
-            ),
-        )
+        return preview_zoom.fit_to_label(label, source, scaling.widget_scaling(label))
 
     def _refresh_preview_image(self) -> None:
         self._resize_after = None
@@ -1603,6 +1573,7 @@ class SegmentEditor(ctk.CTkToplevel):
             self._step_forward,
             self._play,
             self._restore_toggle,
+            self._ab_btn,
             self._start_entry,
             self._end_entry,
             self._suggest_btn,
@@ -1789,18 +1760,11 @@ class SegmentEditor(ctk.CTkToplevel):
         _, score, mask = sample
         if score < self._scan_threshold:
             return image
-        mask_np = mask.numpy()
-        if getattr(self, "_preview_left_eye", False):
-            mask_np = mask_np[:, : mask_np.shape[1] // 2]
-        if not mask_np.any():
-            return image
-        alpha = Image.fromarray((mask_np * 130).astype("uint8"), "L").resize(
-            image.size, Image.Resampling.NEAREST
+        return preview_zoom.apply_mask_overlay(
+            image,
+            mask.numpy(),
+            left_eye=bool(getattr(self, "_preview_left_eye", False)),
         )
-        overlay = Image.new("RGB", image.size, "#ef4444")
-        composed = image.copy()
-        composed.paste(overlay, (0, 0), alpha)
-        return composed
 
     def _request_scan_mask(self, seconds: float) -> None:
         worker = self._scan_worker
@@ -1878,6 +1842,38 @@ class SegmentEditor(ctk.CTkToplevel):
             detection_model=self._scan_model.get(),
             detection_score_threshold=self._scan_threshold,
         )
+
+    def _open_ab_compare(self) -> None:
+        self._require_state()
+        if self._ab_window is not None or self._scan_active or self._is_gpu_busy():
+            return
+        # The A/B worker owns the GPU while its window is open; stop the
+        # editor's own restoration preview first (same flow as _start_scan).
+        if self._restore_active:
+            self._deactivate_restoration_preview()
+        if self._restoration_worker is not None:
+            self._restoration_worker.close()
+            self._restoration_worker = None
+        self._set_playing(False)
+        from jasna.gui.ab_compare import ABCompareWindow
+
+        self._ab_window = ABCompareWindow(
+            self,
+            path=self._job.path,
+            metadata=self._metadata,
+            get_settings=self._current_video_settings,
+            center_seconds=self._current,
+            projection=self._vr_projection,
+            initial_detection_model=self._scan_model.get(),
+            initial_threshold=self._scan_threshold,
+            is_gpu_busy=self._is_gpu_busy,
+            set_preview_gpu_busy=self._set_preview_gpu_busy,
+            on_closed=self._ab_compare_closed,
+        )
+
+    def _ab_compare_closed(self) -> None:
+        self._ab_window = None
+        self._take_focus()
 
     def _suggest_mask(self) -> None:
         self._require_state()
@@ -2238,6 +2234,9 @@ class SegmentEditor(ctk.CTkToplevel):
             return
         self._set_playing(False)
         self._closed.set()
+        if self._ab_window is not None:
+            self._ab_window.close()
+            self._ab_window = None
         self._preview_worker.close()
         if self._restoration_worker is not None:
             self._restoration_worker.close()

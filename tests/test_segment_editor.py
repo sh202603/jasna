@@ -761,6 +761,101 @@ def test_feedback_upload_events_show_toast(monkeypatch) -> None:
         root.destroy()
 
 
+def test_ab_compare_button_builds_and_locks_during_scan(monkeypatch) -> None:
+    try:
+        root = ctk.CTk()
+    except TclError as exc:
+        pytest.skip(f"Tk display unavailable: {exc}")
+    editor = None
+    try:
+        editor = _build_editor_with_ui(root, monkeypatch)
+        assert editor._ab_btn.cget("text") == t("segments_ab_compare")
+        assert editor._ab_btn in editor._scan_lockable_widgets()
+        assert editor._ab_window is None
+
+        editor._set_scan_locked(True)
+        assert editor._ab_btn.cget("state") == "disabled"
+        editor._set_scan_locked(False)
+        assert editor._ab_btn.cget("state") == "normal"
+    finally:
+        if editor is not None:
+            editor._finish_close()
+        root.destroy()
+
+
+def test_open_ab_compare_is_blocked_while_gpu_is_busy() -> None:
+    editor = object.__new__(SegmentEditor)
+    editor._state = SegmentEditorState(duration=10, fps=30)
+    editor._ab_window = None
+    editor._scan_active = False
+    editor._is_gpu_busy = MagicMock(return_value=True)
+    editor._deactivate_restoration_preview = MagicMock()
+
+    editor._open_ab_compare()
+
+    assert editor._ab_window is None
+    editor._deactivate_restoration_preview.assert_not_called()
+
+
+def test_open_ab_compare_stops_restore_preview_and_hands_over_context(monkeypatch) -> None:
+    import jasna.gui.ab_compare as ab_compare
+
+    opened = MagicMock()
+    monkeypatch.setattr(ab_compare, "ABCompareWindow", opened)
+    editor = object.__new__(SegmentEditor)
+    editor._state = SegmentEditorState(duration=10, fps=30)
+    editor._ab_window = None
+    editor._scan_active = False
+    editor._is_gpu_busy = MagicMock(return_value=False)
+    editor._restore_active = True
+    editor._deactivate_restoration_preview = MagicMock()
+    editor._restoration_worker = MagicMock()
+    restoration_worker = editor._restoration_worker
+    editor._set_playing = MagicMock()
+    editor._job = MagicMock(path=Path("video.mp4"))
+    editor._metadata = MagicMock()
+    editor._current_video_settings = MagicMock()
+    editor._current = 3.5
+    editor._vr_projection = "auto"
+    editor._scan_model = MagicMock()
+    editor._scan_model.get.return_value = "rfdetr-v6"
+    editor._scan_threshold = 0.4
+    editor._set_preview_gpu_busy = MagicMock()
+
+    editor._open_ab_compare()
+
+    editor._deactivate_restoration_preview.assert_called_once_with()
+    restoration_worker.close.assert_called_once_with()
+    assert editor._restoration_worker is None
+    kwargs = opened.call_args.kwargs
+    assert kwargs["center_seconds"] == 3.5
+    assert kwargs["initial_detection_model"] == "rfdetr-v6"
+    assert kwargs["initial_threshold"] == 0.4
+    assert kwargs["projection"] == "auto"
+    assert editor._ab_window is opened.return_value
+
+
+def test_finish_close_closes_open_ab_window(monkeypatch) -> None:
+    try:
+        root = ctk.CTk()
+    except TclError as exc:
+        pytest.skip(f"Tk display unavailable: {exc}")
+    editor = None
+    try:
+        editor = _build_editor_with_ui(root, monkeypatch)
+        ab_window = MagicMock()
+        editor._ab_window = ab_window
+
+        editor._finish_close()
+
+        ab_window.close.assert_called_once_with()
+        assert editor._ab_window is None
+    finally:
+        if editor is not None and editor.winfo_exists():
+            SegmentEditor._finish_close(editor)
+        root.destroy()
+
+
 @pytest.mark.parametrize("scaling", [1.0, 1.5])
 def test_fit_to_label_compensates_widget_scaling(monkeypatch, scaling: float) -> None:
     editor = object.__new__(SegmentEditor)
