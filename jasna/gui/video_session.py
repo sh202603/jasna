@@ -59,6 +59,7 @@ def video_session_config(
     *,
     codec: str,
     encoder_settings: Mapping[str, object],
+    restoration_model_path: Path | None = None,
 ) -> SessionConfig:
     from jasna.engine_paths import default_restoration_model_path
     from jasna.mosaic.detection_registry import coerce_detection_model_name, require_detection_model_weights
@@ -118,6 +119,7 @@ def build_video_session(
     settings: AppSettings,
     *,
     log: Callable[[str], None],
+    restoration_model_path: Path | None = None,
 ) -> RestorationSession:
     from jasna._suppress_noise import install as _install_noise_filters
     _install_noise_filters()

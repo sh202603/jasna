@@ -221,6 +221,95 @@ class _PlaybackFrameCollector:
         )
 
 
+@dataclass(frozen=True)
+class PassResult:
+    """Outcome of one bounded restoration pass.
+
+    ``superseded`` means a newer request (or shutdown) interrupted the pass;
+    the partial payload must be discarded. Exactly one of ``frame_image`` /
+    ``clip_frames`` is set on a completed pass (still vs playback).
+    """
+
+    superseded: bool
+    frame_seconds: float | None = None
+    frame_image: Image.Image | None = None
+    clip_frames: tuple[RestoredClipFrame, ...] | None = None
+
+
+def run_preview_pass(
+    *,
+    pipeline,
+    metadata: VideoMetadata,
+    settings: AppSettings,
+    projection: str,
+    center_seconds: float,
+    playback: bool,
+    max_size: tuple[int, int],
+    cancel_event: threading.Event,
+    should_abort: Callable[[], bool],
+) -> PassResult:
+    """Run the real 4-stage pipeline over one bounded window and collect the
+    result as PIL images instead of encoding.
+
+    Shared by the restoration preview worker and the A/B compare worker; the
+    caller owns ``cancel_event`` (set it to interrupt the pass) and
+    ``should_abort`` (checked periodically; aborts and marks the pass
+    superseded when it returns True). ``pipeline`` comes from
+    ``session_factory.build_pipeline`` for ``settings``.
+    """
+    from jasna.pipeline_threads import run_restoration_pass
+
+    pipeline.vr_projection = projection
+    pipeline.configure_vr(metadata)
+    left_eye_only = pipeline.vr_resolution.is_sbs
+    window = (
+        playback_window(metadata, center_seconds, settings.max_clip_size)
+        if playback
+        else preview_window(metadata, center_seconds, settings.max_clip_size)
+    )
+
+    lut_applier = None
+    lut_path = (settings.lut_path or "").strip()
+    if lut_path:
+        from jasna.media.lut import GpuLutApplier, parse_cube_file
+
+        lut_applier = GpuLutApplier(parse_cube_file(lut_path), pipeline.device)
+
+    collector = (
+        _PlaybackFrameCollector(metadata, max_size, lut_applier, left_eye_only=left_eye_only)
+        if playback
+        else _CenterFrameCollector(window.center_pts, cancel_event, lut_applier, left_eye_only=left_eye_only)
+    )
+    error = run_restoration_pass(
+        pipeline,
+        metadata,
+        collector,
+        cancel_event,
+        seek_ts=window.seek_ts if window.seek_ts > 0 else None,
+        use_async_secondary=False,
+        end_pts=window.end_pts,
+        poll=should_abort,
+    )
+
+    superseded = should_abort()
+    if error is not None and not collector.done and not superseded:
+        raise error
+    if superseded:
+        return PassResult(superseded=True)
+    if isinstance(collector, _PlaybackFrameCollector) and collector.done:
+        return PassResult(superseded=False, clip_frames=collector.result_frames())
+    if isinstance(collector, _CenterFrameCollector) and collector.has_result:
+        return PassResult(
+            superseded=False,
+            frame_seconds=max(
+                0.0,
+                (collector._best_pts - metadata.start_pts) * float(metadata.time_base),
+            ),
+            frame_image=collector.result_image(max_size),
+        )
+    return PassResult(superseded=False)
+
+
 class RestorationPreviewWorker:
     """Background worker that restores one bounded window per request.
 
@@ -368,62 +457,28 @@ class RestorationPreviewWorker:
         return pipeline
 
     def _run_preview_pass(self, command: _Request, pipeline) -> RestorationFrame | RestorationClip | None:
-        from jasna.pipeline_threads import run_restoration_pass
-
-        settings = command.settings
-        pipeline.vr_projection = command.projection
-        pipeline.configure_vr(self.metadata)
-        left_eye_only = pipeline.vr_resolution.is_sbs
-        window = (
-            playback_window(self.metadata, command.center_seconds, settings.max_clip_size)
-            if command.playback
-            else preview_window(self.metadata, command.center_seconds, settings.max_clip_size)
-        )
         cancel_event = threading.Event()
         with self._cancel_lock:
             self._active_cancel = cancel_event
-
-        lut_applier = None
-        lut_path = (settings.lut_path or "").strip()
-        if lut_path:
-            from jasna.media.lut import GpuLutApplier, parse_cube_file
-
-            lut_applier = GpuLutApplier(parse_cube_file(lut_path), pipeline.device)
-
-        collector = (
-            _PlaybackFrameCollector(self.metadata, self.max_size, lut_applier, left_eye_only=left_eye_only)
-            if command.playback
-            else _CenterFrameCollector(window.center_pts, cancel_event, lut_applier, left_eye_only=left_eye_only)
-        )
         try:
-            error = run_restoration_pass(
-                pipeline,
-                self.metadata,
-                collector,
-                cancel_event,
-                seek_ts=window.seek_ts if window.seek_ts > 0 else None,
-                use_async_secondary=False,
-                end_pts=window.end_pts,
-                poll=lambda: not self._commands.empty() or self._closed.is_set(),
+            result = run_preview_pass(
+                pipeline=pipeline,
+                metadata=self.metadata,
+                settings=command.settings,
+                projection=command.projection,
+                center_seconds=command.center_seconds,
+                playback=command.playback,
+                max_size=self.max_size,
+                cancel_event=cancel_event,
+                should_abort=lambda: not self._commands.empty() or self._closed.is_set(),
             )
         finally:
             with self._cancel_lock:
                 self._active_cancel = None
-
-        superseded = not self._commands.empty() or self._closed.is_set()
-        if error is not None and not collector.done and not superseded:
-            raise error
-        if not superseded:
-            if isinstance(collector, _PlaybackFrameCollector) and collector.done:
-                return RestorationClip(collector.result_frames(), command.generation)
-            if isinstance(collector, _CenterFrameCollector) and collector.has_result:
-                return RestorationFrame(
-                    max(
-                        0.0,
-                        (collector._best_pts - self.metadata.start_pts)
-                        * float(self.metadata.time_base),
-                    ),
-                    collector.result_image(self.max_size),
-                    command.generation,
-                )
+        if result.superseded:
+            return None
+        if result.clip_frames is not None:
+            return RestorationClip(result.clip_frames, command.generation)
+        if result.frame_image is not None:
+            return RestorationFrame(result.frame_seconds, result.frame_image, command.generation)
         return None
