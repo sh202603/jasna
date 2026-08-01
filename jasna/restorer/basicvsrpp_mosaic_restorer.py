@@ -50,6 +50,12 @@ class BasicvsrppMosaicRestorer:
             self.model = load_model(config, checkpoint_path, self.device, fp16)
             logger.info("BasicVSR++ loaded from checkpoint: %s (fp16=%s)", checkpoint_path, fp16)
 
+    @property
+    def tensorrt_active(self) -> bool:
+        """True when frames actually run through the TRT sub-engines (a missing
+        engine set silently falls back to the PyTorch model above)."""
+        return self._split_forward is not None
+
     def close(self) -> None:
         if self._split_forward is not None:
             self._split_forward.close()

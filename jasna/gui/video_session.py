@@ -55,8 +55,9 @@ def video_session_config(
     *,
     codec: str,
     encoder_settings: Mapping[str, object],
+    restoration_model_path: Path | None = None,
 ) -> SessionConfig:
-    from jasna.engine_paths import model_weights_dir
+    from jasna.engine_paths import default_restoration_model_path
     from jasna.mosaic.detection_registry import coerce_detection_model_name, require_detection_model_weights
 
     det_name = coerce_detection_model_name(str(settings.detection_model))
@@ -70,7 +71,11 @@ def video_session_config(
         max_detection_gap=int(settings.max_detection_gap),
         min_detection_duration=int(settings.min_detection_duration),
         scene_detection=bool(settings.scene_detection),
-        restoration_model_path=model_weights_dir() / "lada_mosaic_restoration_model_generic_v1.2.pth",
+        restoration_model_path=(
+            restoration_model_path
+            if restoration_model_path is not None
+            else default_restoration_model_path()
+        ),
         compile_basicvsrpp=bool(settings.compile_basicvsrpp),
         max_clip_size=int(settings.max_clip_size),
         temporal_overlap=int(settings.temporal_overlap),
@@ -108,6 +113,7 @@ def build_video_session(
     *,
     disable_basicvsrpp_tensorrt: bool,
     log: Callable[[str], None],
+    restoration_model_path: Path | None = None,
 ) -> RestorationSession:
     from jasna._suppress_noise import install as _install_noise_filters
     _install_noise_filters()
@@ -122,7 +128,12 @@ def build_video_session(
     else:
         os.environ.pop("JASNA_FP8_RECON", None)
 
-    config = video_session_config(settings, codec=settings.codec, encoder_settings={})
+    config = video_session_config(
+        settings,
+        codec=settings.codec,
+        encoder_settings={},
+        restoration_model_path=restoration_model_path,
+    )
     return build_restoration_session(
         config,
         disable_basicvsrpp_tensorrt=disable_basicvsrpp_tensorrt,
