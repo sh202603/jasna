@@ -153,3 +153,22 @@ upstream v0.8.0 の PyAV エンコード経路は、RGB→YUV 変換結果のテ
 本フォークはまず 256 B 整列のステージングバッファ版をローカル実装して報告した。upstream 修正 `bb6e36e` は同じ構造（幅広バッファ + `[:, :width]` の strided view）で **16 B 整列**を採用し、パディングのゼロ埋めとテスト（`test_video_encoder_unit.py` の `_align_yuv_pitch` ユニット + `test_video_encoder_mux.py` の幅 852/854/860 × hevc/h264/av1 隔離プロセスプローブ）を追加している。v0.8.1 リベースでローカル版は drop し upstream 版を採用。v0.8.1 の AMD 対応後は NVIDIA 経路（`vendor is NVIDIA`）でのみ `_align_yuv_pitch` が呼ばれる（AMF はホストコピー経由でピッチ問題自体がない）。
 
 **検証**（256B ローカル版・v0.8.0 時点）: 幅マトリクス 852/854/856/860/864/1280/1920 × hevc/h264 全通過、`tests/test_video_encoder_mux.py` 27 件パス、852x480（10661 フレーム一致）と 3840x2160 のフルパイプライン完走。**upstream 16B 版はリベース時に同型プローブ（上記 upstream テスト）を RTX 5080 実機で再検証済み。**
+
+---
+
+## 11. 新機能（modi）: Segment Editor の A/B モデル比較
+
+区間エディターから起動する専用モーダルウィンドウで、検出モデル×復元チェックポイントの 2 つの組み合わせを同一フレーム（または短い再生窓）で左右比較する。モデルの世代交代やファインチューンした復元チェックポイントの評価のたびにフル動画を 2 回処理していた手間を、GUI 上の数秒の操作に置き換える。ビューは **復元**（復元後フレーム）／**検出**（マスクオーバーレイ + スコア、側別の信頼度スライダ付き）／**クリップ**（左右同期再生。A 側をクロックに B 側は最近傍秒フレームを描画）の 3 つ。実行は明示的な **実行** ボタンで行い、選択・時刻の変更は「（未反映）」表示の更新のみ（1 レグに数秒〜数十秒かかるため自動実行しない）。
+
+実装の骨子:
+
+- **逐次実行の構造的保証**: torch_tensorrt の CUDA graphs モードはプロセスグローバルで、キャプチャ中に他スレッドが発行する CUDA 呼び出しに汚染される。そのため A/B の 2 レグは単一ワーカースレッド（`jasna/gui/ab_compare_worker.py`）が A→B を順に実行し、並行実行が構造的に起こらない。レグ間に新リクエストが到着した場合は B レグを打ち切る。両セッション常駐で OOM した場合は両スロットを解放して現レグのみコールド再構築するリトライを 1 回行う。
+- **パイプラインの流用**: 既存の復元プレビュー（中心時刻周辺の短窓だけ実 4 段パイプラインを回し、エンコーダ代わりのコレクタで PIL 画像を回収）の本体を `run_restoration_pass()` として `jasna/gui/restoration_preview.py` から抽出し、復元プレビューと A/B の両ワーカーで共用する（挙動中立リファクタ）。
+- **無言フォールバックの可視化**: BasicVSR++ はサブエンジン欠落時に無言で PyTorch にフォールバックする。`BasicvsrppMosaicRestorer.tensorrt_active` を追加し、各側のバッジ（**TRT** / **PyTorch**）で実行経路を明示する。エンジンが無いチェックポイントはコンパイル subprocess（15〜60 分）を踏まずに PyTorch 実行へ誘導し（`disable_basicvsrpp_tensorrt=True`）、ウィンドウ内の **エンジンをコンパイル** ボタンで明示的にコンパイルできる（完了までウィンドウ操作をロック。エンジンはチェックポイント単位なので、同一 ckpt を指す他方の側のバッジにも反映される）。
+- **EMA ガード**: `load_model` は `is_use_ema=True` 固定のため、`generator_ema.*` キーを持たないチェックポイントは無言でランダム重み実行になる既知の罠がある。新設の `jasna/restorer/checkpoint_info.py` が実行前にキー走査（mmap ロード + (path, mtime, size) キャッシュ）で検出し、明示的に拒否する。
+- **復元チェックポイントの選択可能化**: GUI 経路でハードコードだった復元モデルパスを `default_restoration_model_path()`（`jasna/engine_paths.py`）に一元化し、`video_session_config` / `build_video_session` に `restoration_model_path` kwarg を追加した（`AppSettings` と `video_session_key` は不変なのでジョブ処理へは漏れない）。
+- **ズーム/パンの共通化**: 正規化座標系のズーム/パン数式（HiDPI 除算 = issue #229 対応を含む）を `jasna/gui/preview_zoom.py` に置き、A/B の両ペインを 1 つの `ZoomPanController` で同期駆動する。Segment Editor 本体の数式も同モジュールへの委譲に置き換えた（挙動不変、既存テストで固定）。
+
+新規 UI 文字列は locales 5 ファイル（en/ja/ko/th/zh）すべてに追加。実装は `jasna/gui/ab_compare.py`（ウィンドウ）+ `ab_compare_worker.py`（ワーカー）+ `preview_zoom.py` + `jasna/restorer/checkpoint_info.py`、エディタ側の起動導線は `jasna/gui/segment_editor.py`。
+
+**検証**: ユニット `tests/test_ab_compare_{worker,window}.py`・`test_preview_zoom.py`・`test_checkpoint_info.py` + `test_segment_editor.py` の統合分（CPU-safe、GPU 不要）。ワーカー逐次性（A 完了前に B 不開始、レグ間の新リクエストで B 中断）はテストで固定。実機（RTX 5080）では 720p / 1080p / 4K / 8K VR 60fps の各素材で 3 ビューの動作を確認済み。利用者向けの説明は `docs/{ja,en,zh}/segments.md` の「A/B モデル比較」節。

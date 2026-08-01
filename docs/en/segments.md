@@ -35,6 +35,29 @@ The editor can find mosaic scenes for you:
 The detection model and confidence are remembered per queued video and used
 during final processing, so different videos can use different settings.
 
+### A/B model comparison
+
+The **A/B compare…** button below the preview puts two detection/restoration
+model combinations side by side on the same frame. When you upgrade a model
+or try a fine-tuned checkpoint, you can see the difference in seconds instead
+of processing the whole video twice.
+
+- Three views: **Restored** (the restored frame), **Detection** (the
+  detection mask overlay with its score), and **Clip** (a short playback,
+  synchronized between both panes).
+- Pick each side's detection model, confidence, and restoration checkpoint
+  (any `.pth` directly under `model_weights`), then press **Run** to process
+  both sides in sequence. A side whose selection or time has changed since
+  the last run shows a "(stale)" marker.
+- Zoom and pan always stay synchronized between the two panes.
+- Each side's badge shows the actual execution path: **TRT** means TensorRT
+  engines, **PyTorch** means the slower fp32 fallback for a checkpoint
+  without compiled engines (minor quality differences vs TRT are expected).
+  The **Compile engines** button builds the engines for that checkpoint
+  (15-60 min on first run).
+- Checkpoints without EMA weights cannot work correctly (they would run with
+  random weights), so they are explicitly refused before running.
+
 ### Suggesting better masks
 
 When a detection looks wrong, you can help improve future models. Pause on
