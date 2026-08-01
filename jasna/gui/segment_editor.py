@@ -12,7 +12,7 @@ import customtkinter as ctk
 from PIL import Image
 from tkinter import messagebox
 
-from jasna.gui import scaling
+from jasna.gui import preview_zoom, scaling
 from jasna.gui.locales import t
 from jasna.gui.models import AppSettings, JobItem
 from jasna.gui.components import AutoHidingScrollableFrame, Tooltip, grab_modal
@@ -414,6 +414,16 @@ class SegmentEditor(ctk.CTkToplevel):
         """Restore preview switch and VR projection choice; the seed panel adds its LTX render button."""
         preview_options = ctk.CTkFrame(preview_card, fg_color="transparent")
         preview_options.grid(row=3, column=0, sticky="ew", padx=8, pady=(2, 8))
+        self._ab_btn = ctk.CTkButton(
+            preview_options,
+            text=t("segments_ab_compare"),
+            height=28,
+            fg_color=Colors.BG_PANEL,
+            hover_color=Colors.BORDER_LIGHT,
+            command=self._open_ab_compare,
+        )
+        self._ab_btn.pack(side="left")
+        Tooltip(self._ab_btn, t("segments_ab_compare_hint"))
         restore_control = ctk.CTkFrame(preview_options, fg_color="transparent")
         restore_control.pack(side="right")
         self._restore_toggle = CompactSwitch(
@@ -1386,6 +1396,7 @@ class SegmentEditor(ctk.CTkToplevel):
             self._step_forward,
             self._play,
             self._restore_toggle,
+            self._ab_btn,
             self._start_entry,
             self._end_entry,
             self._suggest_btn,
@@ -1846,6 +1857,9 @@ class SegmentEditor(ctk.CTkToplevel):
             return
         self._set_playing(False)
         self._closed.set()
+        if self._ab_window is not None:
+            self._ab_window.close()
+            self._ab_window = None
         self._preview_worker.close()
         if self._restoration_worker is not None:
             self._restoration_worker.close()
