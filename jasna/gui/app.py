@@ -605,8 +605,13 @@ class JasnaApp(ctk.CTk, TkinterDnD.DnDWrapper):
             if preflight.should_warn_first_run_slow:
                 from tkinter import messagebox
 
+                from jasna.engine_paths import trt_flavor
+
                 missing_lines = "\n".join(f"- {_engine_name(k)}" for k in missing_keys)
-                msg = t("engine_first_run_body")
+                body_key = (
+                    "engine_first_run_body_rtx" if trt_flavor() == "rtx" else "engine_first_run_body"
+                )
+                msg = t(body_key)
                 if missing_lines:
                     msg += "\n\n" + t("engine_first_run_missing") + "\n" + missing_lines
                 messagebox.showinfo(t("engine_first_run_title"), msg)

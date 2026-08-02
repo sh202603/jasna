@@ -96,6 +96,7 @@ EN = {
         "ab_detection_model": "Detection model",
         "ab_restoration_model": "Restoration model",
         "ab_badge_trt": "TRT",
+        "ab_badge_trt_rtx": "TRT-RTX",
         "ab_badge_pytorch": "PyTorch",
         "ab_badge_pytorch_hint": "No TensorRT engines exist for this checkpoint; it runs on the slower fp32 PyTorch path, so minor quality differences vs TRT are expected",
         "ab_stale_hint": "(stale)",
@@ -504,6 +505,7 @@ EN = {
         # Engine compilation / first run warnings
         "engine_first_run_title": "First run may be slow",
         "engine_first_run_body": "GPU-specific model files need to be prepared. This is normal on the first run. NVIDIA TensorRT compilation can take 15-60 minutes.\n\nClose all other applications (browsers, games, etc.) and do not use the PC during preparation. The application may appear unresponsive — do not close it.\n\nModel artifacts are cached and reused on all future runs.",
+        "engine_first_run_body_rtx": "GPU-specific model files need to be prepared. This is normal on the first run. TensorRT-RTX compilation typically finishes within a minute.\n\nThe application may appear unresponsive — do not close it.\n\nModel artifacts are cached and reused on all future runs.",
         "engine_first_run_missing": "Missing engines:",
         "engine_name_rfdetr": "RF-DETR (detection)",
         "engine_name_yolo": "YOLO (detection)",

@@ -96,6 +96,7 @@ ZH = {
         "ab_detection_model": "检测模型",
         "ab_restoration_model": "修复模型",
         "ab_badge_trt": "TRT",
+        "ab_badge_trt_rtx": "TRT-RTX",
         "ab_badge_pytorch": "PyTorch",
         "ab_badge_pytorch_hint": "该检查点没有 TensorRT 引擎，将使用较慢的 fp32 PyTorch 路径运行，与 TRT 相比可能存在轻微画质差异",
         "ab_stale_hint": "（未更新）",
@@ -504,6 +505,7 @@ ZH = {
         # Engine compilation / first run warnings
         "engine_first_run_title": "首次运行可能较慢",
         "engine_first_run_body": "需要准备 GPU 专用模型文件。这在首次运行时是正常的。NVIDIA TensorRT 编译可能需要 15-60 分钟。\n\n请关闭所有其他应用程序（浏览器、游戏等），准备期间请勿使用电脑。应用可能看起来无响应——请不要关闭。\n\n模型产物会被缓存，后续运行自动复用。",
+        "engine_first_run_body_rtx": "需要准备 GPU 专用模型文件。这在首次运行时是正常的。TensorRT-RTX 编译通常在一分钟内完成。\n\n应用可能看起来无响应——请不要关闭。\n\n模型产物会被缓存，后续运行自动复用。",
         "engine_first_run_missing": "缺失的引擎：",
         "engine_name_rfdetr": "RF-DETR（检测）",
         "engine_name_yolo": "YOLO（检测）",
