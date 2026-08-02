@@ -117,6 +117,7 @@ KO = {
         "ab_detection_model": "감지 모델",
         "ab_restoration_model": "복원 모델",
         "ab_badge_trt": "TRT",
+        "ab_badge_trt_rtx": "TRT-RTX",
         "ab_badge_pytorch": "PyTorch",
         "ab_badge_pytorch_hint": "이 체크포인트에는 TensorRT 엔진이 없어 느린 fp32 PyTorch 경로로 실행됩니다. TRT 대비 미세한 품질 차이가 있을 수 있습니다",
         "ab_stale_hint": "(미반영)",
