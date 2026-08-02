@@ -68,6 +68,7 @@ class TestYoloInit:
             engine,
             input_shapes=[(2, 3, 640, 640)],
             device=torch.device("cuda:0"),
+            use_cuda_graphs=True,
         )
 
     def test_score_threshold_out_of_range(self):
