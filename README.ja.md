@@ -99,7 +99,7 @@ FlashVSR は単体で 12〜16GB VRAM を消費するため、一次パイプラ�
 
 ### TensorRT-RTX フレーバー（opt-in、エンジンコンパイル高速化）
 
-`nvidia` の代わりに `nvidia-rtx` extra を入れると TensorRT スタックが [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx)（JIT コンパイル）に切り替わり、初回のエンジンビルドが分単位から秒単位になります（RTX 5080 実測: RF-DETR 36 秒 → 5 秒、BasicVSR++ サブエンジン 55 秒 → 16 秒）。代償は推論速度のわずかな低下（検出エンジンで約 +12%）です。エンジンは `.rtx` タグ付きの名前でキャッシュされ、両フレーバーで 1 つの `model_weights` ディレクトリを共有できます。1 つの venv には 1 フレーバーのみ入ります。詳細: [docs/ja/tensorrt_rtx.md](docs/ja/tensorrt_rtx.md)。
+`nvidia` の代わりに `nvidia-rtx` extra を入れると TensorRT スタックが [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx)（JIT コンパイル）に切り替わり、初回のエンジンビルドが大幅に短縮されます（RTX 5060 Ti 実測: RF-DETR 118 秒 → 16 秒、BasicVSR++ サブエンジン 143 秒 → 52 秒。RTX 5080: 36 秒 → 5 秒 / 55 秒 → 16 秒）。代償は処理速度の低下（1080p 長尺の定常スループットで約 −10%）です。エンジンは `.rtx` タグ付きの名前でキャッシュされ、両フレーバーで 1 つの `model_weights` ディレクトリを共有できます。1 つの venv には 1 フレーバーのみ入ります。詳細: [docs/ja/tensorrt_rtx.md](docs/ja/tensorrt_rtx.md)。
 
 ## コミュニティ
 
