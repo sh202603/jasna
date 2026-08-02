@@ -25,10 +25,13 @@ class EnginePreflightResult:
 
 def first_run_warning(missing_keys: Sequence[str]) -> str:
     """The note shown before a run that first has to build the engines named by ``missing_keys``."""
+    from jasna.engine_paths import trt_flavor
     from jasna.gui.locales import t
 
+    # modi: TensorRT-RTX builds its engines in seconds, so that flavour has its own wording.
+    body_key = "engine_first_run_body_rtx" if trt_flavor() == "rtx" else "engine_first_run_body"
     missing_lines = "\n".join(f"- {t(f'engine_name_{key}')}" for key in missing_keys)
-    return f"{t('engine_first_run_body')}\n\n{t('engine_first_run_missing')}\n{missing_lines}"
+    return f"{t(body_key)}\n\n{t('engine_first_run_missing')}\n{missing_lines}"
 
 
 def _detection_weights_path(settings: AppSettings) -> Path:
