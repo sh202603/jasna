@@ -65,8 +65,10 @@ BasicVSR++ 側（`torch_tensorrt.compile(ir="dynamo")` 経路）は import 名�
 
 TensorRT-RTX はカーネル生成をエンジンロード時まで遅延する。
 
-生 API 経路（RF-DETR、YOLO）にはディスクキャッシュを実装した（`TrtRunner._create_execution_context`、エンジンの隣に `.jitcache` を置く）。
+生 API 経路（RF-DETR、YOLO）にはディスクキャッシュを実装した（`TrtRunner._create_execution_context`、エンジンの隣に `.trtrtx<major>.<minor>.jitcache` を置く）。
+ファイル名に tensorrt-rtx のバージョンを含めるのは、エンジン名がバージョンを持たないため、ランタイム更新後に古いキャッシュを無言で読み続ける事故を防ぐためである（旧名の `.jitcache` は自動移行する）。
 実測でロード 3.9 秒 → 0.18 秒となり、標準 TensorRT と同水準になる。
+キャッシュは warmup 後とクローズ時に再保存する。これにより、推論中に形状ごとに遅延特殊化されるカーネルもプロセスをまたいで残り、2 回目以降の起動では初回推論が約 150 ms → 10〜20 ms に縮む。
 キャッシュ生成に失敗しても実行は継続する（プレーンなコンテキスト生成へフォールバック）。
 
 dynamo 経路（BasicVSR++）にはキャッシュがない。
@@ -104,6 +106,24 @@ torch-tensorrt-rtx 2.12.1 は `runtime_cache_path` kwarg を受理するが、�
 | e2e 出力の一致（1080p 17.5 分、Windows） | 基準 | PSNR 平均 50.7 dB（min 44.3）/ SSIM 0.996 |
 | e2e 出力の一致（同素材、Linux） | 基準 | PSNR 平均 49.9 dB（min 43.7）/ SSIM 0.996 |
 
+### +12% の内訳と、試して効かなかったこと
+
+検出エンジンの +12% は層別プロファイル（IProfiler、2026-08-02、Linux 5080）で内訳を特定した。
+GEMM や attention の行列演算は原因ではない。RTX エンジンの GEMM 群はむしろ標準 TensorRT より速く（バッチ 4 の 1 パスで 3.05 ms 対 3.35 ms）、multi-head attention は両者とも同じ形に融合されている。
+差は未融合のデータ移動カーネルに集中している。標準 TensorRT は 33 MB の `masks` 出力周りのコピーを前段カーネルに融合するのに対し、TensorRT-RTX の JIT は独立カーネル 3 個のまま実行し（+0.44 ms）、その他の reshape／copy 系でさらに約 +0.5 ms を失う。
+これはランタイム内部の融合品質の問題であり、アプリケーション側の構成では動かせなかった。
+whole-graph CUDA graph capture（`IRuntimeConfig.cuda_graph_strategy`）、カーネル特殊化の EAGER 化、AOT ビルダー設定（compute capability のピン留め、tiling レベル、optimization level 3/5）、fp16 変換が残す identity `Cast` 20 個の除去、バッチ 8 プロファイル（画像あたりコストはむしろ悪化）は、いずれも基準 8.5 ms の ±1% に収まった。
+新しいランタイムでも縮まない。tensorrt-rtx 1.5.0 は RF-DETR v6 で退行し（9.2 ms、標準比 +22%）、1.6.1 は 1.4 と同水準（8.5 ms）に戻るだけである。
+このためフレーバーは 1.4 に留め、この差は受け入れて文書化する。
+
+この調査から入った改善は 2 つある。
+1 つは前節の特殊化カーネルのキャッシュ永続化である。
+もう 1 つは検出エンジンの CUDA graph capture の実装で、これは**オプトイン**とした（`JASNA_TRT_RUNNER_CUDAGRAPHS=1`）。
+Linux では検出ステージが GPU 律速のため capture の利得がなく、staging コピーとストリーム間同期でステージ約 1% のコストになる（31,524 フレームの detect-track で 131.0 → 132.5 秒）。
+起動オーバーヘッドが大きい Windows の WDDM では効く可能性が残るが、未検証である。
+graph 経路と graphs-off の出力一致は長尺で PSNR 平均 45.5 dB（min 41.6）/ SSIM 0.992 だった。graph 経路は端数バッチをパディングして常にフルバッチで実行するため、fp16 変換と同じ「しきい値近傍」クラスの数値差が生じる。
+実験用に `JASNA_TRT_RTX_SPECIALIZATION`（`lazy` | `eager` | `none`）で特殊化戦略も切り替えられる。
+
 短いクリップの e2e 壁時計は RTX が数秒〜十数秒遅い（10 秒クリップで Linux 5.1 → 11.1 秒、Windows 14.2 → 30.4 秒）。
 この差の主因は 1 プロセスあたりの復元サブエンジンのロード JIT（前節）で、処理レートそのものの差ではない。
 実際、復元が始まる前の区間だけを処理させると両フレーバーとも 0.7 秒で一致し、loop_body 1 反復の差も 0.04 ms にとどまる。
@@ -124,4 +144,5 @@ graphs の ON/OFF による傾向も標準フレーバーと同じだった。
 - torch-tensorrt の RTX 対応は公式に experimental である。
 - エンジンは OS をまたいで再利用できない（`.rtx.linux` / `.rtx.win` を別々にビルドする）。
 - `tensorrt-rtx` 1.4 系は FP8 エンジンを実行できない既知の問題があるが、jasna は TensorRT の FP8 を使わないため影響しない（`--fp8-recon` は cuDNN 経路で無関係）。
+- `tensorrt-rtx` を安易に上げない。1.5.0 は RF-DETR v6 で標準比 +22%（1.4 の +12% からの退行）、1.6.1 は 1.4 と同水準に戻るだけである。将来 bump する際の注意として、tensorrt_rtx 1.5 以降は `NetworkDefinitionCreationFlag.EXPLICIT_BATCH` が削除されている（ビルダー側は欠落をガード済み）。
 - 検出モデルの fp16 変換は数値をわずかに変える。しきい値近傍の検出が標準フレーバーと異なる可能性は否定できないため、品質が最優先の用途では標準フレーバーを使う。
