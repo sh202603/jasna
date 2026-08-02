@@ -97,6 +97,10 @@ jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvs
 
 FlashVSR は単体で 12〜16GB VRAM を消費するため、一次パイプライン（約 9GB）と同時常駐できません。**ピーク VRAM が時間的に重ならない 3 つのサブプロセス**として動きます:(1) 一次復元 → クロップをディスクの *bundle* へ直列化、(2) 専用 venv で FlashVSR 4x、(3) 最終出力を再 blend + encode。`FlashVSR_plus` の checkout・v1.1 重み・**uv-managed の standalone Python venv**（system Python では FlashVSR の Triton アテンションカーネルを JIT できない）は利用者が用意します。ファイル出力専用で、`--stream` / `--frame-gen` とは併用不可。単一パス版 `--secondary-restoration flashvsr-inline` は、FlashVSR をストリーミングパイプラインに挟んで**中間ファイル無し**で実行します（16GB カード + tiny-long マルチチャンク修正パッチを当てた checkout が前提）。詳細: [docs/ja/flashvsr.md](docs/ja/flashvsr.md)。
 
+### TensorRT-RTX フレーバー（opt-in、エンジンコンパイル高速化）
+
+`nvidia` の代わりに `nvidia-rtx` extra を入れると TensorRT スタックが [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx)（JIT コンパイル）に切り替わり、初回のエンジンビルドが分単位から秒単位になります（RTX 5080 実測: RF-DETR 36 秒 → 5 秒、BasicVSR++ サブエンジン 55 秒 → 16 秒）。代償は推論速度のわずかな低下（検出エンジンで約 +12%）です。エンジンは `.rtx` タグ付きの名前でキャッシュされ、両フレーバーで 1 つの `model_weights` ディレクトリを共有できます。1 つの venv には 1 フレーバーのみ入ります。詳細: [docs/ja/tensorrt_rtx.md](docs/ja/tensorrt_rtx.md)。
+
 ## コミュニティ
 
 [SLS Discord](https://discord.gg/uNwQ4mHqgv) では、復元例、サポート、設定について話せます。あまり変な振る舞いはしないでください。

@@ -162,6 +162,21 @@ uv pip install -e .[dev,nvidia,torchcodec] \
 
 **補足: FP8 復元バックエンドに追加のインストール手順は不要です。** 依存 `nvidia-cudnn-frontend` は `pyproject.toml` の通常依存で、上記コマンドで一緒に入ります。cuDNN ランタイム（9.17 以上）は torch cu130 wheel に同梱済みです。機能自体は実行時 opt-in（`--fp8-recon`、FP8 対応 GPU sm89 以上が必要）で、使えない環境では TensorRT エンジンにフォールバックします。詳細は [fp8_recon.md](fp8_recon.md)。
 
+**任意: TensorRT-RTX フレーバー。** `nvidia` の代わりに `nvidia-rtx` extra を入れると、TensorRT スタック全体が TensorRT-RTX（JIT コンパイル）に切り替わり、エンジンビルドが分単位から秒単位になります。
+`torch-tensorrt` と `torch-tensorrt-rtx` は同じ `torch_tensorrt` パッケージを提供するため、両 extra は 1 つの venv に共存できません。専用 venv を使ってください。
+
+```bash
+uv pip install -e .[dev,nvidia-rtx] \
+    --extra-index-url https://download.pytorch.org/whl/cu130 \
+    --index-strategy unsafe-best-match \
+    --prerelease=allow
+```
+
+フレーバーはインストール済み wheel から自動判別されます。
+エンジンは `.rtx` タグ付きの名前でキャッシュされるため、両フレーバーで 1 つの `model_weights` ディレクトリを共有できます。
+mmengine パッチ（§5.1）はこの venv にも必要です。
+詳細と実測値は [tensorrt_rtx.md](tensorrt_rtx.md)。
+
 ### 5.1 mmengine パッチの適用 (torch 2.6+ 対応)
 
 `mmengine.runner.checkpoint` 内の `torch.load` 呼び出しに `weights_only=False` を追加します。torch 2.6 以降は既定が `weights_only=True` になり、既存の `.pth` チェックポイント読み込みが壊れるためです。diff は `patches/` に同梱。

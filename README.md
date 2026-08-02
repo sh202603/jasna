@@ -97,6 +97,10 @@ jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvs
 
 FlashVSR peaks at 12–16 GB VRAM on its own, so it cannot co-reside with the ~9 GB primary pipeline. It runs **offline in three subprocesses whose peak VRAM never overlaps**: (1) primary restoration → serialize crops to a disk *bundle*, (2) FlashVSR 4x under its own venv, (3) re-blend + encode the final output. You supply the `FlashVSR_plus` checkout, its v1.1 weights, and a **uv-managed standalone Python venv** (system Python can't JIT FlashVSR's Triton attention kernel). File-output only; not compatible with `--stream` / `--frame-gen`. A single-pass variant, `--secondary-restoration flashvsr-inline`, runs FlashVSR inside the streaming pipeline with **no intermediate files** (needs a 16 GB card and a checkout with the tiny-long multi-chunk patch). Details: [docs/en/flashvsr.md](docs/en/flashvsr.md).
 
+### TensorRT-RTX flavor (opt-in, fast engine compilation)
+
+Installing the `nvidia-rtx` extra instead of `nvidia` switches the TensorRT stack to [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx) (JIT compilation): first-run engine builds finish in seconds instead of minutes (measured on an RTX 5080: RF-DETR 36 s → 5 s, BasicVSR++ sub-engines 55 s → 16 s), at the cost of slightly slower inference (~+12% on the detection engine). Engines are cached under `.rtx`-tagged names, so both flavors can share one `model_weights` directory. One venv holds one flavor. Details: [docs/en/tensorrt_rtx.md](docs/en/tensorrt_rtx.md).
+
 ## Community
 
 Join the [SLS Discord](https://discord.gg/uNwQ4mHqgv) for examples, support, and settings discussion. Please don't be too weird.
