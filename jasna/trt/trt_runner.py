@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import tensorrt as trt
+import logging
+
 import torch
 
 from jasna.trt import _engine_io_names, _trt_dtype_to_torch, get_trt_logger
+from jasna.trt._backend import TRT_FLAVOR, trt
 from jasna.tensor_utils import pad_batch_with_last
+
+logger = logging.getLogger(__name__)
 
 
 class TrtRunner:
@@ -45,7 +49,7 @@ class TrtRunner:
         self.engine = self.runtime.deserialize_cuda_engine(engine_bytes)
         if self.engine is None:
             raise RuntimeError(f"Failed to deserialize TensorRT engine: {source}")
-        self.context = self.engine.create_execution_context()
+        self.context = self._create_execution_context()
         if self.context is None:
             raise RuntimeError("Failed to create TensorRT execution context")
         self.input_names, self.output_names = _engine_io_names(self.engine)
@@ -74,6 +78,37 @@ class TrtRunner:
         self.outputs: dict[str, torch.Tensor] = {}
         self._cur_shapes: dict[str, tuple[int, ...]] = {}
         self._bind({name: tuple(int(d) for d in input_shapes[name]) for name in self.input_names})
+
+    def _create_execution_context(self):
+        """Create the execution context; under TensorRT-RTX, with a JIT kernel
+        disk cache next to the engine file.
+
+        TensorRT-RTX defers kernel generation to context creation (JIT), which
+        costs seconds per engine on every process start. The runtime cache
+        makes later loads near-instant. Failure-tolerant: any cache problem
+        falls back to a plain context. In-memory engines (encrypted unet-4x)
+        have no path to cache next to, so they skip the cache.
+        """
+        if TRT_FLAVOR == "rtx" and self.engine_path is not None:
+            engine_path = Path(self.engine_path)
+            cache_path = engine_path.with_name(engine_path.name + ".jitcache")
+            try:
+                config = self.engine.create_runtime_config()
+                cache = config.create_runtime_cache()
+                if cache_path.exists():
+                    if not cache.deserialize(cache_path.read_bytes()):
+                        logger.debug("Stale TRT-RTX runtime cache ignored: %s", cache_path)
+                config.set_runtime_cache(cache)
+                context = self.engine.create_execution_context(runtime_config=config)
+                if context is not None:
+                    try:
+                        cache_path.write_bytes(bytes(cache.serialize()))
+                    except Exception:
+                        logger.debug("Could not persist TRT-RTX runtime cache", exc_info=True)
+                    return context
+            except Exception:
+                logger.debug("TRT-RTX runtime cache unavailable", exc_info=True)
+        return self.engine.create_execution_context()
 
     def _bind(self, input_shapes: dict[str, tuple[int, ...]]) -> None:
         for name in self.input_names:
