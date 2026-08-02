@@ -27,8 +27,38 @@ def default_restoration_model_path() -> Path:
     return model_weights_dir() / "lada_mosaic_restoration_model_generic_v1.2.pth"
 
 
+_TRT_FLAVOR_ENV = "JASNA_TRT_FLAVOR"  # emergency override: "rtx" | "standard"
+_trt_flavor_cache: str | None = None
+
+
+def trt_flavor() -> str:
+    """``"rtx"`` when the TensorRT-RTX wheel is installed (or forced via
+    ``JASNA_TRT_FLAVOR``), else ``"standard"``.
+
+    Probes the installed distribution (``find_spec``) instead of importing:
+    torch-tensorrt-rtx aliases ``tensorrt`` into ``sys.modules``, so an
+    import-based probe of ``tensorrt`` would flip with import order. The result
+    is cached so engine paths stay stable within a process.
+    """
+    global _trt_flavor_cache
+    if _trt_flavor_cache is None:
+        forced = os.environ.get(_TRT_FLAVOR_ENV, "").strip().lower()
+        if forced in ("rtx", "standard"):
+            _trt_flavor_cache = forced
+        else:
+            from importlib.util import find_spec
+
+            _trt_flavor_cache = "rtx" if find_spec("tensorrt_rtx") is not None else "standard"
+    return _trt_flavor_cache
+
+
 def engine_system_suffix() -> str:
-    return ".win" if os.name == "nt" else ".linux"
+    # Engines are portable across GPUs within one OS, but not across OSes or
+    # TRT flavors (a standard-TRT engine cannot be deserialized by TensorRT-RTX
+    # and vice versa), so both discriminators live in the filename. Standard
+    # flavor keeps the historical names so existing caches stay valid.
+    flavor = ".rtx" if trt_flavor() == "rtx" else ""
+    return flavor + (".win" if os.name == "nt" else ".linux")
 
 
 def engine_precision_name(*, fp16: bool) -> str:

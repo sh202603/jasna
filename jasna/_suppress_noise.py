@@ -99,10 +99,14 @@ def install() -> None:
     # logger at import time (triggered by torch_tensorrt). It bypasses the
     # logging/warnings machinery, so the only way to mute it is to filter the
     # message in trt.Logger.log before the module is imported.
-    if find_spec("tensorrt") is None:
+    # RTX first, mirroring jasna.trt._backend (not imported here — this module
+    # runs before jasna's package imports are safe).
+    if find_spec("tensorrt_rtx") is not None:
+        import tensorrt_rtx as trt
+    elif find_spec("tensorrt") is not None:
+        import tensorrt as trt
+    else:
         return
-
-    import tensorrt as trt
 
     _original_trt_log = trt.Logger.log
 

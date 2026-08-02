@@ -18,15 +18,18 @@ def _mute_torch_tensorrt() -> None:
     if _torchtrt_muted:
         return
     _torchtrt_muted = True
-    import tensorrt as trt
     from jasna._frozen import patch_frozen_torch
+    from jasna.trt._backend import trt
     patch_frozen_torch()
     import torch_tensorrt
     torch_tensorrt.logging._LOGGER.setLevel(logging.ERROR)
     torch_tensorrt.logging._LOGGER.handlers.clear()
     torch_tensorrt.logging._LOGGER.addHandler(logging.NullHandler())
     torch_tensorrt.logging._LOGGER.propagate = False
-    torch.ops.tensorrt.set_logging_level(int(trt.ILogger.Severity.ERROR))
+    try:
+        torch.ops.tensorrt.set_logging_level(int(trt.ILogger.Severity.ERROR))
+    except (AttributeError, RuntimeError):
+        logger.debug("torch.ops.tensorrt.set_logging_level unavailable", exc_info=True)
 
 
 def get_workspace_size_bytes() -> int:
@@ -36,6 +39,10 @@ def get_workspace_size_bytes() -> int:
 
 def load_torchtrt_export(*, checkpoint_path: str, device: torch.device) -> torch.nn.Module:
     _mute_torch_tensorrt()
+    # The exported graphs can contain torch-op islands (e.g. under RTX,
+    # torchvision::deform_conv2d stays a torch op); torch.export.load fails
+    # with "failed to resolve ... to an operator" unless the op is registered.
+    import torchvision  # noqa: F401
 
     logger.debug("Loading TensorRT export from %s", checkpoint_path)
     fake_reg_logger = logging.getLogger("torch._library.fake_class_registry")
@@ -91,6 +98,12 @@ def compile_and_save_torchtrt_dynamo(
         device = inputs[0].device
     print(message)
     logger.info("%s", message)
+
+    # Note: under TensorRT-RTX, torch_tensorrt 2.12.1 accepts a
+    # runtime_cache_path kwarg here, but it neither writes a cache file nor
+    # speeds up later loads of the saved export (verified empirically), so the
+    # per-process JIT cost of loading these engines stays. The raw-API path
+    # (TrtRunner) has a working disk cache instead.
     with torch.cuda.device(device):
         trt_gm = torch_tensorrt.compile(
             module,
