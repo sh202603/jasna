@@ -162,6 +162,17 @@ This installs `torchcodec>=0.15.0`. It is not needed for a normal setup; the def
 
 **Note: the FP8 restoration backend needs no extra install steps.** Its dependency `nvidia-cudnn-frontend` is a regular dependency in `pyproject.toml` and comes in with the command above. The cuDNN runtime (9.17+) ships inside the torch cu130 wheels. The feature itself is a runtime opt-in (`--fp8-recon`, needs an FP8-capable GPU, sm89+) and falls back to the TensorRT engines where unavailable. Details: [fp8_recon.md](fp8_recon.md).
 
+**Optional: the TensorRT-RTX flavor.** Installing the `nvidia-rtx` extra *instead of* `nvidia` switches the whole TensorRT stack to TensorRT-RTX (JIT compilation, engine builds finish in seconds instead of minutes). The two extras are mutually exclusive in one venv — `torch-tensorrt` and `torch-tensorrt-rtx` both ship the `torch_tensorrt` package — so use a dedicated venv:
+
+```bash
+uv pip install -e .[dev,nvidia-rtx] \
+    --extra-index-url https://download.pytorch.org/whl/cu130 \
+    --index-strategy unsafe-best-match \
+    --prerelease=allow
+```
+
+The flavor is detected automatically from the installed wheel; engines are cached under `.rtx`-tagged names, so both flavors can share one `model_weights` directory. The mmengine patch (§5.1) applies to this venv too. Details and measured numbers: [tensorrt_rtx.md](tensorrt_rtx.md).
+
 ### 5.1 Apply the mmengine patch (torch 2.6+ compatibility)
 
 Add `weights_only=False` to the `torch.load` calls inside `mmengine.runner.checkpoint`. From torch 2.6 the default flipped to `weights_only=True`, which breaks loading the existing `.pth` checkpoints. The diff ships in `patches/`.
