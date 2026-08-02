@@ -188,7 +188,7 @@ uv pip install -e .[dev,nvidia,torchcodec] `
 
 **補足: FP8 復元バックエンドに追加のインストール手順は不要。** 依存 `nvidia-cudnn-frontend` と（Windows では）`triton-windows` は `pyproject.toml` の通常依存で、上記コマンドで一緒に入る。cuDNN ランタイム（9.17 以上）は torch cu130 wheel に同梱済み。機能は実行時 opt-in（`--fp8-recon`、FP8 対応 GPU sm89 以上が必要）で、使えない環境では TensorRT エンジンにフォールバックする。v0.8.0+modi でも Windows 11 + RTX 5080 で実機検証済み（2026-07-18。`--log-level info` で `CudnnFP8Upsample: enabled` を確認。既定の `--log-level error` では有効化ログが出ない点に注意）。詳細は [fp8_recon.md](fp8_recon.md)。
 
-**任意: TensorRT-RTX フレーバー（Windows は未検証）。** `nvidia` の代わりに `nvidia-rtx` extra を入れると、TensorRT スタックが TensorRT-RTX（JIT コンパイル）に切り替わり、エンジンビルドが分単位から秒単位になる。両 extra は 1 つの venv に共存できないため、専用 venv を使う。エンジンは `.rtx` タグ付きの名前（`.rtx.win`）でキャッシュされるため、両フレーバーで 1 つの `model_weights` ディレクトリを共有できる。mmengine パッチ（§5.1）はこの venv にも必要。詳細と Linux 実測値は [tensorrt_rtx.md](tensorrt_rtx.md)。
+**任意: TensorRT-RTX フレーバー。** `nvidia` の代わりに `nvidia-rtx` extra を入れると、TensorRT スタックが TensorRT-RTX（JIT コンパイル）に切り替わり、エンジンビルドが分単位から秒単位になる。両 extra は 1 つの venv に共存できないため、専用 venv を使う。エンジンは `.rtx` タグ付きの名前（`.rtx.win`）でキャッシュされるため、両フレーバーで 1 つの `model_weights` ディレクトリを共有できる。mmengine パッチ（§5.1）はこの venv にも必要。注意: `python_vali` は PyPI に Windows wheel が無いため、ローカルビルドの wheel を `--find-links` で供給する（§5 参照）。詳細と実測値（Windows 11 / RTX 5060 Ti 検証済み）は [tensorrt_rtx.md](tensorrt_rtx.md)。
 
 
 ### 5.1 mmengine パッチの適用 (torch 2.6+ 対応)
