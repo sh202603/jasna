@@ -54,6 +54,7 @@ KO = {
         "ab_detection_model": "감지 모델",
         "ab_restoration_model": "복원 모델",
         "ab_badge_trt": "TRT",
+        "ab_badge_trt_rtx": "TRT-RTX",
         "ab_badge_pytorch": "PyTorch",
         "ab_badge_pytorch_hint": "이 체크포인트에는 TensorRT 엔진이 없어 느린 fp32 PyTorch 경로로 실행됩니다. TRT 대비 미세한 품질 차이가 있을 수 있습니다",
         "ab_stale_hint": "(미반영)",
@@ -438,6 +439,7 @@ KO = {
         # Engine compilation / first run warnings
         "engine_first_run_title": "첫 실행은 느릴 수 있습니다",
         "engine_first_run_body": "GPU 전용 모델 파일을 준비해야 합니다. 첫 실행 시 이는 정상입니다. NVIDIA TensorRT 컴파일은 15-60분이 걸릴 수 있습니다.\n\n다른 모든 앱(브라우저, 게임 등)을 닫고, 준비 중 PC를 사용하지 마세요. 앱이 응답하지 않는 것처럼 보일 수 있습니다 — 닫지 마세요.\n\n모델 결과물은 캐시되어 이후 실행 시 자동으로 재사용됩니다.",
+        "engine_first_run_body_rtx": "GPU 전용 모델 파일을 준비해야 합니다. 첫 실행 시 이는 정상입니다. TensorRT-RTX 컴파일은 보통 1분 이내에 완료됩니다.\n\n앱이 응답하지 않는 것처럼 보일 수 있습니다 — 닫지 마세요.\n\n모델 결과물은 캐시되어 이후 실행 시 자동으로 재사용됩니다.",
         "engine_first_run_missing": "누락된 엔진:",
         "engine_name_rfdetr": "RF-DETR (감지)",
         "engine_name_yolo": "YOLO (감지)",

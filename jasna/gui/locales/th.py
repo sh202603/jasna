@@ -55,6 +55,7 @@ TH = {
         "ab_detection_model": "โมเดลตรวจจับ",
         "ab_restoration_model": "โมเดลกู้คืน",
         "ab_badge_trt": "TRT",
+        "ab_badge_trt_rtx": "TRT-RTX",
         "ab_badge_pytorch": "PyTorch",
         "ab_badge_pytorch_hint": "ไม่มีเอนจิน TensorRT สำหรับ checkpoint นี้ จึงทำงานบนเส้นทาง fp32 PyTorch ที่ช้ากว่า อาจมีความแตกต่างด้านคุณภาพเล็กน้อยเมื่อเทียบกับ TRT",
         "ab_stale_hint": "(ยังไม่อัปเดต)",
@@ -440,6 +441,7 @@ TH = {
         # Engine compilation / first run warnings
         "engine_first_run_title": "การรันครั้งแรกอาจช้า",
         "engine_first_run_body": "ต้องเตรียมไฟล์โมเดลเฉพาะ GPU ซึ่งเป็นเรื่องปกติในการรันครั้งแรก การคอมไพล์ NVIDIA TensorRT อาจใช้เวลา 15-60 นาที\n\nปิดแอปอื่นทั้งหมด (เบราว์เซอร์ เกม ฯลฯ) และอย่าใช้ PC ระหว่างการเตรียม แอปอาจดูเหมือนไม่ตอบสนอง — อย่าปิดมัน\n\nไฟล์โมเดลจะถูกแคชและนำกลับมาใช้ในครั้งต่อไปโดยอัตโนมัติ",
+        "engine_first_run_body_rtx": "ต้องเตรียมไฟล์โมเดลเฉพาะ GPU ซึ่งเป็นเรื่องปกติในการรันครั้งแรก การคอมไพล์ TensorRT-RTX มักเสร็จภายในหนึ่งนาที\n\nแอปอาจดูเหมือนไม่ตอบสนอง — อย่าปิดมัน\n\nไฟล์โมเดลจะถูกแคชและนำกลับมาใช้ในครั้งต่อไปโดยอัตโนมัติ",
         "engine_first_run_missing": "engine ที่หายไป:",
         "engine_name_rfdetr": "RF-DETR (ตรวจจับ)",
         "engine_name_yolo": "YOLO (ตรวจจับ)",

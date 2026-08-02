@@ -55,6 +55,7 @@ JA = {
         "ab_detection_model": "検出モデル",
         "ab_restoration_model": "復元モデル",
         "ab_badge_trt": "TRT",
+        "ab_badge_trt_rtx": "TRT-RTX",
         "ab_badge_pytorch": "PyTorch",
         "ab_badge_pytorch_hint": "このチェックポイントには TensorRT エンジンがないため、低速な fp32 PyTorch 実行になります。TRT との軽微な画質差が出る場合があります",
         "ab_stale_hint": "（未反映）",
@@ -458,6 +459,7 @@ JA = {
         # Engine compilation / first run warnings
         "engine_first_run_title": "初回起動は時間がかかる場合があります",
         "engine_first_run_body": "GPU 固有のモデルファイルを準備する必要があります。初回起動時にはこれは正常です。NVIDIA TensorRT のコンパイルには 15～60 分かかる場合があります。\n\n他のアプリ（ブラウザ、ゲームなど）をすべて閉じ、準備中は PC を使用しないでください。アプリが応答しないように見える場合がありますが、閉じないでください。\n\nモデル成果物はキャッシュされ、次回以降自動的に再利用されます。",
+        "engine_first_run_body_rtx": "GPU 固有のモデルファイルを準備する必要があります。初回起動時にはこれは正常です。TensorRT-RTX のコンパイルは通常 1 分以内に完了します。\n\nアプリが応答しないように見える場合がありますが、閉じないでください。\n\nモデル成果物はキャッシュされ、次回以降自動的に再利用されます。",
         "engine_first_run_missing": "不足しているエンジン:",
         "engine_name_rfdetr": "RF-DETR（検出）",
         "engine_name_yolo": "YOLO（検出）",
