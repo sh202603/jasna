@@ -4,15 +4,12 @@ import functools
 import logging
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import torch
 
 from jasna.engine_paths import get_onnx_tensorrt_engine_path
 from jasna.os_utils import atomic_write
-
-if TYPE_CHECKING:
-    import tensorrt as trt
+from jasna.trt._backend import TRT_FLAVOR, trt
 
 
 # TensorRT's highest builder optimization level; every engine Jasna builds uses it.
@@ -30,8 +27,6 @@ def require_engine_file(path: Path) -> Path:
 
 @functools.cache
 def _error_only_trt_logger() -> trt.ILogger:
-    import tensorrt as trt
-
     return trt.Logger(trt.Logger.ERROR)
 
 
@@ -43,8 +38,6 @@ def get_trt_logger() -> trt.ILogger:
 
 
 def _engine_io_names(engine: trt.ICudaEngine) -> tuple[list[str], list[str]]:
-    import tensorrt as trt
-
     input_names: list[str] = []
     output_names: list[str] = []
 
@@ -58,8 +51,6 @@ def _engine_io_names(engine: trt.ICudaEngine) -> tuple[list[str], list[str]]:
 
 
 def _trt_dtype_to_torch(trt_dtype: trt.DataType) -> torch.dtype:
-    import tensorrt as trt
-
     if trt_dtype == trt.DataType.FLOAT:
         return torch.float32
     if trt_dtype == trt.DataType.HALF:
@@ -73,6 +64,40 @@ def _trt_dtype_to_torch(trt_dtype: trt.DataType) -> torch.dtype:
     raise ValueError(f"Unsupported TensorRT dtype: {trt_dtype}")
 
 
+def _convert_onnx_bytes_to_fp16(onnx_bytes: bytes) -> bytes:
+    """Convert an fp32 ONNX graph fully to fp16 (weights, activations, I/O).
+
+    TensorRT-RTX builds strongly typed: precision follows the graph's tensor
+    dtypes, and an fp32 graph compiles to an fp32 engine (~5x slower for
+    RF-DETR than the standard-TRT fp16 build). Converting the whole graph is
+    the equivalent of the BuilderFlag.FP16 + I/O-HALF-forcing recipe used with
+    standard TensorRT.
+
+    Pre-existing ``Cast(to=float32)`` nodes (e.g. DINOv2's embedding cast) are
+    rewritten to float16 — the converter leaves their targets untouched, which
+    would otherwise mix fp32 activations into the fp16 graph and fail the
+    strongly-typed parse (Conv input Float vs kernel Half).
+    """
+    import warnings
+
+    import onnx
+    from onnx import TensorProto
+    from onnxconverter_common import float16
+
+    model = onnx.load_from_string(onnx_bytes)
+    with warnings.catch_warnings():
+        # The converter warns per truncated denormal constant; thousands of
+        # lines of noise for transformer models.
+        warnings.simplefilter("ignore")
+        model = float16.convert_float_to_float16(model, keep_io_types=False, op_block_list=[])
+    for node in model.graph.node:
+        if node.op_type == "Cast":
+            for attr in node.attribute:
+                if attr.name == "to" and attr.i == TensorProto.FLOAT:
+                    attr.i = TensorProto.FLOAT16
+    return model.SerializeToString()
+
+
 def build_engine_bytes(
     onnx_bytes: bytes,
     device: torch.device,
@@ -82,7 +107,12 @@ def build_engine_bytes(
     workspace_gb: int,
     dynamic_batch: bool,
 ) -> bytes:
-    import tensorrt as trt
+    # Strongly-typed RTX: fp16 must be expressed in the graph itself (the
+    # BuilderFlag.FP16 recipe below is standard-TRT only). After conversion
+    # every float tensor is already HALF, so the I/O forcing loops below
+    # become no-ops under RTX.
+    if fp16 and TRT_FLAVOR == "rtx":
+        onnx_bytes = _convert_onnx_bytes_to_fp16(onnx_bytes)
 
     logger = get_trt_logger()
     builder = trt.Builder(logger)
@@ -98,7 +128,11 @@ def build_engine_bytes(
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, int(workspace_gb) * 1024**3)
     config.builder_optimization_level = BUILDER_OPTIMIZATION_LEVEL
 
-    if fp16:
+    # TensorRT-RTX builds strongly typed and rejects BuilderFlag.FP16 with
+    # "Error Code 3: API Usage Error"; precision follows the network tensor
+    # dtypes instead. The I/O HALF forcing below is what makes the RTX build
+    # effectively FP16, so it stays unconditional.
+    if fp16 and TRT_FLAVOR != "rtx":
         config.set_flag(trt.BuilderFlag.FP16)
 
     needs_profile = False
@@ -233,7 +267,6 @@ def save_engine(engine_path: Path, engine_bytes: bytes) -> Path:
 
 def engine_runs_here(engine_bytes: bytes, device: torch.device) -> bool:
     """Whether a serialized engine loads on ``device``; TensorRT refuses one built for another GPU."""
-    import tensorrt as trt
 
     with torch.cuda.device(device):
         return trt.Runtime(get_trt_logger()).deserialize_cuda_engine(engine_bytes) is not None

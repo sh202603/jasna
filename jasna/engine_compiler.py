@@ -293,6 +293,10 @@ def compile_missing_engines(req: EngineCompilationRequest) -> None:
     # shims must be in place.
     from jasna.bootstrap import configure_process
     configure_process()
+
+    from jasna.engine_paths import trt_flavor
+    print(f"TensorRT flavor: {trt_flavor()}")
+
     import torch
     from jasna.accelerator import cuda_arch_name, is_nvidia_device
 
