@@ -73,6 +73,7 @@ def sanitize_windows_path_for_cuda(path_value: str, *, preferred_dirs: list[str]
 FROZEN_PACKAGE_DLL_DIRECTORIES = (
     "torch/lib", "tensorrt_libs", "nvvfx", "nvvfx/libs", "torch_tensorrt/lib", "tools", "vlc",
     "torchcodec", "torchcodec/libs",  # +modi: the torchcodec backend
+    "tensorrt_rtx_libs",  # +modi: the TensorRT-RTX flavor (one venv ships one of the two TRT folders)
 )
 
 
