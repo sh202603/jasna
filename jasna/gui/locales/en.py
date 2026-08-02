@@ -117,6 +117,7 @@ EN = {
         "ab_detection_model": "Detection model",
         "ab_restoration_model": "Restoration model",
         "ab_badge_trt": "TRT",
+        "ab_badge_trt_rtx": "TRT-RTX",
         "ab_badge_pytorch": "PyTorch",
         "ab_badge_pytorch_hint": "No TensorRT engines exist for this checkpoint; it runs on the slower fp32 PyTorch path, so minor quality differences vs TRT are expected",
         "ab_stale_hint": "(stale)",
