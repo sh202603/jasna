@@ -89,7 +89,7 @@ FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存
 
 ### TensorRT-RTX 风味（可选，加速引擎编译）
 
-安装 `nvidia-rtx` extra（替代 `nvidia`）可将 TensorRT 栈切换为 [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx)（JIT 编译）:首次引擎构建从分钟级缩短到秒级（RTX 5080 实测: RF-DETR 36 秒 → 5 秒，BasicVSR++ 子引擎 55 秒 → 16 秒），代价是推理速度略有下降（检测引擎约 +12%）。引擎以带 `.rtx` 标签的名称缓存，两种风味可共享同一个 `model_weights` 目录。一个 venv 只能安装一种风味。详情: [docs/en/tensorrt_rtx.md](docs/en/tensorrt_rtx.md)。
+安装 `nvidia-rtx` extra（替代 `nvidia`）可将 TensorRT 栈切换为 [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx)（JIT 编译）:首次引擎构建时间大幅缩短（RTX 5060 Ti 实测: RF-DETR 118 秒 → 16 秒，BasicVSR++ 子引擎 143 秒 → 52 秒；RTX 5080: 36 秒 → 5 秒 / 55 秒 → 16 秒），代价是处理速度略有下降（1080p 长视频稳态吞吐约 −10%）。引擎以带 `.rtx` 标签的名称缓存，两种风味可共享同一个 `model_weights` 目录。一个 venv 只能安装一种风味。详情: [docs/en/tensorrt_rtx.md](docs/en/tensorrt_rtx.md)。
 
 ## 社区
 

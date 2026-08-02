@@ -98,7 +98,7 @@ FlashVSR peaks at 12–16 GB VRAM on its own, so it cannot co-reside with the ~9
 
 ### TensorRT-RTX flavor (opt-in, fast engine compilation)
 
-Installing the `nvidia-rtx` extra instead of `nvidia` switches the TensorRT stack to [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx) (JIT compilation): first-run engine builds finish in seconds instead of minutes (measured on an RTX 5080: RF-DETR 36 s → 5 s, BasicVSR++ sub-engines 55 s → 16 s), at the cost of slightly slower inference (~+12% on the detection engine). Engines are cached under `.rtx`-tagged names, so both flavors can share one `model_weights` directory. One venv holds one flavor. Details: [docs/en/tensorrt_rtx.md](docs/en/tensorrt_rtx.md).
+Installing the `nvidia-rtx` extra instead of `nvidia` switches the TensorRT stack to [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx) (JIT compilation): first-run engine builds finish in a fraction of the time (RTX 5060 Ti: RF-DETR 118 s → 16 s, BasicVSR++ sub-engines 143 s → 52 s; RTX 5080: 36 s → 5 s / 55 s → 16 s), at the cost of slightly slower processing (steady-state throughput about −10% on a long 1080p video). Engines are cached under `.rtx`-tagged names, so both flavors can share one `model_weights` directory. One venv holds one flavor. Details: [docs/en/tensorrt_rtx.md](docs/en/tensorrt_rtx.md).
 
 ## Community
 
