@@ -3,9 +3,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import tensorrt as trt
 import torch
 
+from jasna.trt._backend import trt
 from jasna.trt import (
     _engine_io_names,
     _TRT_LOGGER,
@@ -152,6 +152,13 @@ def _setup_trt_mocks(tmp_path, *, num_inputs=1, num_outputs=1, dynamic_shape=Fal
 
 
 class TestCompileOnnxToTensorrtEngine:
+    @pytest.fixture(autouse=True)
+    def _standard_flavor(self, monkeypatch):
+        """These tests exercise the builder plumbing with fake ONNX bytes; pin
+        the standard flavor so the RTX fp16 pre-conversion (which needs a real
+        ONNX graph) stays out of the way in either venv."""
+        monkeypatch.setattr("jasna.trt.TRT_FLAVOR", "standard")
+
     def test_returns_existing_engine(self, tmp_path):
         onnx_path = tmp_path / "model.onnx"
         onnx_path.touch()
@@ -170,6 +177,7 @@ class TestCompileOnnxToTensorrtEngine:
         onnx_path, engine_path, mock_builder, mock_parser, mock_config, _ = _setup_trt_mocks(tmp_path)
 
         with (
+            patch("jasna.trt.TRT_FLAVOR", "standard"),
             patch("jasna.trt.trt.Logger"),
             patch("jasna.trt.trt.Builder", return_value=mock_builder),
             patch("jasna.trt.trt.OnnxParser", return_value=mock_parser),
@@ -181,6 +189,27 @@ class TestCompileOnnxToTensorrtEngine:
         assert engine_path.exists()
         assert engine_path.read_bytes() == b"engine_bytes"
         mock_config.set_flag.assert_called_once_with(trt.BuilderFlag.FP16)
+
+    def test_fp16_flag_skipped_under_rtx(self, tmp_path):
+        # TensorRT-RTX is strongly typed: BuilderFlag.FP16 must not be set,
+        # while the I/O HALF forcing (which carries the FP16 intent) stays.
+        # The fp16 pre-conversion needs a real ONNX graph — stub it out.
+        onnx_path, engine_path, mock_builder, mock_parser, mock_config, network = _setup_trt_mocks(tmp_path)
+
+        with (
+            patch("jasna.trt.TRT_FLAVOR", "rtx"),
+            patch("jasna.trt._convert_onnx_bytes_to_fp16", side_effect=lambda b: b),
+            patch("jasna.trt.trt.Logger"),
+            patch("jasna.trt.trt.Builder", return_value=mock_builder),
+            patch("jasna.trt.trt.OnnxParser", return_value=mock_parser),
+            patch("jasna.trt.torch.cuda.device", return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock(return_value=False))),
+        ):
+            result = compile_onnx_to_tensorrt_engine(onnx_path, torch.device("cuda:0"), fp16=True, workspace_gb=20)
+
+        assert result == engine_path
+        mock_config.set_flag.assert_not_called()
+        assert network.get_input(0).dtype == trt.DataType.HALF
+        assert network.get_output(0).dtype == trt.DataType.HALF
 
     def test_parse_failure_raises(self, tmp_path):
         onnx_path, _, mock_builder, mock_parser, _, _ = _setup_trt_mocks(tmp_path, parse_ok=False)
