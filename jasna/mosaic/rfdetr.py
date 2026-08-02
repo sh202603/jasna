@@ -119,6 +119,7 @@ class RfDetrMosaicDetectionModel:
                     (self.batch_size, 3, self.resolution, self.resolution)
                 ],
                 device=self.device,
+                use_cuda_graphs=True,
             )
         else:
             raise RuntimeError(
