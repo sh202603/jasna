@@ -129,7 +129,11 @@ def test_failed_generic_error_uses_restore_failed_message() -> None:
     assert window._panes["b"].error == t("segments_restore_failed", message="boom")
 
 
-def test_badge_maps_confirmed_and_provisional_states() -> None:
+def test_badge_maps_confirmed_and_provisional_states(monkeypatch) -> None:
+    # Pin the standard flavor: in a TensorRT-RTX venv the badge reads TRT-RTX.
+    from jasna import engine_paths
+
+    monkeypatch.setattr(engine_paths, "_trt_flavor_cache", "standard")
     window = _window()
     window._refresh_badge = ABCompareWindow._refresh_badge.__get__(window)
     pane = window._panes["a"]

@@ -116,6 +116,13 @@ class TestTensorrtLoadOrder:
         # must then be resolvable in the process-global symbol scope.
         if sys.platform == "win32":
             pytest.skip("RTLD_GLOBAL symbol-scope check is POSIX-specific")
+        from importlib.util import find_spec
+
+        if find_spec("tensorrt_libs") is None:
+            # TensorRT-RTX venv: no standard tensorrt_libs, and libtensorrt_rtx
+            # does not share nvvfx's libnvinfer.so.10 soname, so the preload is
+            # deliberately a no-op there.
+            pytest.skip("standard tensorrt_libs not installed (RTX flavor venv)")
         mod._preload_tensorrt_runtime()
         get_version = ctypes.CDLL(None).getInferLibVersion
         get_version.restype = ctypes.c_int
