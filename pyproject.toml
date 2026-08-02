@@ -51,6 +51,23 @@ nvidia = [
   # keytool/wheels/ on top of this pin (see keytool/build_linux.sh).
   "python_vali==4.8.7",
 ]
+# TensorRT-RTX flavor of the NVIDIA stack. Mutually exclusive with the
+# `nvidia` extra in a single venv: torch-tensorrt and torch-tensorrt-rtx both
+# ship the `torch_tensorrt` package. JIT compilation makes the first-run
+# engine build much faster; engines are cached under flavor-tagged names
+# (".rtx.linux"/".rtx.win", see engine_paths.engine_system_suffix), so
+# standard and RTX caches coexist in one model_weights dir.
+nvidia-rtx = [
+  "torch==2.12.0+cu130",
+  "torchvision==0.27.0+cu130",
+  # PyPI; pulls tensorrt_rtx (>=1.4.0.76,<1.5). 2.13.x requires torch 2.13.
+  "torch-tensorrt-rtx==2.12.1",
+  # RTX builds strongly typed, so fp16 must live in the ONNX graph itself;
+  # used by jasna.trt._convert_onnx_bytes_to_fp16.
+  "onnxconverter-common>=1.14",
+  "nvidia-vfx",
+  "python_vali==4.8.7",
+]
 amd = [
   "torch==2.9.1",
   # The ROCm channels ship different torchvision versions per OS (Linux
