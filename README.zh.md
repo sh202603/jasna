@@ -87,6 +87,10 @@ jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvs
 
 FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存。它以**峰值 VRAM 在时间上互不重叠的三个子进程**运行:(1) 一级修复 → 将裁剪块序列化到磁盘 *bundle*，(2) 在其专用 venv 中执行 FlashVSR 4x，(3) 重新混合并编码最终输出。你需自备 `FlashVSR_plus` 检出、其 v1.1 权重以及一个 **uv 托管的独立 Python venv**（系统 Python 无法 JIT 编译 FlashVSR 的 Triton 注意力内核）。仅文件输出；不兼容 `--stream` / `--frame-gen`。单趟版本 `--secondary-restoration flashvsr-inline` 在流水线内运行 FlashVSR，**无中间文件**（需 16GB 显卡以及打了 tiny-long 多块修复补丁的检出）。详情: [docs/en/flashvsr.md](docs/en/flashvsr.md)。
 
+### TensorRT-RTX 风味（可选，加速引擎编译）
+
+安装 `nvidia-rtx` extra（替代 `nvidia`）可将 TensorRT 栈切换为 [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx)（JIT 编译）:首次引擎构建从分钟级缩短到秒级（RTX 5080 实测: RF-DETR 36 秒 → 5 秒，BasicVSR++ 子引擎 55 秒 → 16 秒），代价是推理速度略有下降（检测引擎约 +12%）。引擎以带 `.rtx` 标签的名称缓存，两种风味可共享同一个 `model_weights` 目录。一个 venv 只能安装一种风味。详情: [docs/en/tensorrt_rtx.md](docs/en/tensorrt_rtx.md)。
+
 ## 社区
 
 加入 [SLS Discord](https://discord.gg/uNwQ4mHqgv) 查看示例、获取支持，并讨论设置。请不要表现得太奇怪。
