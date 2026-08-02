@@ -117,6 +117,7 @@ JA = {
         "ab_detection_model": "検出モデル",
         "ab_restoration_model": "復元モデル",
         "ab_badge_trt": "TRT",
+        "ab_badge_trt_rtx": "TRT-RTX",
         "ab_badge_pytorch": "PyTorch",
         "ab_badge_pytorch_hint": "このチェックポイントには TensorRT エンジンがないため、低速な fp32 PyTorch 実行になります。TRT との軽微な画質差が出る場合があります",
         "ab_stale_hint": "（未反映）",
