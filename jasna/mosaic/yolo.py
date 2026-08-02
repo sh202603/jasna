@@ -178,6 +178,7 @@ class YoloMosaicDetectionModel:
                 runtime_path,
                 input_shapes=[(self.batch_size, 3, self.imgsz, self.imgsz)],
                 device=self.device,
+                use_cuda_graphs=True,
             )
             self._input_name = self.runner.input_names[0]
             self.input_dtype = self.runner.input_dtypes[self._input_name]
