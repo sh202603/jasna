@@ -110,8 +110,12 @@ def _build_serialized_engine(
 
     logger = get_trt_logger()
     builder = trt.Builder(logger)
-    explicit_batch = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-    network = builder.create_network(explicit_batch)
+    # tensorrt_rtx 1.5+ dropped the EXPLICIT_BATCH flag (explicit batch is the
+    # only mode); standard TRT still defines it.
+    network_flags = 0
+    if hasattr(trt.NetworkDefinitionCreationFlag, "EXPLICIT_BATCH"):
+        network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+    network = builder.create_network(network_flags)
     parser = trt.OnnxParser(network, logger)
 
     if not parser.parse(onnx_bytes):
