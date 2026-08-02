@@ -4,7 +4,9 @@ from importlib.util import find_spec
 
 import pytest
 
-_HAS_TENSORRT = find_spec("tensorrt") is not None
+# Standard TensorRT or the TensorRT-RTX flavor — either provides the raw TRT
+# API (via jasna.trt._backend) and torch_tensorrt, so the TRT test files apply.
+_HAS_TENSORRT = find_spec("tensorrt") is not None or find_spec("tensorrt_rtx") is not None
 
 if _HAS_TENSORRT and find_spec("tensorrt_libs") is not None:
     import tensorrt_libs  # noqa: F401 — locks in tensorrt_libs nvinfer_10.dll before nvvfx

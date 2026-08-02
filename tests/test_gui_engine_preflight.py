@@ -151,7 +151,9 @@ def test_preflight_uses_yolo_engine_name_when_selected(monkeypatch, tmp_path: Pa
     assert "rfdetr" not in keys
 
     yolo_req = next(r for r in res.requirements if r.key == "yolo")
-    suffix = ".fp16.win.engine" if os.name == "nt" else ".fp16.linux.engine"
+    from jasna.engine_paths import engine_system_suffix
+
+    suffix = f".fp16{engine_system_suffix()}.engine"
     assert yolo_req.paths == (Path("model_weights") / f"lada_mosaic_detection_model_v4_fast{suffix}",)
 
 
