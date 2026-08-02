@@ -884,8 +884,11 @@ class ABCompareWindow(ctk.CTkToplevel):
             widgets.badge.configure(text="", fg_color="transparent")
             widgets.badge_tooltip.set_text("")
         elif tensorrt:
+            from jasna.engine_paths import trt_flavor
+
+            badge_key = "ab_badge_trt_rtx" if trt_flavor() == "rtx" else "ab_badge_trt"
             widgets.badge.configure(
-                text=t("ab_badge_trt"),
+                text=t(badge_key),
                 fg_color=Colors.BG_PANEL,
                 text_color=Colors.STATUS_COMPLETED,
             )
