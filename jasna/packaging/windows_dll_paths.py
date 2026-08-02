@@ -84,7 +84,10 @@ def _iter_top_level_lib_dirs(root: Path) -> list[Path]:
     if torch_lib.is_dir():
         out.append(torch_lib)
 
-    for name in ["tensorrt_libs", "nvvfx", "torchcodec"]:
+    # tensorrt_libs = standard TensorRT wheels; tensorrt_rtx_libs = the
+    # TensorRT-RTX flavor (tensorrt_rtx.dll lives there). One venv ships one
+    # of the two, so listing both is harmless.
+    for name in ["tensorrt_libs", "tensorrt_rtx_libs", "nvvfx", "torchcodec"]:
         p = root / name
         if p.is_dir():
             out.append(p)

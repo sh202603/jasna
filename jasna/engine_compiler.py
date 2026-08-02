@@ -215,6 +215,10 @@ def _subprocess_compile(req: EngineCompilationRequest) -> None:
 
     from jasna._suppress_noise import install as _install_noise_filters
     _install_noise_filters()
+
+    from jasna.engine_paths import trt_flavor
+    print(f"TensorRT flavor: {trt_flavor()}")
+
     import torch
     from jasna.accelerator import is_nvidia_device
 
