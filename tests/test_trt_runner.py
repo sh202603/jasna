@@ -2,9 +2,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
-import tensorrt as trt
 import torch
 
+from jasna.trt._backend import trt
 from jasna.trt.trt_runner import TrtRunner
 
 
