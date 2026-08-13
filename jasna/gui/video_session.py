@@ -31,6 +31,7 @@ def video_session_key(settings: AppSettings) -> tuple:
         settings.max_clip_size,
         settings.compile_basicvsrpp,
         getattr(settings, "fp8_recon", False),
+        getattr(settings, "restoration_model", ""),
         settings.denoise_strength,
         settings.secondary_restoration,
         settings.restoration_model,
@@ -73,6 +74,7 @@ def video_session_config(
         default_detection_batch_size,
         require_detection_model_weights,
     )
+    from jasna.restorer.checkpoint_info import resolve_restoration_checkpoint
 
     det_name = coerce_detection_model_name(str(settings.detection_model))
     standard_model = settings.restoration_model == "basicvsrpp"
