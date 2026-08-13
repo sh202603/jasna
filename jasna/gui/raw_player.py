@@ -10,7 +10,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -278,6 +278,7 @@ class RawPlayerWorker:
         self._commands: queue.Queue[_Play | _Stop] = queue.Queue(maxsize=1)
         self._closed = threading.Event()
         self._generation = 0
+        self._tensorrt_disabled = False
         self._active_cancel: threading.Event | None = None
         self._active_writer: RawFrameWriter | None = None
         self._cancel_lock = threading.Lock()
@@ -365,7 +366,14 @@ class RawPlayerWorker:
                         session_key = command_session_key
                     if not self._commands.empty() or self._closed.is_set():
                         continue
-                    self.events.put(PlayerStatus("restoring", command.generation))
+                    self.events.put(
+                        PlayerStatus(
+                            "restoring_no_tensorrt"
+                            if self._tensorrt_disabled
+                            else "restoring",
+                            command.generation,
+                        )
+                    )
                     completed = self._run_pass(command, pipeline, session)
                     superseded = not self._commands.empty() or self._closed.is_set()
                     if completed and not superseded:
@@ -389,14 +397,33 @@ class RawPlayerWorker:
             release_session_memory(session.device)
 
     def _build_pipeline(self, settings: AppSettings):
+        from jasna.engine_paths import all_basicvsrpp_sub_engines_exist
         from jasna.gui.video_session import (
             build_video_session,
             video_session_config,
         )
+        from jasna.restorer.checkpoint_info import (
+            checkpoint_has_ema_weights,
+            resolve_restoration_checkpoint,
+        )
         from jasna.session_factory import build_pipeline
 
+        # Same guard as the A/B compare worker: a checkpoint without EMA
+        # weights would silently load with random weights, so refuse it here
+        # (this loads the checkpoint — worker thread only, never Tk).
+        checkpoint = resolve_restoration_checkpoint(
+            getattr(settings, "restoration_model", "")
+        )
+        if not checkpoint_has_ema_weights(checkpoint):
+            from jasna.gui.locales import t
+
+            raise RuntimeError(t("ab_checkpoint_missing_ema", name=checkpoint.name))
+        self._tensorrt_disabled = not all_basicvsrpp_sub_engines_exist(
+            str(checkpoint), bool(settings.fp16_mode)
+        )
+        # A checkpoint without sub-engines runs on PyTorch instead of compiling.
         session = build_video_session(
-            settings,
+            replace(settings, compile_basicvsrpp=False) if self._tensorrt_disabled else settings,
             log=logger.info,
         )
         try:

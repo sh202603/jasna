@@ -62,6 +62,8 @@ JA = {
         "player_vlc_missing": "音声の再生には VLC media player 3 が必要です。インストールしてから動画を開き直してください。",
         "player_loading_models": "復元モデルを読み込み中…",
         "player_restoring": "フレームを復元中…",
+        "player_restoring_no_tensorrt": "フレームを復元中…（このモデルの TensorRT エンジンが無いため PyTorch 実行・低速）",
+        "player_restoration_model": "復元モデル",
         "player_playing_buffer": "再生中 · バッファ {seconds}秒",
         "player_buffering": "復元フレームをバッファ中…",
         "player_finished": "再生終了",
