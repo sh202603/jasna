@@ -2,7 +2,7 @@
 
 Windows で Jasna のセットアップを行い、**ソースから実行**する手順。
 
-> **検証状態（2026-08-13、`0.10.0+modi`・upstream `93d0584` = v0.10.0 タグベース）**: 本ガイドの手順は Windows 11 + RTX 5060 Ti（driver 610.88、Python 3.13.9、CUDA 13.2、ffmpeg 8.1）で **93d0584 ベースの `0.10.0+modi` を実機検証済み**です（full pytest の失敗集合は素の v0.10.0 ベースラインと完全一致、CLI 実走 15 系統〔v0.10.0 新機能の `--cq`・章/字幕保存・`JASNA_DECODE_BACKEND`・post-export・近接ロック retarget・streaming 再起動を含む〕+ GUI 起動スモーク合格、VALI フォーク wheel 4.8.8 の Windows ビルドも 5.3 節で検証済み。前回 a7cdaf8 ベースの検証は 2026-07-30）。Linux 側は [building_linux.md](building_linux.md) を参照してください。
+> **検証状態（2026-08-13、`0.10.0+modi`・upstream `93d0584` = v0.10.0 タグベース）**: 本ガイドの手順は Windows 11 + RTX 5060 Ti（driver 610.88、Python 3.13.9、CUDA 13.2、ffmpeg 8.1）で **93d0584 ベースの `0.10.0+modi` を実機検証済み**です（full pytest の失敗集合は素の v0.10.0 ベースラインと完全一致、CLI 実走 15 系統〔v0.10.0 新機能の `--cq`・章/字幕保存・`JASNA_DECODE_BACKEND`・post-export・近接ロック retarget・streaming 再起動を含む〕+ GUI スモーク〔復元動画プレイヤーの再生/シーク/フルスクリーン（VLC 経路・SoftwareClock 両方）、キュー右クリック、A/B 比較、segment editor〕合格、VALI フォーク wheel 4.8.8 の Windows ビルドも 5.3 節で検証済み。前回 a7cdaf8 ベースの検証は 2026-07-30）。Linux 側は [building_linux.md](building_linux.md) を参照してください。
 
 > **本ガイドは `v0.10.0+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）は v0.7.2 期から変わらず、依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
 
