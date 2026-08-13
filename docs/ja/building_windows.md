@@ -2,9 +2,9 @@
 
 Windows で Jasna のセットアップを行い、**ソースから実行**する手順。
 
-> **検証状態（2026-07-30、`0.9.1+modi`・upstream `a7cdaf8` = v0.9.1 タグベース）**: 本ガイドの手順は Windows 11 + RTX 5080（driver 610.62、Python 3.13.9、CUDA 13.2、ffmpeg 8.1）で **a7cdaf8 ベースの `0.9.1+modi` を実機検証済み**です（full pytest の失敗集合は素の v0.9.1 ベースラインと一致、CLI 実走 9 系統 + AV1 入力 + GUI スモーク合格、VALI フォーク wheel の Windows ビルドも 5.3 節で検証済み。前回 d7a99bd ベースの検証は 2026-07-23）。Linux 側は [building_linux.md](building_linux.md) を参照してください。
+> **検証状態（2026-08-13、`0.10.0+modi`・upstream `93d0584` = v0.10.0 タグベース）**: 本ガイドの手順は Windows 11 + RTX 5060 Ti（driver 610.88、Python 3.13.9、CUDA 13.2、ffmpeg 8.1）で **93d0584 ベースの `0.10.0+modi` を実機検証済み**です（full pytest の失敗集合は素の v0.10.0 ベースラインと完全一致、CLI 実走 15 系統〔v0.10.0 新機能の `--cq`・章/字幕保存・`JASNA_DECODE_BACKEND`・post-export・近接ロック retarget・streaming 再起動を含む〕+ GUI 起動スモーク合格、VALI フォーク wheel 4.8.8 の Windows ビルドも 5.3 節で検証済み。前回 a7cdaf8 ベースの検証は 2026-07-30）。Linux 側は [building_linux.md](building_linux.md) を参照してください。
 
-> **本ガイドは `v0.9.1+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）は v0.7.2 期から変わらず、依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
+> **本ガイドは `v0.10.0+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）は v0.7.2 期から変わらず、依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
 
 > **v0.8.0 でビルド手順は大幅に簡素化されました。** upstream v0.8.0 でメディア層が PyAV（NVDEC/NVENC）へ移行し、`python_vali` / `PyNvVideoCodec` の C++ ビルドが丸ごと不要になりました。これに伴い、旧ガイドの前提だった以下はすべて不要です:
 >
@@ -165,7 +165,7 @@ uv pip install -e .[dev,nvidia] `
     --prerelease=allow
 ```
 
-> **⚠️ v0.9.1 ベースの Windows では、このコマンドはそのままだと解決に失敗します。** `[nvidia]` extra の `python_vali==4.8.7` ピンに PyPI の Windows wheel が存在しないためです（`No wheels with a matching platform tag` エラー）。回避手順: まず `[dev,torchcodec]`（`nvidia` 抜き）で venv を作り、5.3 節でフォーク wheel（4.8.7）をビルド・導入してから、上記の `[dev,nvidia,...]` を再実行します。導入済みの 4.8.7 がピンを満たすため、2 回目は解決に成功します（実機確認済み）。
+> **⚠️ Windows では、このコマンドはそのままだと解決に失敗します。** `[nvidia]` extra の `python_vali==4.8.8` ピンに PyPI の Windows wheel が存在しないためです（`No wheels with a matching platform tag` エラー）。回避手順: まず `[dev,torchcodec]`（`nvidia` 抜き）で venv を作り、5.3 節でフォーク wheel（4.8.8）をビルド・導入してから、上記の `[dev,nvidia,...]` を再実行します。導入済みの 4.8.8 がピンを満たすため、2 回目は解決に成功します（wheel を `dist\` に置いたまま `--find-links <ワークスペース>\vali\dist` を足して 1 回で解決させることもできます。実機確認済み）。
 
 各フラグの役割:
 
@@ -227,7 +227,7 @@ uv pip install onnx onnxslim onnxruntime
 
 ### 5.3 オプション: VALI NVDEC デコードバックエンドのビルド（`python_vali` フォーク）
 
-v0.9.1 ベースの native デコードは、まず VALI NVDEC デコーダを試し、使えなければ PyAV へエスカレーションします。フォーク専用 API `DecodeSingleSurfaceAsyncDetailed` を持つ wheel が無いと、リーダーは警告を出して毎回 PyAV にフォールバックします（本節なしでもすべて動作します）。Windows では `[nvidia]` extra の解決にも 4.8.7 の wheel が要るため（5 節の注記）、フォーク wheel のビルドが実質前提になります。
+native デコードは、まず VALI NVDEC デコーダを試し、使えなければ PyAV へエスカレーションします（v0.10.0 からは `JASNA_DECODE_BACKEND` 環境変数〔`auto` / `vali` / `pyav-hw` / `pyav-sw`〕でこの連鎖を明示指定できます。modi の `--video-backend` はその上位層で、`native` を選んだときにこの連鎖が働きます）。フォーク専用 API `DecodeSingleSurfaceAsyncDetailed` を持つ wheel が無いと、リーダーは警告を出して毎回 PyAV にフォールバックします（本節なしでもすべて動作します）。Windows では `[nvidia]` extra の解決にも 4.8.8 の wheel が要るため（5 節の注記）、フォーク wheel のビルドが実質前提になります。
 
 1 節に対する追加の前提:
 
@@ -240,7 +240,7 @@ v0.9.1 ベースの native デコードは、まず VALI NVDEC デコーダを�
 cd $Workspace
 git clone https://codeberg.org/Kruk2/vali.git       # 既存 checkout があれば省略
 cd vali
-git checkout 3ad0d54      # = 4.8.7 ピン、DecodeSingleSurfaceAsyncDetailed あり
+git checkout f4a67f8      # = 4.8.8 ピン、DecodeSingleSurfaceAsyncDetailed と EAGAIN 後 drain 修正あり
 git submodule update --init --recursive
 ```
 
@@ -253,18 +253,18 @@ set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2"
 set "PATH=%CUDA_PATH%\bin;%PATH%"
 cd /d <ワークスペース>\vali
 <ワークスペース>\jasna\.venv\Scripts\python.exe setup.py bdist_wheel
-REM -> dist\python_vali-4.8.7-cp313-cp313-win_amd64.whl
+REM -> dist\python_vali-4.8.8-cp313-cp313-win_amd64.whl
 ```
 
 Linux と違い、Windows の wheel は FFmpeg の DLL 群を `python_vali\` 内に同梱するため（CMake の `PYPI_BUILD=0` 既定）、delvewheel は不要です。導入と確認:
 
 ```powershell
-uv pip install --force-reinstall --no-deps (Get-Item $Workspace\vali\dist\python_vali-4.8.7-*.whl)
+uv pip install --force-reinstall --no-deps (Get-Item $Workspace\vali\dist\python_vali-4.8.8-*.whl)
 python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurfaceAsyncDetailed'))"   # -> True
 # jasna を --log-level info で実行すると "Using VALI NVDEC decoder for <file>" が出ます
 ```
 
-> フォークコミット `3ad0d54`（= 4.8.7 ピン、2026-07-30、RTX 5080 + CUDA 13.2 + gyan.dev 8.1 shared）で Windows 実機検証済み: パイプラインの 2 つのデコードパスが両方 VALI を通り、同梱テストクリップの出力は PyAV デコード時と**ビットストリーム md5 完全一致**、av wheel および torchcodec バックエンドとの共存も確認（av は delvewheel 同梱、vali は自前同梱、torchcodec は PATH 解決で、それぞれ別コピーの FFmpeg DLL を持つが、Windows は DLL ごとにシンボル空間が独立しており衝突しない）。
+> フォークコミット `f4a67f8`（= 4.8.8 ピン、2026-08-13、RTX 5060 Ti + CUDA 13.2）で Windows ビルド・パイプライン実走を検証済み。前回検証はフォークコミット `3ad0d54`（= 4.8.7 ピン、2026-07-30、RTX 5080 + CUDA 13.2 + gyan.dev 8.1 shared）: パイプラインの 2 つのデコードパスが両方 VALI を通り、同梱テストクリップの出力は PyAV デコード時と**ビットストリーム md5 完全一致**、av wheel および torchcodec バックエンドとの共存も確認（av は delvewheel 同梱、vali は自前同梱、torchcodec は PATH 解決で、それぞれ別コピーの FFmpeg DLL を持つが、Windows は DLL ごとにシンボル空間が独立しており衝突しない）。
 
 ---
 
