@@ -2,7 +2,7 @@
 
 How to set up Jasna on Windows and run it **from source**.
 
-> **Verification status (2026-07-30, `0.9.1+modi` on upstream `a7cdaf8` = the v0.9.1 tag)**: These instructions are **verified on real hardware on the a7cdaf8 base** — Windows 11 + RTX 5080 (driver 610.62, Python 3.13.9, CUDA 13.2, ffmpeg 8.1); the full-pytest failure set matches the bare v0.9.1 baseline, nine CLI runs plus an AV1 input and the GUI smoke all pass, and the Windows build of the VALI fork wheel is verified in Section 5.3. (The previous verification, on the d7a99bd base, was 2026-07-23.) For the Linux side see [building_linux.md](building_linux.md).
+> **Verification status (2026-08-13, `0.10.0+modi` on upstream `93d0584` = the v0.10.0 tag)**: These instructions are **verified on real hardware on the 93d0584 base** — Windows 11 + RTX 5060 Ti (driver 610.88, Python 3.13.9, CUDA 13.2, ffmpeg 8.1); the full-pytest failure set matches the bare v0.10.0 baseline exactly, fifteen CLI runs (including the v0.10.0 additions: `--cq`, chapter/subtitle preservation, `JASNA_DECODE_BACKEND`, post-export commands, near-lock retarget, and streaming restart) plus the GUI launch smoke all pass, and the Windows build of the VALI fork wheel 4.8.8 is verified in Section 5.3. (The previous verification, on the a7cdaf8 base, was 2026-07-30.) For the Linux side see [building_linux.md](building_linux.md).
 
 > **This guide covers the `v0.9.1+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
 
@@ -165,7 +165,7 @@ uv pip install -e .[dev,nvidia] `
     --prerelease=allow
 ```
 
-> **⚠️ On Windows on the v0.9.1 base this command fails to resolve as-is.** The `[nvidia]` extra pins `python_vali==4.8.7`, and PyPI has no Windows wheel for it (you get a `No wheels with a matching platform tag` error). Workaround: create the venv with `[dev,torchcodec]` first (no `nvidia`), build and install the fork wheel (4.8.7) per Section 5.3, then re-run the `[dev,nvidia,...]` command above. The installed 4.8.7 satisfies the pin, so the second run resolves (confirmed on hardware).
+> **⚠️ On Windows this command fails to resolve as-is.** The `[nvidia]` extra pins `python_vali==4.8.8`, and PyPI has no Windows wheel for it (you get a `No wheels with a matching platform tag` error). Workaround: create the venv with `[dev,torchcodec]` first (no `nvidia`), build and install the fork wheel (4.8.8) per Section 5.3, then re-run the `[dev,nvidia,...]` command above. The installed 4.8.8 satisfies the pin, so the second run resolves (alternatively, keep the wheel in `dist\` and add `--find-links <workspace>\vali\dist` to resolve in one pass; confirmed on hardware).
 
 Why each flag:
 
@@ -227,7 +227,7 @@ uv pip install onnx onnxslim onnxruntime
 
 ### 5.3 Optional: build the VALI NVDEC decode backend (`python_vali` fork)
 
-The v0.9.1-base native decode tries the VALI NVDEC decoder first and escalates to PyAV when it is unavailable. Without a wheel that has the fork-only API `DecodeSingleSurfaceAsyncDetailed`, the reader logs a warning and falls back to PyAV every time (everything still works without this section). On Windows, resolving the `[nvidia]` extra also needs a 4.8.7 wheel (see the note in Section 5), which makes building the fork wheel a de-facto prerequisite.
+Native decode tries the VALI NVDEC decoder first and escalates to PyAV when it is unavailable (since v0.10.0 the `JASNA_DECODE_BACKEND` environment variable — `auto` / `vali` / `pyav-hw` / `pyav-sw` — selects this chain explicitly; modi's `--video-backend` sits one layer above it, and the chain applies when `native` is selected). Without a wheel that has the fork-only API `DecodeSingleSurfaceAsyncDetailed`, the reader logs a warning and falls back to PyAV every time (everything still works without this section). On Windows, resolving the `[nvidia]` extra also needs a 4.8.8 wheel (see the note in Section 5), which makes building the fork wheel a de-facto prerequisite.
 
 Additional prerequisites on top of Section 1:
 
@@ -240,7 +240,7 @@ Additional prerequisites on top of Section 1:
 cd $Workspace
 git clone https://codeberg.org/Kruk2/vali.git       # skip if you have a checkout
 cd vali
-git checkout 3ad0d54      # = the 4.8.7 pin, has DecodeSingleSurfaceAsyncDetailed
+git checkout f4a67f8      # = the 4.8.8 pin, has DecodeSingleSurfaceAsyncDetailed and the post-EAGAIN drain fix
 git submodule update --init --recursive
 ```
 
@@ -253,18 +253,18 @@ set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2"
 set "PATH=%CUDA_PATH%\bin;%PATH%"
 cd /d <workspace>\vali
 <workspace>\jasna\.venv\Scripts\python.exe setup.py bdist_wheel
-REM -> dist\python_vali-4.8.7-cp313-cp313-win_amd64.whl
+REM -> dist\python_vali-4.8.8-cp313-cp313-win_amd64.whl
 ```
 
 Unlike on Linux, the Windows wheel bundles the FFmpeg DLLs inside `python_vali\` (CMake's `PYPI_BUILD=0` default), so no delvewheel step is needed. Install and verify:
 
 ```powershell
-uv pip install --force-reinstall --no-deps (Get-Item $Workspace\vali\dist\python_vali-4.8.7-*.whl)
+uv pip install --force-reinstall --no-deps (Get-Item $Workspace\vali\dist\python_vali-4.8.8-*.whl)
 python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurfaceAsyncDetailed'))"   # -> True
 # running jasna with --log-level info now prints "Using VALI NVDEC decoder for <file>"
 ```
 
-> Verified on Windows hardware at fork commit `3ad0d54` (= the 4.8.7 pin, 2026-07-30, RTX 5080 + CUDA 13.2 + gyan.dev 8.1 shared): both decode paths of the pipeline go through VALI, the bundled test clip's output is **bitstream-md5-identical** to the PyAV-decoded run, and coexistence with the av wheel and the torchcodec backend is confirmed (av vendors FFmpeg via delvewheel, vali bundles its own copy, torchcodec resolves via PATH — three separate in-process DLL copies, which is fine on Windows because each DLL has its own symbol namespace).
+> The Windows build and a full pipeline run are verified at fork commit `f4a67f8` (= the 4.8.8 pin, 2026-08-13, RTX 5060 Ti + CUDA 13.2). The previous verification was at fork commit `3ad0d54` (= the 4.8.7 pin, 2026-07-30, RTX 5080 + CUDA 13.2 + gyan.dev 8.1 shared): both decode paths of the pipeline go through VALI, the bundled test clip's output is **bitstream-md5-identical** to the PyAV-decoded run, and coexistence with the av wheel and the torchcodec backend is confirmed (av vendors FFmpeg via delvewheel, vali bundles its own copy, torchcodec resolves via PATH — three separate in-process DLL copies, which is fine on Windows because each DLL has its own symbol namespace).
 
 ---
 
