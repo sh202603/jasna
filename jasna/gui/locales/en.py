@@ -62,6 +62,8 @@ EN = {
         "player_vlc_missing": "Sound needs VLC media player 3. Install it, then open the video again.",
         "player_loading_models": "Loading restoration models…",
         "player_restoring": "Restoring frames…",
+        "player_restoring_no_tensorrt": "Restoring frames… (no TensorRT engines for this model; PyTorch mode, slower)",
+        "player_restoration_model": "Restoration model",
         "player_playing_buffer": "Playing · Buffer {seconds}s",
         "player_buffering": "Buffering restored frames…",
         "player_finished": "Finished",

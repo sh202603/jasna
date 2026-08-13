@@ -62,6 +62,8 @@ ZH = {
         "player_vlc_missing": "播放声音需要 VLC 媒体播放器 3。请安装后重新打开视频。",
         "player_loading_models": "正在加载修复模型…",
         "player_restoring": "正在修复画面…",
+        "player_restoring_no_tensorrt": "正在修复画面…（该模型没有 TensorRT 引擎，使用 PyTorch 运行，速度较慢）",
+        "player_restoration_model": "修复模型",
         "player_playing_buffer": "正在播放 · 缓冲 {seconds}秒",
         "player_buffering": "正在缓冲修复画面…",
         "player_finished": "播放完毕",
