@@ -27,6 +27,7 @@ def video_session_key(settings: AppSettings) -> tuple:
         settings.max_clip_size,
         settings.compile_basicvsrpp,
         getattr(settings, "fp8_recon", False),
+        getattr(settings, "restoration_model", ""),
         settings.denoise_strength,
         settings.denoise_step,
         settings.secondary_restoration,
@@ -57,8 +58,8 @@ def video_session_config(
     encoder_settings: Mapping[str, object],
     restoration_model_path: Path | None = None,
 ) -> SessionConfig:
-    from jasna.engine_paths import default_restoration_model_path
     from jasna.mosaic.detection_registry import coerce_detection_model_name, require_detection_model_weights
+    from jasna.restorer.checkpoint_info import resolve_restoration_checkpoint
 
     det_name = coerce_detection_model_name(str(settings.detection_model))
     return SessionConfig(
@@ -74,7 +75,7 @@ def video_session_config(
         restoration_model_path=(
             restoration_model_path
             if restoration_model_path is not None
-            else default_restoration_model_path()
+            else resolve_restoration_checkpoint(getattr(settings, "restoration_model", ""))
         ),
         compile_basicvsrpp=bool(settings.compile_basicvsrpp),
         max_clip_size=int(settings.max_clip_size),

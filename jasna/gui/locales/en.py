@@ -48,6 +48,8 @@ EN = {
         "player_vlc_missing": "Audio playback needs python-vlc and libVLC 3.",
         "player_loading_models": "Loading restoration models…",
         "player_restoring": "Restoring frames…",
+        "player_restoring_no_tensorrt": "Restoring frames… (no TensorRT engines for this model; PyTorch mode, slower)",
+        "player_restoration_model": "Restoration model",
         "player_playing": "Playing",
         "player_playing_buffer": "Playing · Buffer {seconds}s",
         "player_buffering": "Buffering restored frames…",

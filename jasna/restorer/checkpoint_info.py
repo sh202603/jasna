@@ -37,6 +37,20 @@ def discover_restoration_checkpoints(weights_dir: Path | None = None) -> list[Pa
     )
 
 
+def resolve_restoration_checkpoint(stem: str, weights_dir: Path | None = None) -> Path:
+    """Resolve a checkpoint stem (as stored in ``AppSettings.restoration_model``)
+    to its path. An empty stem, or one with no matching file, falls back to the
+    default checkpoint so stale settings never break a session build."""
+    stem = (stem or "").strip()
+    if stem:
+        for path in discover_restoration_checkpoints(weights_dir):
+            if path.stem == stem:
+                return path
+    from jasna.engine_paths import default_restoration_model_path
+
+    return default_restoration_model_path()
+
+
 def checkpoint_has_ema_weights(path: Path) -> bool:
     """True when the checkpoint carries ``generator_ema.*`` weights.
 

@@ -47,6 +47,8 @@ KO = {
         "player_vlc_missing": "오디오 재생에는 python-vlc와 libVLC 3이 필요합니다.",
         "player_loading_models": "복원 모델 불러오는 중…",
         "player_restoring": "프레임 복원 중…",
+        "player_restoring_no_tensorrt": "프레임 복원 중… (이 모델의 TensorRT 엔진이 없어 PyTorch로 실행, 느림)",
+        "player_restoration_model": "복원 모델",
         "player_playing": "재생 중",
         "player_playing_buffer": "재생 중 · 버퍼 {seconds}초",
         "player_buffering": "복원 프레임 버퍼링 중…",

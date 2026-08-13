@@ -53,8 +53,14 @@ different detection settings.
 ## Restored video player
 
 Select **Video Player** in the header to watch a video as Jasna restores it.
-Choose the detection model, confidence, and optional RTX Super Resolution or
-unet-4x pass, select **Choose video**, then press the normal play button.
+Choose the detection model, restoration model, confidence, and optional RTX
+Super Resolution or unet-4x pass, select **Choose video**, then press the
+normal play button. The restoration model choices are the BasicVSR++
+checkpoints directly under `model_weights\` (*(+modi)* — same discovery rule
+as the [A/B comparison](segments.md)); picking a model whose TensorRT engines
+are not compiled switches playback to PyTorch execution and says so in the
+status (slower; expect more buffering). Checkpoints without EMA weights are
+refused because they would produce random output.
 Use Space to play or pause and the Left/Right arrow keys to seek by 30 seconds.
 Seek, volume, and full-screen controls remain available during playback.
 Full screen expands the video to the largest size that preserves its source
@@ -63,8 +69,8 @@ moving outside that panel hides it again.
 
 In the header player, **Choose video** opens the file picker. Selecting it
 during playback stops the current restoration first. Changing the detection
-model, confidence, or secondary restoration also reloads the restoration
-pipeline at the current playback position. While playing, the status displays
+model, restoration model, confidence, or secondary restoration also reloads
+the restoration pipeline at the current playback position. While playing, the status displays
 how many seconds of restored video are buffered ahead of the playhead. A buffer
 that repeatedly falls to zero means restoration cannot sustain real-time
 playback with the current settings.

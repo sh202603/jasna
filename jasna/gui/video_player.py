@@ -33,10 +33,12 @@ from jasna.gui.settings_sections.widgets import ValueOptionMenu
 from jasna.gui.theme import Colors, Fonts, Sizing
 from jasna.media import VideoMetadata, get_video_meta_data
 from jasna.media.media_files import VIDEO_EXTENSIONS
+from jasna.engine_paths import default_restoration_model_path
 from jasna.mosaic.detection_registry import (
     detection_model_choices,
     recommended_score_threshold,
 )
+from jasna.restorer.checkpoint_info import discover_restoration_checkpoints
 
 _TICK_SECONDS = 1 / 60
 _TICK_MS = round(_TICK_SECONDS * 1000)
@@ -497,12 +499,43 @@ class VideoPlayerDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             self._settings_card,
-            text=t("player_detection_threshold"),
+            text=t("player_restoration_model"),
             text_color=Colors.TEXT_PRIMARY,
         ).grid(row=1, column=0, padx=(12, 6), pady=(0, 10), sticky="w")
+        default_stem = default_restoration_model_path().stem
+        stems = [
+            path.stem for path in discover_restoration_checkpoints()
+        ] or [default_stem]
+        self._restoration_model = ctk.CTkOptionMenu(
+            self._settings_card,
+            values=stems,
+            command=self._restoration_model_changed,
+            fg_color=Colors.BG_PANEL,
+            button_color=Colors.BG_PANEL,
+            button_hover_color=Colors.BORDER_LIGHT,
+            dropdown_fg_color=Colors.BG_PANEL,
+            dropdown_hover_color=Colors.PRIMARY,
+            text_color=Colors.TEXT_PRIMARY,
+            width=340,
+        )
+        selected_stem = (
+            self._base_settings.restoration_model
+            if self._base_settings.restoration_model in stems
+            else (default_stem if default_stem in stems else stems[0])
+        )
+        self._restoration_model.set(selected_stem)
+        self._restoration_model.grid(
+            row=1, column=1, columnspan=3, padx=(0, 14), pady=(0, 10), sticky="w"
+        )
+
+        ctk.CTkLabel(
+            self._settings_card,
+            text=t("player_detection_threshold"),
+            text_color=Colors.TEXT_PRIMARY,
+        ).grid(row=2, column=0, padx=(12, 6), pady=(0, 10), sticky="w")
         threshold_row = ctk.CTkFrame(self._settings_card, fg_color="transparent")
         threshold_row.grid(
-            row=1,
+            row=2,
             column=1,
             columnspan=3,
             padx=(0, 14),
@@ -684,6 +717,7 @@ class VideoPlayerDialog(ctk.CTkToplevel):
             detection_model=self._model.get(),
             detection_score_threshold=float(self._threshold.get()),
             secondary_restoration=self._secondary.get_value(),
+            restoration_model=self._restoration_model.get(),
         )
 
     def _tick(self) -> None:
@@ -708,6 +742,8 @@ class VideoPlayerDialog(ctk.CTkToplevel):
                 if isinstance(event, PlayerStatus):
                     if event.message == "loading_models":
                         message = t("player_loading_models")
+                    elif event.message == "restoring_no_tensorrt":
+                        message = t("player_restoring_no_tensorrt")
                     else:
                         message = t("player_restoring")
                     self._set_status(message, Colors.STATUS_PENDING)
@@ -891,6 +927,9 @@ class VideoPlayerDialog(ctk.CTkToplevel):
         self._request_pipeline_reload()
 
     def _secondary_changed(self, _value: str) -> None:
+        self._request_pipeline_reload()
+
+    def _restoration_model_changed(self, _value: str) -> None:
         self._request_pipeline_reload()
 
     def _request_pipeline_reload(self) -> None:

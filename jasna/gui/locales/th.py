@@ -48,6 +48,8 @@ TH = {
         "player_vlc_missing": "การเล่นเสียงต้องใช้ python-vlc และ libVLC 3",
         "player_loading_models": "กำลังโหลดโมเดลกู้คืน…",
         "player_restoring": "กำลังกู้คืนเฟรม…",
+        "player_restoring_no_tensorrt": "กำลังกู้คืนเฟรม… (ไม่มีเอนจิน TensorRT สำหรับโมเดลนี้ จึงรันด้วย PyTorch ซึ่งช้ากว่า)",
+        "player_restoration_model": "โมเดลกู้คืน",
         "player_playing": "กำลังเล่น",
         "player_playing_buffer": "กำลังเล่น · บัฟเฟอร์ {seconds} วิ",
         "player_buffering": "กำลังบัฟเฟอร์เฟรมที่กู้คืน…",

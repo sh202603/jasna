@@ -157,6 +157,7 @@ class AppSettings:
     scene_detection: bool = True
     compile_basicvsrpp: bool = True
     fp8_recon: bool = False  # experimental cuDNN FP8 upsample (needs sm89+ and fp16; falls back to TRT)
+    restoration_model: str = ""  # BasicVSR++ checkpoint stem under model_weights; "" = the default checkpoint
     
     # Image restoration (SD 1.5 inpaint; used only for still-image inputs)
     image_restore_steps: int = 25

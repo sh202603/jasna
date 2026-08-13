@@ -162,6 +162,7 @@ def test_sections_collect_covers_all_widget_backed_appsettings_fields() -> None:
         "batch_size",
         "tvai_args",
         "vr_projection",
+        "restoration_model",  # player-local selector, not a settings-panel widget
         "output_same_as_input",
         "output_folder",
         "output_pattern",

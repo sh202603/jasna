@@ -113,3 +113,67 @@ def test_video_session_close_closes_restorers() -> None:
 
     session.restoration_pipeline.restorer.close.assert_called_once_with()
     session.secondary_restorer.close.assert_called_once_with()
+
+
+def test_video_session_key_changes_on_restoration_model() -> None:
+    base = video_session_key(AppSettings())
+    assert (
+        video_session_key(replace(AppSettings(), restoration_model="finetune_v2"))
+        != base
+    )
+
+
+def test_video_session_config_resolves_restoration_model_from_settings() -> None:
+    settings = replace(AppSettings(), restoration_model="finetune_v2")
+
+    with (
+        patch("jasna.engine_paths.model_weights_dir"),
+        patch(
+            "jasna.mosaic.detection_registry.coerce_detection_model_name",
+            side_effect=lambda name: name,
+        ),
+        patch(
+            "jasna.mosaic.detection_registry.require_detection_model_weights",
+            return_value=Path("det.engine"),
+        ),
+        patch(
+            "jasna.restorer.checkpoint_info.resolve_restoration_checkpoint",
+            return_value=Path("finetune_v2.pth"),
+        ) as resolver,
+    ):
+        config = video_session_config(
+            settings,
+            codec="hevc",
+            encoder_settings={},
+        )
+
+    resolver.assert_called_once_with("finetune_v2")
+    assert config.restoration_model_path == Path("finetune_v2.pth")
+
+
+def test_video_session_config_explicit_path_bypasses_resolver() -> None:
+    settings = replace(AppSettings(), restoration_model="finetune_v2")
+
+    with (
+        patch("jasna.engine_paths.model_weights_dir"),
+        patch(
+            "jasna.mosaic.detection_registry.coerce_detection_model_name",
+            side_effect=lambda name: name,
+        ),
+        patch(
+            "jasna.mosaic.detection_registry.require_detection_model_weights",
+            return_value=Path("det.engine"),
+        ),
+        patch(
+            "jasna.restorer.checkpoint_info.resolve_restoration_checkpoint",
+        ) as resolver,
+    ):
+        config = video_session_config(
+            settings,
+            codec="hevc",
+            encoder_settings={},
+            restoration_model_path=Path("explicit.pth"),
+        )
+
+    resolver.assert_not_called()
+    assert config.restoration_model_path == Path("explicit.pth")
