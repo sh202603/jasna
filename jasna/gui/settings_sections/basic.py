@@ -126,12 +126,8 @@ class BasicSection:
 
         fp8_frame = ctk.CTkFrame(row_fp8, fg_color=Colors.BG_CARD, corner_radius=6)
         fp8_frame.pack(fill="x")
-        fp8_label = ctk.CTkLabel(fp8_frame, text=t("fp8_recon"), text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_NORMAL))
-        fp8_label.pack(side="left", padx=12, pady=8)
-        fp8_tip = ctk.CTkLabel(fp8_frame, text="ⓘ", text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_TINY), cursor="hand2")
-        fp8_tip.pack(side="left")
-        Tooltip(fp8_tip, get_tooltip("fp8_recon"))
-        self._widgets["fp8_recon"] = create_compact_switch(
+        add_setting_label(fp8_frame, "fp8_recon", in_card=True)
+        self._widgets["fp8_recon"] = CompactSwitch(
             fp8_frame,
             self._on_modified,
             Colors.BG_CARD,
