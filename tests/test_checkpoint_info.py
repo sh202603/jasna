@@ -5,6 +5,7 @@ import torch
 from jasna.restorer.checkpoint_info import (
     checkpoint_has_ema_weights,
     discover_restoration_checkpoints,
+    resolve_restoration_checkpoint,
 )
 
 
@@ -67,3 +68,25 @@ def test_result_is_cached_by_path_and_mtime(tmp_path, monkeypatch) -> None:
 
     assert checkpoint_has_ema_weights(path) is True
     assert loads == []
+
+
+def test_resolve_restoration_checkpoint_matches_stem(tmp_path) -> None:
+    target = tmp_path / "finetune_v2.pth"
+    target.write_bytes(b"x")
+    (tmp_path / "other_model.pth").write_bytes(b"x")
+
+    assert resolve_restoration_checkpoint("finetune_v2", tmp_path) == target
+
+
+def test_resolve_restoration_checkpoint_falls_back_to_default(tmp_path, monkeypatch) -> None:
+    import jasna.engine_paths as engine_paths
+
+    default = tmp_path / "default_model.pth"
+    monkeypatch.setattr(
+        engine_paths, "default_restoration_model_path", lambda: default
+    )
+    (tmp_path / "existing.pth").write_bytes(b"x")
+
+    assert resolve_restoration_checkpoint("", tmp_path) == default
+    assert resolve_restoration_checkpoint("  ", tmp_path) == default
+    assert resolve_restoration_checkpoint("no_such_stem", tmp_path) == default
