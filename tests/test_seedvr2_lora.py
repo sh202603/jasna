@@ -395,16 +395,17 @@ class TestMaskRevert:
     IN_VAL = 200.0 / 255.0
 
     @classmethod
-    def _run(cls, mask=None, pt=0, pl=0, nh=256, nw=256):
+    def _run(cls, mask=None, pt=0, pl=0, nh=256, nw=256, bbox=None):
         from jasna.restorer.restoration_pipeline import _revert_outside_mask
 
         if mask is None:
             mask = torch.zeros(135, 240, dtype=torch.bool)
             mask[55:65, 60:75] = True
+        bbox = bbox or cls.BBOX
         crops = [torch.full((3, 256, 256), 200.0)]
         raw = torch.full((1, 3, 256, 256), 0.5)
         out = _revert_outside_mask(
-            raw, crops, [mask], [cls.BBOX], [(pl, pt)], [(nh, nw)], cls.FRAME
+            raw, crops, [mask], [bbox], [(256, 256)], [(pl, pt)], [(nh, nw)], cls.FRAME
         )
         return out[0]
 
@@ -433,6 +434,27 @@ class TestMaskRevert:
     def test_empty_mask_reverts_everything(self):
         out = self._run(mask=torch.zeros(135, 240, dtype=torch.bool))
         assert torch.allclose(out, torch.full_like(out, self.IN_VAL), atol=1e-3)
+
+    def test_border_ramp_forces_input_at_crop_edge(self):
+        # A mask filling the whole bbox: keep=1 everywhere, so only the
+        # crop-border ramp (20 frame px here, crop px == frame px) acts.
+        mask = torch.zeros(135, 240, dtype=torch.bool)
+        mask[38:69, 51:81] = True
+        out = self._run(mask=mask)
+        assert torch.allclose(out[:, 0, 128], torch.tensor(self.IN_VAL), atol=1e-3)
+        mid = out[0, 10, 128].item()
+        assert 0.5 + 0.02 < mid < self.IN_VAL - 0.02
+        assert torch.allclose(out[:, 25, 128], torch.tensor(0.5), atol=1e-3)
+
+    def test_frame_clamped_side_skips_border_ramp(self):
+        # bbox clamped at the frame top (y1=0): no top ramp (the mosaic may
+        # genuinely reach the crop there), bottom/left/right still ramp.
+        mask = torch.zeros(135, 240, dtype=torch.bool)
+        mask[0:32, 51:81] = True
+        out = self._run(mask=mask, bbox=(400, 0, 656, 256))
+        assert torch.allclose(out[:, 0, 128], torch.tensor(0.5), atol=1e-3)
+        assert torch.allclose(out[:, 255, 128], torch.tensor(self.IN_VAL), atol=1e-3)
+        assert torch.allclose(out[:, 128, 0], torch.tensor(self.IN_VAL), atol=1e-3)
 
     def test_restorer_declares_mask_revert(self):
         assert Seedvr2LoraRestorer.revert_outside_mask is True
