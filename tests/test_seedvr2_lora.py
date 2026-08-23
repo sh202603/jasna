@@ -379,3 +379,60 @@ class TestEdgeRevert:
 
     def test_restorer_declares_edge_revert(self):
         assert Seedvr2LoraRestorer.edge_revert_px > 0
+
+
+class TestMaskRevert:
+    """_revert_outside_mask: identity outside the mask trust zone (halo fix).
+
+    Geometry: frame 1080x1920, mask 135x240 (8 px/cell), bbox (400,300,656,556)
+    -> a 256x256 crop with no resize, so crop px == frame px. The mask block
+    rows 55:65, cols 60:75 sits well inside the bbox. Blend reach at 1080p is
+    dilation 30px + falloff 30px (4+4 mask cells per axis).
+    """
+
+    FRAME = (1080, 1920)
+    BBOX = (400, 300, 656, 556)
+    IN_VAL = 200.0 / 255.0
+
+    @classmethod
+    def _run(cls, mask=None, pt=0, pl=0, nh=256, nw=256):
+        from jasna.restorer.restoration_pipeline import _revert_outside_mask
+
+        if mask is None:
+            mask = torch.zeros(135, 240, dtype=torch.bool)
+            mask[55:65, 60:75] = True
+        crops = [torch.full((3, 256, 256), 200.0)]
+        raw = torch.full((1, 3, 256, 256), 0.5)
+        out = _revert_outside_mask(
+            raw, crops, [mask], [cls.BBOX], [(pl, pt)], [(nh, nw)], cls.FRAME
+        )
+        return out[0]
+
+    def test_mask_interior_keeps_restored(self):
+        out = self._run()
+        # mask block center: frame (480, 540) -> crop (180, 140)
+        assert torch.allclose(out[:, 180, 140], torch.tensor(0.5), atol=1e-3)
+
+    def test_far_from_mask_reverts_to_input(self):
+        out = self._run()
+        # crop (0, 0) = frame (300, 400): 140px / 80px from the mask block,
+        # beyond the 60px dilation+falloff reach in both axes.
+        assert torch.allclose(out[:, 0, 0], torch.tensor(self.IN_VAL), atol=1e-3)
+
+    def test_falloff_band_is_partial(self):
+        out = self._run()
+        # frame row 400 (crop y=100) is inside the falloff band above the mask.
+        v = out[0, 100, 140].item()
+        assert 0.5 + 0.02 < v < self.IN_VAL - 0.02
+
+    def test_padding_rows_untouched(self):
+        out = self._run(pt=8, nh=240)
+        assert torch.allclose(out[:, :8, :], torch.full((3, 8, 256), 0.5))
+        assert torch.allclose(out[:, 248:, :], torch.full((3, 8, 256), 0.5))
+
+    def test_empty_mask_reverts_everything(self):
+        out = self._run(mask=torch.zeros(135, 240, dtype=torch.bool))
+        assert torch.allclose(out, torch.full_like(out, self.IN_VAL), atol=1e-3)
+
+    def test_restorer_declares_mask_revert(self):
+        assert Seedvr2LoraRestorer.revert_outside_mask is True
