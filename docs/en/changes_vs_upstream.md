@@ -178,6 +178,8 @@ Process model: a resident worker in the user-supplied [ComfyUI-SeedVR2_VideoUpsc
 
 **Verification**: unit tests `tests/test_seedvr2_lora.py` (stub-worker wire round-trip incl. BGR order and quantization, respawn+retry, contract errors, pad-mode plumbing; CPU-only) plus the seedvr2 validation matrix in `test_main.py`. On hardware (Linux RTX 5080, real checkout + LoRA): E2E completes with output frame count = input, whole-pipeline VRAM peak 12.6 GB at 480p all-mosaic (~14 crop-fps), clean worker shutdown. Details: [seedvr2.md](seedvr2.md).
 
+The modi **A/B model comparison** (§11) can also select seedvr2 as a side: when the external checkout (`$JASNA_SEEDVR2_REPO`, default `~/seedvr2_videoupscaler`) and the LoRA are present, a `seedvr2` pseudo entry joins the checkpoint dropdown (its value is the LoRA path; the side config carries the model name and repo). The EMA-weights check, TRT badge, and engine-compile button are BasicVSR++-only and are skipped/hidden for that side; the session-slot cache key includes the model name so switching a side rebuilds its session; VR videos are refused for a seedvr2 side with a localized message (5 languages). Covered by CPU tests in `test_ab_compare_worker.py`, `test_ab_compare_window.py`, `test_checkpoint_info.py`, and `test_video_session.py`.
+
 ---
 
 ## Appendix: rebase history
@@ -218,4 +220,3 @@ Changes that upstream has since absorbed are dropped on this rebase: the **separ
 
 The three post-`v0.6.2` upstream commits (absorbed 2026-06-09) are reconciled the same way: `b55b501` "validate model name" lands as-is (file untouched by modi). `5b3ca34` "ultralytics onnx export fix" (save/restore of `CUDA_VISIBLE_DEVICES`) converged with this branch's YOLO CPU-export fix (§1): upstream's save/restore is adopted while the frozen-build `half=False, device="cpu"` part stays. `6545b78` "linux trt load fix" (preload pip `tensorrt_libs` before nvvfx) converged with this branch's existing fix (§1): upstream's `_preload_tensorrt_runtime` name is adopted, the body keeps this branch's defensive version (`find_spec` + try/except; no-op on Windows, which is handled via DLL load order). Upstream's new tests for both files pass unchanged against the modi implementations.
 
-||||||| parent of 78bf694 (feat(restorer): add SeedVR2+LoRA primary restoration (--restoration-model-name seedvr2))
