@@ -60,6 +60,11 @@ class Seedvr2LoraRestorer:
     # leak mirrored content into the window statistics and the color-fix
     # reference. Read by RestorationPipeline._prepare_from_raw_crops.
     pad_mode = "zero"
+    # The diffusion VAE/DiT bleeds the zero padding's black 2-3px into the
+    # valid region, which composites as a dark line along the bbox edge (the
+    # blend mask reaches past the crop border margin). The pipeline reverts
+    # this band to the input (see _revert_valid_edges); BasicVSR++ needs 0.
+    edge_revert_px = 4
     tensorrt_active = False
 
     def __init__(
