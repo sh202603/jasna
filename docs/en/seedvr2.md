@@ -94,7 +94,12 @@ folder input, so that cost is paid once per session.
   pipeline therefore reverts everything outside the detection mask's trust
   zone (mask + blend dilation) to the input, using the blend mask's own
   falloff as the ramp: the detector-miss safety margin stays fully restored,
-  while the falloff zone effectively blends original content.
+  while the falloff zone effectively blends original content. For large
+  mosaics the trust zone covers the whole crop, so a crop-border ramp (~20
+  frame px, the mask-free margin the bbox expansion guarantees) additionally
+  forces the content to converge to the input at every crop border — except
+  sides clamped to the frame edge, where the mosaic may genuinely reach the
+  crop and no seam exists.
 - **Determinism**: the seed and the CUDA allocator (cudaMallocAsync) are
   pinned; identical input reproduces identical output.
 - **Error policy**: a failed clip here means the mosaic stays in the output,
