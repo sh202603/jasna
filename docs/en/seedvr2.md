@@ -80,6 +80,13 @@ folder input, so that cost is paid once per session.
   mosaic crops themselves as the reference. `wavelet` transplants the
   reference's low frequencies instead and can re-introduce the mosaic cell
   grid into the output, which is why it is not the default.
+- **Edge revert**: the diffusion VAE/DiT bleeds the zero padding's black
+  2-3px into the valid region, and the blend mask reaches past the crop's
+  border margin, so a dark line would appear along the bbox edge. The
+  pipeline reverts the pad-adjacent 4px band (256 space) of the valid region
+  to the input with a linear ramp, reproducing BasicVSR++'s near-identity
+  behavior outside the mosaic. Measured: the bbox-edge dark-line metric
+  returns to the bvpp baseline.
 - **Determinism**: the seed and the CUDA allocator (cudaMallocAsync) are
   pinned; identical input reproduces identical output.
 - **Error policy**: a failed clip here means the mosaic stays in the output,
