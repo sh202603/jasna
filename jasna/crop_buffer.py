@@ -184,6 +184,7 @@ def prepare_crops_for_restoration(
     device: torch.device,
     dtype: torch.dtype,
     restoration_size: int = RESTORATION_SIZE,
+    pad_mode: str = "reflect",
 ) -> tuple[list[torch.Tensor], list[tuple[int, int]], list[tuple[int, int]]]:
     crop_shapes = [c.crop_shape for c in raw_crops]
     max_h = max(s[0] for s in crop_shapes)
@@ -219,7 +220,12 @@ def prepare_crops_for_restoration(
             align_corners=False,
         ).squeeze(0)
 
-        padded = _torch_pad_reflect(resized, (pad_left, pad_right, pad_top, pad_bottom))
+        if pad_mode == "zero":
+            # SeedVR2's LoRA was trained on zero-padded crops; reflected
+            # content would skew its window statistics and color-fix reference.
+            padded = F.pad(resized, (pad_left, pad_right, pad_top, pad_bottom), mode="constant", value=0.0)
+        else:
+            padded = _torch_pad_reflect(resized, (pad_left, pad_right, pad_top, pad_bottom))
         resized_crops.append(padded)
 
     return resized_crops, pad_offsets, resize_shapes
