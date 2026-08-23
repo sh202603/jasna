@@ -109,6 +109,7 @@ JA = {
         "ab_step_second_forward": "1 秒進む",
         "ab_close": "閉じる",
         "ab_no_checkpoints": "復元チェックポイントが見つかりません",
+        "ab_seedvr2_vr_unsupported": "seedvr2 は VR 動画に未対応です（LoRA 未検証）。BasicVSR++ チェックポイントを選んでください",
         "ab_compile_engines": "エンジンをコンパイル",
         "ab_compile_engines_hint": "このチェックポイント用の TensorRT サブエンジンをコンパイルします（初回 15〜60 分）。完了までウィンドウの操作はロックされます",
         "ab_compiling": "エンジンをコンパイル中…",

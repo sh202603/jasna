@@ -109,6 +109,7 @@ EN = {
         "ab_step_second_forward": "1 second forward",
         "ab_close": "Close",
         "ab_no_checkpoints": "No restoration checkpoints found",
+        "ab_seedvr2_vr_unsupported": "seedvr2 does not support VR videos (unverified for the LoRA); pick a BasicVSR++ checkpoint",
         "ab_compile_engines": "Compile engines",
         "ab_compile_engines_hint": "Compile TensorRT sub-engines for this checkpoint (15-60 min on first run). The window stays locked until compilation finishes",
         "ab_compiling": "Compiling engines…",

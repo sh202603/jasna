@@ -57,6 +57,12 @@ of processing the whole video twice.
   (15-60 min on first run).
 - Checkpoints without EMA weights cannot work correctly (they would run with
   random weights), so they are explicitly refused before running.
+- When the [SeedVR2 primary restorer](seedvr2.md) is set up (its checkout at
+  `$JASNA_SEEDVR2_REPO` or `~/seedvr2_videoupscaler`, and the LoRA in
+  `model_weights`), a **seedvr2** entry joins the checkpoint dropdown, so you
+  can compare BasicVSR++ against the diffusion restorer on the same frame.
+  The first run of a seedvr2 side starts its resident worker (1-2 min); no
+  TRT badge or engine compile applies, and VR videos are refused for it.
 
 ### Suggesting better masks
 

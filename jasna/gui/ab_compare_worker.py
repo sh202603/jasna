@@ -45,7 +45,11 @@ AB_VIEWS = ("restored", "detection", "clip")
 class ABSideConfig:
     detection_model: str
     detection_score_threshold: float
+    # For "seedvr2", restoration_model_path carries the LoRA checkpoint and
+    # seedvr2_repo the external checkout (same convention as the CLI).
     restoration_model_path: Path
+    restoration_model_name: str = "basicvsrpp"
+    seedvr2_repo: str = ""
 
 
 @dataclass(frozen=True)
@@ -405,12 +409,14 @@ class ABCompareWorker:
             detection_score_threshold=float(config.detection_score_threshold),
         )
         checkpoint = Path(config.restoration_model_path)
+        is_seedvr2 = config.restoration_model_name == "seedvr2"
 
-        if needs_restoration:
+        if needs_restoration and not is_seedvr2:
             from jasna.restorer.checkpoint_info import checkpoint_has_ema_weights
 
             # load_model is hardwired to is_use_ema=True; a checkpoint without
             # generator_ema.* keys would run with random weights, so refuse it.
+            # (The seedvr2 LoRA is not a BasicVSR++ checkpoint; skipped there.)
             if not checkpoint_has_ema_weights(checkpoint):
                 self.events.put(
                     ABFailed(side, "checkpoint_missing_ema", checkpoint.name, generation)
@@ -422,7 +428,7 @@ class ABCompareWorker:
         if self._superseded():
             return
         if needs_restoration:
-            self._ensure_session(side, slot, settings, checkpoint, generation)
+            self._ensure_session(side, slot, settings, config, generation)
             if self._superseded():
                 return
             self.events.put(
@@ -505,18 +511,31 @@ class ABCompareWorker:
         side: str,
         slot: _SessionSlot,
         settings: AppSettings,
-        checkpoint: Path,
+        config: ABSideConfig,
         generation: int,
     ) -> None:
-        from jasna.engine_paths import all_basicvsrpp_sub_engines_exist
+        checkpoint = Path(config.restoration_model_path)
+        is_seedvr2 = config.restoration_model_name == "seedvr2"
 
-        # A checkpoint without current-generation sub-engines runs on PyTorch
-        # instead of triggering a 15-60 min compile subprocess; the resulting
-        # ABSessionInfo(tensorrt=False) drives the warning badge.
-        engines_disabled = not all_basicvsrpp_sub_engines_exist(
-            str(checkpoint), bool(settings.fp16_mode)
+        if is_seedvr2:
+            # No BasicVSR++ engines are involved; ABSessionInfo(tensorrt=False)
+            # is the normal state, not a warning.
+            engines_disabled = False
+        else:
+            from jasna.engine_paths import all_basicvsrpp_sub_engines_exist
+
+            # A checkpoint without current-generation sub-engines runs on PyTorch
+            # instead of triggering a 15-60 min compile subprocess; the resulting
+            # ABSessionInfo(tensorrt=False) drives the warning badge.
+            engines_disabled = not all_basicvsrpp_sub_engines_exist(
+                str(checkpoint), bool(settings.fp16_mode)
+            )
+        key = video_session_key(settings) + (
+            config.restoration_model_name,
+            str(checkpoint),
+            engines_disabled,
+            str(config.seedvr2_repo),
         )
-        key = video_session_key(settings) + (str(checkpoint), engines_disabled)
         if slot.session is not None and slot.session_key == key:
             return
         slot.release_session()
@@ -526,6 +545,8 @@ class ABCompareWorker:
             disable_basicvsrpp_tensorrt=engines_disabled,
             log=lambda message: self.events.put(ABStatus(side, message, generation)),
             restoration_model_path=checkpoint,
+            restoration_model_name=config.restoration_model_name,
+            seedvr2_repo=str(config.seedvr2_repo),
         )
         slot.session_key = key
         slot.tensorrt = bool(

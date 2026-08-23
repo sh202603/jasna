@@ -109,6 +109,7 @@ ZH = {
         "ab_step_second_forward": "前进 1 秒",
         "ab_close": "关闭",
         "ab_no_checkpoints": "未找到修复检查点",
+        "ab_seedvr2_vr_unsupported": "seedvr2 不支持 VR 视频（LoRA 未验证）；请选择 BasicVSR++ 检查点",
         "ab_compile_engines": "编译引擎",
         "ab_compile_engines_hint": "为该检查点编译 TensorRT 子引擎（首次需 15-60 分钟）。编译完成前窗口操作将被锁定",
         "ab_compiling": "正在编译引擎…",

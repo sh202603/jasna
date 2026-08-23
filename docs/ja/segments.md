@@ -54,6 +54,12 @@
   作成できます（初回 15〜60 分）。
 - EMA 重みを持たないチェックポイントは正しく動作しない（ランダム重み
   になる）ため、実行前に明示的に拒否されます。
+- [SeedVR2 一次復元](seedvr2.md)のセットアップ済み環境（checkout が
+  `$JASNA_SEEDVR2_REPO` または `~/seedvr2_videoupscaler`、LoRA が
+  `model_weights` にある）では、チェックポイント選択に **seedvr2** の
+  項目が現れ、BasicVSR++ と diffusion 復元器を同一フレームで比較
+  できます。seedvr2 側の初回実行は常駐 worker の起動（1〜2 分）を伴い、
+  TRT バッジとエンジンコンパイルは対象外、VR 動画では拒否されます。
 
 ### より良いマスクを提案する
 

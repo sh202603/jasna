@@ -108,6 +108,7 @@ KO = {
         "ab_step_second_forward": "1초 앞으로",
         "ab_close": "닫기",
         "ab_no_checkpoints": "복원 체크포인트를 찾을 수 없습니다",
+        "ab_seedvr2_vr_unsupported": "seedvr2는 VR 영상을 지원하지 않습니다(LoRA 미검증). BasicVSR++ 체크포인트를 선택하세요",
         "ab_compile_engines": "엔진 컴파일",
         "ab_compile_engines_hint": "이 체크포인트용 TensorRT 서브 엔진을 컴파일합니다(최초 15~60분). 완료될 때까지 창 조작이 잠깁니다",
         "ab_compiling": "엔진 컴파일 중…",

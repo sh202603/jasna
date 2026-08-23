@@ -428,3 +428,70 @@ def test_worker_reports_completed_teardown() -> None:
     worker.join(timeout=5)
 
     assert stopped.is_set()
+
+
+def _seedvr2_side() -> ABSideConfig:
+    return ABSideConfig(
+        detection_model="rfdetr-v6",
+        detection_score_threshold=0.35,
+        restoration_model_path=Path("lada_seedvr2_lora_v2.pt"),
+        restoration_model_name="seedvr2",
+        seedvr2_repo="/opt/seedvr2_videoupscaler",
+    )
+
+
+def test_seedvr2_side_skips_ema_check(monkeypatch) -> None:
+    import jasna.restorer.checkpoint_info as checkpoint_info
+
+    def _boom(_path):
+        raise AssertionError("EMA check must not run for a seedvr2 side")
+
+    monkeypatch.setattr(checkpoint_info, "checkpoint_has_ema_weights", _boom)
+    worker = ABCompareWorker("unused.mp4", _metadata())
+    worker._ensure_detector = MagicMock()
+    worker._ensure_session = MagicMock()
+    worker._run_restoration_view = MagicMock()
+
+    request = _Request(
+        center_seconds=2.0,
+        view="restored",
+        side_a=_seedvr2_side(),
+        side_b=_seedvr2_side(),
+        base_settings=AppSettings(),
+        projection="auto",
+        generation=worker._generation + 1,
+    )
+    worker._process(request)
+
+    assert worker._run_restoration_view.call_count == 2
+
+
+def test_seedvr2_session_key_and_build_kwargs(monkeypatch) -> None:
+    built = []
+
+    def fake_build(settings, *, disable_basicvsrpp_tensorrt, log, restoration_model_path,
+                   restoration_model_name="basicvsrpp", seedvr2_repo=""):
+        built.append((restoration_model_name, seedvr2_repo, str(restoration_model_path)))
+        session = MagicMock()
+        session.restoration_pipeline.restorer.tensorrt_active = False
+        return session
+
+    monkeypatch.setattr(ab_compare_worker, "build_video_session", fake_build)
+    monkeypatch.setattr(ab_compare_worker, "release_session_memory", lambda _device: None)
+    monkeypatch.setattr(
+        "jasna.engine_paths.all_basicvsrpp_sub_engines_exist", lambda *_a: False
+    )
+    worker = ABCompareWorker("unused.mp4", _metadata())
+    slot = ab_compare_worker._SessionSlot()
+
+    worker._ensure_session("a", slot, AppSettings(), _seedvr2_side(), 1)
+    assert built == [("seedvr2", "/opt/seedvr2_videoupscaler", "lada_seedvr2_lora_v2.pt")]
+    seedvr2_key = slot.session_key
+    assert "seedvr2" in seedvr2_key
+
+    # Switching the same slot to a BasicVSR++ checkpoint must change the key
+    # and rebuild the session.
+    worker._ensure_session("a", slot, AppSettings(), _side("lada_seedvr2_lora_v2.pt"), 1)
+    assert slot.session_key != seedvr2_key
+    assert built[-1][0] == "basicvsrpp"
+    worker.close()

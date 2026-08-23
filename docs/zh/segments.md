@@ -49,6 +49,11 @@
   15-60 分钟）。
 - 缺少 EMA 权重的检查点无法正确工作（会以随机权重运行），因此会在
   运行前被明确拒绝。
+- 若已配置 [SeedVR2 一级修复](../en/seedvr2.md)（检出位于
+  `$JASNA_SEEDVR2_REPO` 或 `~/seedvr2_videoupscaler`，LoRA 在
+  `model_weights` 中），检查点下拉框会出现 **seedvr2** 条目，可在同一帧上
+  对比 BasicVSR++ 与 diffusion 修复器。seedvr2 侧首次运行需启动常驻
+  worker（1-2 分钟）；不涉及 TRT 徽章与引擎编译，VR 视频会被拒绝。
 
 ### 提交更好的遮罩
 

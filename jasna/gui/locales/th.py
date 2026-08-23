@@ -109,6 +109,7 @@ TH = {
         "ab_step_second_forward": "เดินหน้า 1 วินาที",
         "ab_close": "ปิด",
         "ab_no_checkpoints": "ไม่พบ checkpoint สำหรับการกู้คืน",
+        "ab_seedvr2_vr_unsupported": "seedvr2 ยังไม่รองรับวิดีโอ VR (ยังไม่ได้ตรวจสอบกับ LoRA) กรุณาเลือก checkpoint ของ BasicVSR++",
         "ab_compile_engines": "คอมไพล์เอนจิน",
         "ab_compile_engines_hint": "คอมไพล์เอนจินย่อย TensorRT สำหรับ checkpoint นี้ (ครั้งแรก 15-60 นาที) หน้าต่างจะถูกล็อกจนกว่าจะเสร็จ",
         "ab_compiling": "กำลังคอมไพล์เอนจิน…",

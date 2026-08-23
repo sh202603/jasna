@@ -100,6 +100,14 @@ folder input, so that cost is paid once per session.
 | `--stream` | Warning only (mosaic-dense stretches run at the SeedVR2 rate and can stall the player) |
 | `--fp8-recon` / `--compile-basicvsrpp` / `--restoration-model-path` | BasicVSR++-only, inert (fp8-recon and model-path warn) |
 
+## Using it in the Segment Editor's A/B comparison
+
+The Segment Editor's A/B model comparison can also select seedvr2. When the
+checkout is at `$JASNA_SEEDVR2_REPO` (default `~/seedvr2_videoupscaler`) and
+the LoRA is in `model_weights/`, a **seedvr2** entry appears in the checkpoint
+dropdown, letting you compare it against BasicVSR++ on the same frame. See
+"A/B model comparison" in [segments.md](segments.md).
+
 ## Fine-tuning
 
 The training harness (pair dump + LoRA training) is not bundled with jasna:
