@@ -62,37 +62,73 @@ def _revert_valid_edges(
     return out
 
 
+# Width, in frame pixels, of the crop-border revert ramp. expand_bbox
+# guarantees at least MIN_BORDER (20px) of mask-free margin between the
+# detection bbox and the enlarged bbox on every side it did not clamp to the
+# frame, so a 20px ramp never reverts detected mosaic.
+_BORDER_FEATHER_FRAME_PX = 20
+
+
 def _revert_outside_mask(
     primary_raw: torch.Tensor,
     resized_crops: list[torch.Tensor],
     masks: list[torch.Tensor],
     enlarged_bboxes: list[tuple[int, int, int, int]],
+    crop_shapes: list[tuple[int, int]],
     pad_offsets: list[tuple[int, int]],
     resize_shapes: list[tuple[int, int]],
     frame_shape: tuple[int, int],
 ) -> torch.Tensor:
-    """Outside the detection mask's trust zone, lerp the restored crop back to
-    the input, using ``1 - create_bbox_blend_mask`` as the revert weight.
+    """Where the blend cannot end on original content, lerp the restored crop
+    back to the input. Two weights compose by max:
 
-    A generative primary resynthesizes the whole crop, so the blend falloff
-    annulus composites content whose low frequencies drift from the original
-    (measured: a +2..6 luma / ~1.5 chroma halo) and whose grain is about
-    halved — the enlarged bbox reads as a visible patch even with no dark
-    line. BasicVSR++ never showed this because it is near-identity outside the
-    mosaic; this revert grants that property to any restorer. Using the blend
-    mask's own profile keeps the weight-1 zone (mask + dilation, the
-    detector-miss safety margin) fully restored, while in the falloff zone the
-    effective composite weight of resynthesized content becomes the *square*
-    of the blend weight — the halo tail collapses and the original grain is
-    retained at ``1 - w^2`` instead of ``1 - w``.
+    - ``1 - create_bbox_blend_mask``: a generative primary resynthesizes the
+      whole crop, so the blend falloff annulus composites content whose low
+      frequencies drift from the original (measured: a +2..6 luma / ~1.5
+      chroma halo) and whose grain is about halved — the enlarged bbox reads
+      as a visible patch. BasicVSR++ never showed this because it is
+      near-identity outside the mosaic; this revert grants that property to
+      any restorer, while the weight-1 zone (mask + dilation, the
+      detector-miss safety margin) stays fully restored.
+    - a crop-border ramp: for a large mosaic the mask + dilation covers the
+      whole enlarged bbox (its border margin, max(20px, 6%), is narrower than
+      the 30px blend dilation), so the falloff is clipped at the bbox edge and
+      the composite would jump from ~0.7-weight resynthesized content straight
+      to the original there. The ramp forces the crop content itself to
+      converge to the input at the border over ~20 frame px — the mask-free
+      margin expand_bbox guarantees — except on sides clamped to the frame
+      edge, where no seam exists and the mosaic may genuinely reach the crop.
     """
+    frame_h, frame_w = frame_shape
     for i, crop in enumerate(resized_crops):
         pl, pt = pad_offsets[i]
         nh, nw = resize_shapes[i]
+        crop_h, crop_w = crop_shapes[i]
+        x1, y1, x2, y2 = enlarged_bboxes[i]
         keep = create_bbox_blend_mask(
             masks[i], enlarged_bboxes[i], frame_shape, out_size=(nh, nw)
         )
         revert_w = (1.0 - keep).clamp_(0.0, 1.0).to(dtype=primary_raw.dtype)
+
+        ramp_h = max(2, round(_BORDER_FEATHER_FRAME_PX * nh / max(crop_h, 1)))
+        ramp_w = max(2, round(_BORDER_FEATHER_FRAME_PX * nw / max(crop_w, 1)))
+        dev = primary_raw.device
+        dtype = primary_raw.dtype
+        dy = torch.arange(nh, device=dev, dtype=dtype)
+        dx = torch.arange(nw, device=dev, dtype=dtype)
+        prof_y = torch.zeros(nh, device=dev, dtype=dtype)
+        prof_x = torch.zeros(nw, device=dev, dtype=dtype)
+        if y1 > 0:
+            prof_y = torch.maximum(prof_y, (1.0 - dy / ramp_h).clamp(0.0, 1.0))
+        if y2 < frame_h:
+            prof_y = torch.maximum(prof_y, (1.0 - dy.flip(0) / ramp_h).clamp(0.0, 1.0))
+        if x1 > 0:
+            prof_x = torch.maximum(prof_x, (1.0 - dx / ramp_w).clamp(0.0, 1.0))
+        if x2 < frame_w:
+            prof_x = torch.maximum(prof_x, (1.0 - dx.flip(0) / ramp_w).clamp(0.0, 1.0))
+        border_w = torch.maximum(prof_y.unsqueeze(1), prof_x.unsqueeze(0))
+        revert_w = torch.maximum(revert_w, border_w)
+
         valid_in = crop[:, pt:pt + nh, pl:pl + nw].to(dtype=primary_raw.dtype).div(255.0)
         primary_raw[i, :, pt:pt + nh, pl:pl + nw].lerp_(valid_in, revert_w)
     return primary_raw
@@ -196,7 +232,7 @@ class RestorationPipeline:
         if getattr(self.restorer, "revert_outside_mask", False):
             primary_raw = _revert_outside_mask(
                 primary_raw, resized_crops, clip.masks, enlarged_bboxes,
-                pad_offsets, resize_shapes, frame_shape,
+                crop_shapes, pad_offsets, resize_shapes, frame_shape,
             )
         if self._denoise_step is DenoiseStep.AFTER_PRIMARY:
             primary_raw = self._apply_denoise(primary_raw)
