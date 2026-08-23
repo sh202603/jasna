@@ -18,6 +18,49 @@ from jasna.tracking.clip_tracker import TrackedClip
 logger = logging.getLogger(__name__)
 
 
+def _revert_valid_edges(
+    primary_raw: torch.Tensor,
+    resized_crops: list[torch.Tensor],
+    pad_offsets: list[tuple[int, int]],
+    resize_shapes: list[tuple[int, int]],
+    revert_px: int,
+) -> torch.Tensor:
+    """Lerp the outermost ``revert_px`` rows/cols of each crop's valid region
+    back toward the input, on pad-adjacent sides only.
+
+    Generative restorers bleed the zero padding's black 2-3px into the valid
+    region (in 256 space); the unpad slice keeps those contaminated rows, and
+    because the blend mask's dilation+falloff reaches past the enlarged bbox's
+    border margin, they composite into the frame as a dark line along the bbox
+    edge. Reverting the edge band to the input reproduces what BasicVSR++ does
+    naturally there (near-identity outside the mosaic). Ramp: weight
+    ``(revert_px - d) / revert_px`` at distance ``d`` from the valid edge;
+    corners compose both sides' lerps.
+    """
+    out = primary_raw
+    for i, crop in enumerate(resized_crops):
+        pl, pt = pad_offsets[i]
+        nh, nw = resize_shapes[i]
+        size = out.shape[-1]
+        pad_right = size - pl - nw
+        pad_bottom = size - pt - nh
+        if pl <= 0 and pt <= 0 and pad_right <= 0 and pad_bottom <= 0:
+            continue
+        valid_in = crop[:, pt:pt + nh, pl:pl + nw].to(dtype=out.dtype).div(255.0)
+        valid_out = out[i, :, pt:pt + nh, pl:pl + nw]
+        for d in range(min(revert_px, nh, nw)):
+            w = (revert_px - d) / revert_px
+            if pt > 0:
+                valid_out[:, d, :].lerp_(valid_in[:, d, :], w)
+            if pad_bottom > 0:
+                valid_out[:, nh - 1 - d, :].lerp_(valid_in[:, nh - 1 - d, :], w)
+            if pl > 0:
+                valid_out[:, :, d].lerp_(valid_in[:, :, d], w)
+            if pad_right > 0:
+                valid_out[:, :, nw - 1 - d].lerp_(valid_in[:, :, nw - 1 - d], w)
+    return out
+
+
 class RestorationPipeline:
     def __init__(
         self,
@@ -108,6 +151,11 @@ class RestorationPipeline:
         # region (the Linux / HAGS-on "chunk movement" race). Clone here on the primary
         # stream so the read is ordered before the next inference reuses the buffer.
         primary_raw = self.restorer.raw_process(resized_crops).clone()
+        edge_revert_px = int(getattr(self.restorer, "edge_revert_px", 0))
+        if edge_revert_px > 0:
+            primary_raw = _revert_valid_edges(
+                primary_raw, resized_crops, pad_offsets, resize_shapes, edge_revert_px
+            )
         if self._denoise_step is DenoiseStep.AFTER_PRIMARY:
             primary_raw = self._apply_denoise(primary_raw)
 

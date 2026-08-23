@@ -321,3 +321,61 @@ class TestWorkerFileHygiene:
         assert "jasna" not in top_imports
         assert "lada" not in top_imports
         assert "torch" not in top_imports
+
+
+class TestEdgeRevert:
+    """_revert_valid_edges: the dark-line fix for zero-pad bleed (A/B finding)."""
+
+    @staticmethod
+    def _setup(pt=8, pl=0, nh=240, nw=256, k=4, t=2):
+        from jasna.restorer.restoration_pipeline import _revert_valid_edges
+
+        size = 256
+        crops = []
+        for _ in range(t):
+            c = torch.zeros(3, size, size)
+            c[:, pt:pt + nh, pl:pl + nw] = 200.0
+            crops.append(c)
+        raw = torch.full((t, 3, size, size), 0.5)
+        pad_offsets = [(pl, pt)] * t
+        resize_shapes = [(nh, nw)] * t
+        out = _revert_valid_edges(raw, crops, pad_offsets, resize_shapes, k)
+        return out, pt, pl, nh, nw, k
+
+    def test_padded_sides_ramp_toward_input(self):
+        out, pt, pl, nh, nw, k = self._setup()
+        target = 200.0 / 255.0
+        for d, w in ((0, 1.0), (1, 0.75), (2, 0.5), (3, 0.25)):
+            expected = 0.5 + (target - 0.5) * w
+            # top and bottom rows of the valid region (both pad-adjacent here)
+            assert torch.allclose(out[0, :, pt + d, 128], torch.tensor(expected), atol=1e-4)
+            assert torch.allclose(out[0, :, pt + nh - 1 - d, 128], torch.tensor(expected), atol=1e-4)
+        # Row k stays untouched
+        assert torch.allclose(out[0, :, pt + k, 128], torch.tensor(0.5))
+
+    def test_unpadded_sides_untouched(self):
+        out, pt, pl, nh, nw, k = self._setup()
+        # No horizontal padding: left/right columns keep the raw value except
+        # where the top/bottom ramps cross them.
+        assert torch.allclose(out[0, :, pt + k, 0], torch.tensor(0.5))
+        assert torch.allclose(out[0, :, pt + k, nw - 1], torch.tensor(0.5))
+
+    def test_padding_region_untouched(self):
+        out, pt, *_ = self._setup()
+        assert torch.allclose(out[0, :, pt - 1, 128], torch.tensor(0.5))
+
+    def test_no_padding_is_noop(self):
+        out, *_ = self._setup(pt=0, pl=0, nh=256, nw=256)
+        assert torch.allclose(out, torch.full_like(out, 0.5))
+
+    def test_corner_composes_both_sides(self):
+        out, pt, pl, nh, nw, k = self._setup(pt=8, pl=8, nh=240, nw=240)
+        target = 200.0 / 255.0
+        corner = out[0, 0, pt, pl].item()
+        edge_mid = out[0, 0, pt, pl + 128].item()
+        # The corner lerps twice (top then left, both w=1.0) -> at least as
+        # close to the input as a single-side edge point.
+        assert abs(corner - target) <= abs(edge_mid - target) + 1e-6
+
+    def test_restorer_declares_edge_revert(self):
+        assert Seedvr2LoraRestorer.edge_revert_px > 0
