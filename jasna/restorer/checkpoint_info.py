@@ -51,6 +51,28 @@ def resolve_restoration_checkpoint(stem: str, weights_dir: Path | None = None) -
     return default_restoration_model_path()
 
 
+def discover_seedvr2() -> tuple[Path, Path] | None:
+    """(repo, lora) for the seedvr2 primary restorer, or None when unavailable.
+
+    The checkout is taken from ``$JASNA_SEEDVR2_REPO``, falling back to
+    ``~/seedvr2_videoupscaler`` (the documented default clone location), and is
+    recognized by its ``src/core/generation_utils.py`` marker. The LoRA is the
+    default checkpoint in the model weights directory. File-system-only, cheap
+    enough for GUI dropdown population.
+    """
+    import os
+
+    repo = Path(os.environ.get("JASNA_SEEDVR2_REPO", "") or (Path.home() / "seedvr2_videoupscaler")).expanduser()
+    if not (repo / "src" / "core" / "generation_utils.py").is_file():
+        return None
+    from jasna.engine_paths import model_weights_dir
+
+    lora = model_weights_dir() / "lada_seedvr2_lora_v2.pt"
+    if not lora.is_file():
+        return None
+    return repo, lora
+
+
 def checkpoint_has_ema_weights(path: Path) -> bool:
     """True when the checkpoint carries ``generator_ema.*`` weights.
 

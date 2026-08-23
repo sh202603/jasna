@@ -178,6 +178,8 @@ upstream v0.8.0 の PyAV エンコード経路は、RGB→YUV 変換結果のテ
 
 **検証**: ユニット `tests/test_seedvr2_lora.py`（スタブ worker でのワイヤ往復 = BGR 順序と量子化、respawn+リトライ、契約エラー、pad_mode 配管。CPU-only）と `test_main.py` の seedvr2 検証マトリクス。実機（Linux RTX 5080、実 checkout + LoRA）では E2E 完走・出力フレーム数 = 入力・480p 全編モザイクで全体 VRAM ピーク 12.6 GB（約 14 crop-fps）・worker 正常終了を確認。詳細は [seedvr2.md](seedvr2.md)。
 
+modi の **A/B モデル比較**(§11)でも seedvr2 を選択できる。外部 checkout(`$JASNA_SEEDVR2_REPO`、既定 `~/seedvr2_videoupscaler`)と LoRA が存在すると、チェックポイント選択に `seedvr2` 疑似項目が加わる(値は LoRA パス。side 設定がモデル名と repo を運ぶ)。EMA 重み検査・TRT バッジ・エンジンコンパイルボタンは BasicVSR++ 専用のためその側ではスキップまたは非表示になり、セッションスロットのキャッシュキーにモデル名が入るため側の切替でセッションが再構築される。VR 動画では seedvr2 側を 5 言語のメッセージ付きで拒否する。CPU テストは `test_ab_compare_worker.py`、`test_ab_compare_window.py`、`test_checkpoint_info.py`、`test_video_session.py` でカバー。
+
 ---
 
 ## 付録: リベース履歴
@@ -218,4 +220,3 @@ upstream に取り込まれた変更はこのリベースで drop 済み: **分�
 
 `v0.6.2` 後の upstream 3 コミット（2026-06-09 取込）も同様に突き合わせ済み: `b55b501`「validate model name」は modi 未改変ファイルのためそのまま取込。`5b3ca34`「ultralytics onnx export fix」（`CUDA_VISIBLE_DEVICES` の退避/復元）は本ブランチの YOLO CPU export 修正（§1）と収束。upstream の退避/復元を採用しつつ、フローズンビルド対策の `half=False, device="cpu"` は本ブランチ側を維持。`6545b78`「linux trt load fix」（nvvfx より先に pip `tensorrt_libs` をプリロード）は本ブランチの既存修正（§1）と収束。関数名は upstream の `_preload_tensorrt_runtime` を採用し、実装は本ブランチの防御版（`find_spec` + try/except、Windows は DLL ロード順で対応済みのため no-op）を維持。upstream 追加のテストは両ファイルとも modi 実装に対してそのまま通る。
 
-||||||| parent of 78bf694 (feat(restorer): add SeedVR2+LoRA primary restoration (--restoration-model-name seedvr2))
