@@ -53,6 +53,9 @@ class _PaneState:
         self.detection_model = str(detection_model)
         self.threshold = float(threshold)
         self.checkpoint = checkpoint
+        # "basicvsrpp" (checkpoint = BasicVSR++ .pth) or "seedvr2"
+        # (checkpoint = the LoRA file; restored by the external worker).
+        self.restoration_model_name = "basicvsrpp"
         self.stale = False
         self.status: str | None = None
         self.error: str | None = None
@@ -208,6 +211,11 @@ class _ComparePane(ctk.CTkFrame):
 class ABCompareWindow(ctk.CTkToplevel):
     """Modal A/B comparison window opened from the segment editor."""
 
+    # Class-level defaults so partially-constructed windows (tests build the
+    # window without running __init__) behave as "seedvr2 unavailable".
+    _seedvr2_name: str | None = None
+    _seedvr2_repo: str = ""
+
     def __init__(
         self,
         master,
@@ -258,10 +266,21 @@ class ABCompareWindow(ctk.CTkToplevel):
             projection=projection,
         ).is_sbs
 
-        from jasna.restorer.checkpoint_info import discover_restoration_checkpoints
+        from jasna.restorer.checkpoint_info import discover_restoration_checkpoints, discover_seedvr2
 
         checkpoints = discover_restoration_checkpoints()
         self._checkpoints: dict[str, Path] = {p.name: p for p in checkpoints}
+        # The seedvr2 primary restorer joins the dropdown as a pseudo entry
+        # (value = its LoRA path) when the external checkout and LoRA exist.
+        # Checkpoint keys carry a .pth suffix, so the bare name cannot collide.
+        self._seedvr2_name: str | None = None
+        self._seedvr2_repo: str = ""
+        seedvr2 = discover_seedvr2()
+        if seedvr2 is not None:
+            seedvr2_repo, seedvr2_lora = seedvr2
+            self._seedvr2_name = "seedvr2"
+            self._seedvr2_repo = str(seedvr2_repo)
+            self._checkpoints[self._seedvr2_name] = seedvr2_lora
         initial_checkpoint = self._default_checkpoint(checkpoints)
 
         from jasna.mosaic.detection_registry import detection_model_choices
@@ -280,7 +299,9 @@ class ABCompareWindow(ctk.CTkToplevel):
             ),
         }
         for pane in self._panes.values():
-            pane.provisional_tensorrt = self._provisional_tensorrt(pane.checkpoint)
+            pane.provisional_tensorrt = self._provisional_tensorrt(
+                pane.checkpoint, pane.restoration_model_name
+            )
 
         self._zoom = ZoomPanController(on_change=self._on_zoom_changed)
 
@@ -495,6 +516,20 @@ class ABCompareWindow(ctk.CTkToplevel):
                 text=t("ab_no_checkpoints"), text_color=Colors.STATUS_ERROR
             )
             return
+        if (
+            self._view_needs_restoration()
+            and self._left_eye
+            and any(
+                pane.restoration_model_name == "seedvr2"
+                for pane in self._panes.values()
+            )
+        ):
+            # jasna's VR crops are projection-conditioned — out of distribution
+            # for the LoRA and unverified (same rejection as the CLI).
+            self._status_label.configure(
+                text=t("ab_seedvr2_vr_unsupported"), text_color=Colors.STATUS_ERROR
+            )
+            return
         self._stop_clip_playback()
         self._clip_position = None
         side_a, side_b = (
@@ -502,6 +537,8 @@ class ABCompareWindow(ctk.CTkToplevel):
                 detection_model=pane.detection_model,
                 detection_score_threshold=pane.threshold,
                 restoration_model_path=pane.checkpoint,
+                restoration_model_name=pane.restoration_model_name,
+                seedvr2_repo=self._seedvr2_repo,
             )
             for pane in (self._panes["a"], self._panes["b"])
         )
@@ -550,7 +587,10 @@ class ABCompareWindow(ctk.CTkToplevel):
             )
             self._refresh_pane(event.side)
         elif isinstance(event, ABSessionInfo):
-            pane.tensorrt = bool(event.tensorrt)
+            # For seedvr2, no-TRT is the normal state, not a warning badge.
+            pane.tensorrt = (
+                None if pane.restoration_model_name == "seedvr2" else bool(event.tensorrt)
+            )
             self._refresh_badge(event.side)
         elif isinstance(event, ABFrameResult):
             pane.status = None
@@ -606,7 +646,7 @@ class ABCompareWindow(ctk.CTkToplevel):
         if self._closed.is_set() or self._compiling_side is not None:
             return
         pane = self._panes[side]
-        if pane.checkpoint is None:
+        if pane.checkpoint is None or pane.restoration_model_name == "seedvr2":
             return
         self._stop_clip_playback()
         self._compiling_side = side
@@ -645,7 +685,9 @@ class ABCompareWindow(ctk.CTkToplevel):
             if pane.checkpoint != compiled_pane.checkpoint:
                 continue
             pane.tensorrt = None
-            pane.provisional_tensorrt = self._provisional_tensorrt(pane.checkpoint)
+            pane.provisional_tensorrt = self._provisional_tensorrt(
+                pane.checkpoint, pane.restoration_model_name
+            )
             if event.ok:
                 self._mark_stale(side)
             self._refresh_badge(side)
@@ -702,18 +744,22 @@ class ABCompareWindow(ctk.CTkToplevel):
     def _on_checkpoint_selected(self, side: str, name: str) -> None:
         pane = self._panes[side]
         checkpoint = self._checkpoints.get(name)
-        if checkpoint == pane.checkpoint:
+        model_name = "seedvr2" if name == self._seedvr2_name else "basicvsrpp"
+        if checkpoint == pane.checkpoint and model_name == pane.restoration_model_name:
             return
         pane.checkpoint = checkpoint
+        pane.restoration_model_name = model_name
         pane.tensorrt = None
-        pane.provisional_tensorrt = self._provisional_tensorrt(checkpoint)
+        pane.provisional_tensorrt = self._provisional_tensorrt(checkpoint, model_name)
         self._mark_stale(side)
         self._refresh_badge(side)
 
-    def _provisional_tensorrt(self, checkpoint: Path | None) -> bool | None:
+    def _provisional_tensorrt(
+        self, checkpoint: Path | None, model_name: str = "basicvsrpp"
+    ) -> bool | None:
         """Cheap file-system-only prediction of the execution backend, shown
         until the run's ABSessionInfo confirms it."""
-        if checkpoint is None:
+        if checkpoint is None or model_name == "seedvr2":
             return None
         settings = self._get_settings()
         if not bool(settings.compile_basicvsrpp):
