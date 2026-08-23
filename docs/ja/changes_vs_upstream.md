@@ -169,6 +169,15 @@ upstream v0.8.0 の PyAV エンコード経路は、RGB→YUV 変換結果のテ
 
 ガードは A/B 比較と同じ 2 段: EMA 重みを持たないチェックポイントはセッション構築前にワーカースレッドで検知して再生を拒否し（無言のランダム重み実行の防止）、選択チェックポイントの TensorRT サブエンジンが未コンパイルの場合は `disable_basicvsrpp_tensorrt=True` で PyTorch 実行に落とし、復元ステータスにその旨を表示する（コンパイル subprocess には入らない。エンジンを作りたい場合は CLI の `--restoration-model-path` 実行か A/B 比較を経由する）。
 
+
+## 14. 新機能（modi）: SeedVR2+LoRA 一次復元（実験的）
+
+`--restoration-model-name seedvr2` は、一次復元器 BasicVSR++ を SeedVR2 3B（one-step SR diffusion）+ 自作 LoRA（モザイクをセル平均化劣化として除去することを学習。rank 16、約 90 MB、[sh202603/lada-seedvr2-lora](https://huggingface.co/sh202603/lada-seedvr2-lora) で公開、AGPL-3.0）に差し替える。検出された 256px クロップを scale=1 のまま diffusion forward に通し、パイプラインの他の部分（検出、クロップ抽出、blend、encode）は不変。既定の `basicvsrpp` 経路は bit 不変（basicvsrpp 実行の復号出力が機能追加前のツリーと全フレーム一致することを実測確認）。本フォークの lada-ex 実装からの移植で、worker ファイルは lada-ex と**逐語同一**に保つ（上流 numz repo の互換性破壊時に片方で直して diff コピーするため）。
+
+プロセスモデル: 利用者が用意する [ComfyUI-SeedVR2_VideoUpscaler](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler) venv 内の常駐 worker（`jasna/restorer/seedvr2_lora_worker.py`、jasna import ゼロ）と、stdin/stdout 上の JSON ヘッダ + 生 uint8 BGR で 1 クリップ入出力を往復する。死亡時は respawn + 同一クリップ 1 回リトライ、素通しフォールバックなし（クリップのスキップはモザイク残存を意味するため）。worker 内部は peft による LoRA 注入（lada-ex 由来の bitsandbytes スタブ除去と fp32 adapter cast 込み）、33f/stride24 のスライディングウィンドウを float32 アキュムレータへクロスフェード合成して最後に 1 回だけ量子化、入力モザイククロップ参照のクリップ一括 LAB 色転写。jasna 固有の適応は 3 点: この復元器ではクロップのパディングを reflect でなくゼロ埋めにする（`prepare_crops_for_restoration` へ `pad_mode` を配管。LoRA の訓練分布がゼロパディングのため）、ワイヤは lada ネイティブの BGR のまま親アダプタ側で RGB 変換する、blend は一切変更不要（jasna の `create_blend_mask` は最初から mask 限定 + 膨張/フォールオフ構造で、lada が別途追加した mask 限定版と同型のため）。seedvr2 選択時は BasicVSR++ のエンジンコンパイル自体をスキップする。制約: VR モード、`--frame-gen`、`flashvsr-inline` 併用は起動時拒否。TVAI と `--stream` は警告。オフライン `flashvsr` は合成可（Phase 分離で VRAM が重ならないため、SeedVR2 復元 + FlashVSR 4x が最高品質構成になる）。
+
+**検証**: ユニット `tests/test_seedvr2_lora.py`（スタブ worker でのワイヤ往復 = BGR 順序と量子化、respawn+リトライ、契約エラー、pad_mode 配管。CPU-only）と `test_main.py` の seedvr2 検証マトリクス。実機（Linux RTX 5080、実 checkout + LoRA）では E2E 完走・出力フレーム数 = 入力・480p 全編モザイクで全体 VRAM ピーク 12.6 GB（約 14 crop-fps）・worker 正常終了を確認。詳細は [seedvr2.md](seedvr2.md)。
+
 ---
 
 ## 付録: リベース履歴
@@ -209,3 +218,4 @@ upstream に取り込まれた変更はこのリベースで drop 済み: **分�
 
 `v0.6.2` 後の upstream 3 コミット（2026-06-09 取込）も同様に突き合わせ済み: `b55b501`「validate model name」は modi 未改変ファイルのためそのまま取込。`5b3ca34`「ultralytics onnx export fix」（`CUDA_VISIBLE_DEVICES` の退避/復元）は本ブランチの YOLO CPU export 修正（§1）と収束。upstream の退避/復元を採用しつつ、フローズンビルド対策の `half=False, device="cpu"` は本ブランチ側を維持。`6545b78`「linux trt load fix」（nvvfx より先に pip `tensorrt_libs` をプリロード）は本ブランチの既存修正（§1）と収束。関数名は upstream の `_preload_tensorrt_runtime` を採用し、実装は本ブランチの防御版（`find_spec` + try/except、Windows は DLL ロード順で対応済みのため no-op）を維持。upstream 追加のテストは両ファイルとも modi 実装に対してそのまま通る。
 
+||||||| parent of 78bf694 (feat(restorer): add SeedVR2+LoRA primary restoration (--restoration-model-name seedvr2))
