@@ -382,7 +382,7 @@ def copy_frozen_runtime_files() -> None:
     # (see _resolve_worker_script / the phase-2 driver lookup).
     restorer_out = DIST / "jasna" / "restorer"
     restorer_out.mkdir(parents=True, exist_ok=True)
-    for script in ["flashvsr_inline_worker.py", "flashvsr_phase2_driver.py"]:
+    for script in ["flashvsr_inline_worker.py", "flashvsr_phase2_driver.py", "seedvr2_lora_worker.py"]:
         shutil.copy2(ROOT / "jasna" / "restorer" / script, restorer_out / script)
 
 

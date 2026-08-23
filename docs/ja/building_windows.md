@@ -17,7 +17,7 @@ Windows で Jasna のセットアップを行い、**ソースから実行**す�
 >
 > 既存環境にこれらが残っていても害はありません（`CUDA_PATH` は torchcodec バックエンドの DLL 解決フォールバックが参照するため、残しておくと役に立つことがあります）。一方で **NVIDIA ドライバの要求が 610 以上に上がりました**（起動チェックが Windows では 610 未満を拒否します）。残る特殊手順は **PyAV wheel**（4節。PyAV 18.1.0 が PyPI に公開されるまでの暫定）だけです。
 >
-> **このブランチの主な追加機能:** RIFE による 2x/4x フレーム生成（[frame_generation.md](frame_generation.md)）、torchcodec バックエンド（[torchcodec_backend.md](torchcodec_backend.md)）、cuDNN FP8 復元（[fp8_recon.md](fp8_recon.md)）、FlashVSR 二次復元（[flashvsr.md](flashvsr.md)）。v0.7.2+modi にあった AV1 / 8bit / BT.601 と BT.2020 出力は upstream v0.8.0 に吸収されました。全差分は [changes_vs_upstream.md](changes_vs_upstream.md) を参照してください。
+> **このブランチの主な追加機能:** RIFE による 2x/4x フレーム生成（[frame_generation.md](frame_generation.md)）、torchcodec バックエンド（[torchcodec_backend.md](torchcodec_backend.md)）、cuDNN FP8 復元（[fp8_recon.md](fp8_recon.md)）、SeedVR2 一次復元（[seedvr2.md](seedvr2.md)）、FlashVSR 二次復元（[flashvsr.md](flashvsr.md)）。v0.7.2+modi にあった AV1 / 8bit / BT.601 と BT.2020 出力は upstream v0.8.0 に吸収されました。全差分は [changes_vs_upstream.md](changes_vs_upstream.md) を参照してください。
 
 > **パッケージングについて:** このフォークは実験的な Nuitka ビルドスクリプト（`scripts\build_nuitka.py`）を同梱していますが、⚠️ **v0.8.0 のメディア層移行に未追従**です（旧 `python_vali` / `PyNvVideoCodec` の DLL 同梱を前提としたままで、現状では動作しない見込み）。詳細は [パッケージング / frozen ビルド](#8-パッケージング--frozen-ビルド)。
 
@@ -304,6 +304,12 @@ python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurf
 ### 6.2 オプション: FlashVSR 二次復元（実験的）
 
 FlashVSR（`--secondary-restoration flashvsr` / `flashvsr-inline`）は別リポジトリのチェックアウトと専用 venv を必要とし、inline 用にはチェックアウトへの同梱パッチ適用も要る。Windows 対応済み（inline は v0.8.0+modi でも Windows の 16 GB カード + `--flashvsr-tiles 2` で再検証済み。v0.8.0 は inline 時に `--max-clip-size` を自動で 32 に抑えるため、v0.7.2 期より VRAM に余裕がある）。セットアップ手順は [flashvsr.md](flashvsr.md) を参照。
+
+---
+
+### 6.3 オプション: SeedVR2 一次復元（実験的）
+
+SeedVR2（`--restoration-model-name seedvr2`）は別リポジトリ `ComfyUI-SeedVR2_VideoUpscaler` のチェックアウトと専用 venv、`model_weights/` への LoRA（約 90 MB）配置を必要とする。パッチは不要で、jasna の venv には何も入らない。セットアップ手順は [seedvr2.md](seedvr2.md) を参照。
 
 ---
 

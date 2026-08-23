@@ -71,6 +71,7 @@ dist_nuitka\jasna\
 - **`unet-4x`, SD1.5 inpaint and license activation do not work** — they need the private `jasna/protection` submodule, which is empty in this fork. This matches running from source; the default pipeline (detection + BasicVSR++ + rtx-super-res/tvai secondaries) is unaffected.
 - **FP8 recon (`--fp8-recon`) is unverified in the frozen build**: it relies on triton JIT-compiling kernels on the end user's machine.
 - **FlashVSR is not bundled**: both `flashvsr` and `flashvsr-inline` require a patched FlashVSR checkout with its own virtualenv on the end user's machine (`--flashvsr-repo`), exactly as when running from source. The bundle only ships jasna's orchestration side (including the worker/driver scripts under `jasna\restorer\`).
+- **SeedVR2 is not bundled** either: `--restoration-model-name seedvr2` requires a `ComfyUI-SeedVR2_VideoUpscaler` checkout with its own virtualenv on the end user's machine (`--seedvr2-repo`) plus the LoRA in `model_weights\`. The bundle ships only the worker script (`jasna\restorer\seedvr2_lora_worker.py`).
 - The distribution must be extracted to a **user-writable, ASCII-only path** (TRT engines are written into `model_weights\` next to the exe; the ASCII requirement is the same RTX Super-Res limitation as for source installs).
 - End users still need an NVIDIA GPU (compute ≥ 7.5) and driver ≥ 590. `ffmpeg`/`mkvmerge` are only needed on their `PATH` if they were not bundled at build time.
 

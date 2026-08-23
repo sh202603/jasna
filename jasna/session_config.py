@@ -81,6 +81,17 @@ class SessionConfig:
     flashvsr_dtype: str = "bf16"
     flashvsr_tiles: int = 1
     flashvsr_log_level: str = "error"
+    # Primary restoration model. For "seedvr2", ``restoration_model_path``
+    # carries the LoRA checkpoint instead of the BasicVSR++ checkpoint.
+    restoration_model_name: RestorationModelName = "basicvsrpp"
+    seedvr2_repo: str = ""
+    seedvr2_python: str = ""
+    seedvr2_model_dir: str = ""
+    seedvr2_dit: str = "seedvr2_ema_3b_fp16.safetensors"
+    seedvr2_lora_rank: int = 16
+    seedvr2_window: int = 33
+    seedvr2_overlap: int = 9
+    seedvr2_color_fix: str = "lab"
 
     def __post_init__(self) -> None:
         if self.batch_size <= 0:
