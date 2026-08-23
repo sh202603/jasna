@@ -92,6 +92,14 @@ worker の起動(モデルロード + LoRA 注入 + ウォームアップ)は重
 | `--stream` | 警告のみ(モザイク密集区間は SeedVR2 律速でプレイヤーが停滞し得る) |
 | `--fp8-recon` / `--compile-basicvsrpp` / `--restoration-model-path` | BasicVSR++ 専用のため不活性(fp8-recon と model-path は警告) |
 
+## Segment Editor の A/B 比較での利用
+
+Segment Editor の A/B モデル比較でも seedvr2 を選べる。checkout が
+`$JASNA_SEEDVR2_REPO`(未設定なら `~/seedvr2_videoupscaler`)にあり、LoRA が
+`model_weights/` にあれば、チェックポイント選択に **seedvr2** の項目が現れる。
+BasicVSR++ との同一フレーム比較に使える。詳細は [segments.md](segments.md) の
+「A/B モデル比較」を参照。
+
 ## fine-tune
 
 学習ハーネス(pair dump + LoRA 訓練)は jasna には同梱していない。

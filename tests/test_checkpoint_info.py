@@ -90,3 +90,46 @@ def test_resolve_restoration_checkpoint_falls_back_to_default(tmp_path, monkeypa
     assert resolve_restoration_checkpoint("", tmp_path) == default
     assert resolve_restoration_checkpoint("  ", tmp_path) == default
     assert resolve_restoration_checkpoint("no_such_stem", tmp_path) == default
+
+
+def test_discover_seedvr2_env_repo_and_lora(tmp_path, monkeypatch) -> None:
+    from jasna.restorer.checkpoint_info import discover_seedvr2
+
+    repo = tmp_path / "repo"
+    (repo / "src" / "core").mkdir(parents=True)
+    (repo / "src" / "core" / "generation_utils.py").touch()
+    weights = tmp_path / "weights"
+    weights.mkdir()
+    (weights / "lada_seedvr2_lora_v2.pt").touch()
+    monkeypatch.setenv("JASNA_SEEDVR2_REPO", str(repo))
+    monkeypatch.setattr("jasna.engine_paths.model_weights_dir", lambda: weights)
+
+    result = discover_seedvr2()
+    assert result is not None
+    found_repo, found_lora = result
+    assert found_repo == repo
+    assert found_lora == weights / "lada_seedvr2_lora_v2.pt"
+
+
+def test_discover_seedvr2_missing_marker_returns_none(tmp_path, monkeypatch) -> None:
+    from jasna.restorer.checkpoint_info import discover_seedvr2
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("JASNA_SEEDVR2_REPO", str(repo))
+
+    assert discover_seedvr2() is None
+
+
+def test_discover_seedvr2_missing_lora_returns_none(tmp_path, monkeypatch) -> None:
+    from jasna.restorer.checkpoint_info import discover_seedvr2
+
+    repo = tmp_path / "repo"
+    (repo / "src" / "core").mkdir(parents=True)
+    (repo / "src" / "core" / "generation_utils.py").touch()
+    weights = tmp_path / "weights"
+    weights.mkdir()
+    monkeypatch.setenv("JASNA_SEEDVR2_REPO", str(repo))
+    monkeypatch.setattr("jasna.engine_paths.model_weights_dir", lambda: weights)
+
+    assert discover_seedvr2() is None

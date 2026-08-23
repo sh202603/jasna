@@ -66,6 +66,8 @@ def video_session_config(
     codec: str,
     encoder_settings: Mapping[str, object],
     restoration_model_path: Path | None = None,
+    restoration_model_name: str = "basicvsrpp",
+    seedvr2_repo: str = "",
 ) -> SessionConfig:
     from jasna.engine_paths import default_restoration_model_path
     from jasna.ltx.windows import window_hop
@@ -141,6 +143,10 @@ def video_session_config(
         fmp4=bool(settings.fmp4),
         disable_progress=True,
         working_dir=Path(settings.working_directory) if settings.working_directory else None,
+        # For "seedvr2", restoration_model_path above carries the LoRA
+        # checkpoint (same convention as the CLI).
+        restoration_model_name=restoration_model_name,
+        seedvr2_repo=seedvr2_repo,
     )
 
 
@@ -149,6 +155,8 @@ def build_video_session(
     *,
     log: Callable[[str], None],
     restoration_model_path: Path | None = None,
+    restoration_model_name: str = "basicvsrpp",
+    seedvr2_repo: str = "",
 ) -> RestorationSession:
     from jasna.session_factory import build_restoration_session
 
