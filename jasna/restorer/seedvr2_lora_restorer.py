@@ -65,6 +65,12 @@ class Seedvr2LoraRestorer:
     # blend mask reaches past the crop border margin). The pipeline reverts
     # this band to the input (see _revert_valid_edges); BasicVSR++ needs 0.
     edge_revert_px = 4
+    # A 1-step diffusion resynthesizes the whole crop, so unlike BasicVSR++ it
+    # is not near-identity outside the mosaic: the blend falloff annulus picks
+    # up a low-frequency halo and loses grain, outlining the bbox. The
+    # pipeline reverts everything outside the detection mask's trust zone to
+    # the input (see _revert_outside_mask).
+    revert_outside_mask = True
     tensorrt_active = False
 
     def __init__(

@@ -112,12 +112,17 @@ def create_bbox_blend_mask(
     mask_lr: torch.Tensor,
     bbox_xyxy: tuple[int, int, int, int],
     frame_shape: tuple[int, int],
+    out_size: tuple[int, int] | None = None,
 ) -> torch.Tensor:
     """Blend mask for a frame-coords bbox, returned at bbox resolution.
 
     Computed on the low-res detection mask (cheap), then bilinearly
     upsampled to bbox size — instead of nearest-upsampling the mask first
     and blurring with frame-scale kernels.
+
+    ``out_size`` overrides the output resolution ((y2-y1, x2-x1) by default):
+    the restoration pipeline samples the same weight profile at the 256-space
+    crop size for its outside-mask revert.
     """
     x1, y1, x2, y2 = bbox_xyxy
     frame_h, frame_w = frame_shape
@@ -132,7 +137,7 @@ def create_bbox_blend_mask(
     blend_lr = create_blend_mask(mask_slice, frame_h, frame_h / hm, frame_w / wm)
     return F.interpolate(
         blend_lr.unsqueeze(0).unsqueeze(0),
-        size=(y2 - y1, x2 - x1),
+        size=out_size if out_size is not None else (y2 - y1, x2 - x1),
         mode="bilinear",
         align_corners=False,
     ).squeeze(0).squeeze(0)

@@ -13,6 +13,7 @@ from jasna.pipeline_items import PrimaryRestoreResult, SecondaryRestoreResult
 from jasna.restorer.basicvsrpp_mosaic_restorer import BasicvsrppMosaicRestorer
 from jasna.restorer.denoise import DenoiseStep, DenoiseStrength, apply_denoise, apply_denoise_u8
 from jasna.restorer.secondary_restorer import SecondaryRestorer
+from jasna.tracking.blending import create_bbox_blend_mask
 from jasna.tracking.clip_tracker import TrackedClip
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,42 @@ def _revert_valid_edges(
             if pad_right > 0:
                 valid_out[:, :, nw - 1 - d].lerp_(valid_in[:, :, nw - 1 - d], w)
     return out
+
+
+def _revert_outside_mask(
+    primary_raw: torch.Tensor,
+    resized_crops: list[torch.Tensor],
+    masks: list[torch.Tensor],
+    enlarged_bboxes: list[tuple[int, int, int, int]],
+    pad_offsets: list[tuple[int, int]],
+    resize_shapes: list[tuple[int, int]],
+    frame_shape: tuple[int, int],
+) -> torch.Tensor:
+    """Outside the detection mask's trust zone, lerp the restored crop back to
+    the input, using ``1 - create_bbox_blend_mask`` as the revert weight.
+
+    A generative primary resynthesizes the whole crop, so the blend falloff
+    annulus composites content whose low frequencies drift from the original
+    (measured: a +2..6 luma / ~1.5 chroma halo) and whose grain is about
+    halved — the enlarged bbox reads as a visible patch even with no dark
+    line. BasicVSR++ never showed this because it is near-identity outside the
+    mosaic; this revert grants that property to any restorer. Using the blend
+    mask's own profile keeps the weight-1 zone (mask + dilation, the
+    detector-miss safety margin) fully restored, while in the falloff zone the
+    effective composite weight of resynthesized content becomes the *square*
+    of the blend weight — the halo tail collapses and the original grain is
+    retained at ``1 - w^2`` instead of ``1 - w``.
+    """
+    for i, crop in enumerate(resized_crops):
+        pl, pt = pad_offsets[i]
+        nh, nw = resize_shapes[i]
+        keep = create_bbox_blend_mask(
+            masks[i], enlarged_bboxes[i], frame_shape, out_size=(nh, nw)
+        )
+        revert_w = (1.0 - keep).clamp_(0.0, 1.0).to(dtype=primary_raw.dtype)
+        valid_in = crop[:, pt:pt + nh, pl:pl + nw].to(dtype=primary_raw.dtype).div(255.0)
+        primary_raw[i, :, pt:pt + nh, pl:pl + nw].lerp_(valid_in, revert_w)
+    return primary_raw
 
 
 class RestorationPipeline:
@@ -155,6 +192,11 @@ class RestorationPipeline:
         if edge_revert_px > 0:
             primary_raw = _revert_valid_edges(
                 primary_raw, resized_crops, pad_offsets, resize_shapes, edge_revert_px
+            )
+        if getattr(self.restorer, "revert_outside_mask", False):
+            primary_raw = _revert_outside_mask(
+                primary_raw, resized_crops, clip.masks, enlarged_bboxes,
+                pad_offsets, resize_shapes, frame_shape,
             )
         if self._denoise_step is DenoiseStep.AFTER_PRIMARY:
             primary_raw = self._apply_denoise(primary_raw)

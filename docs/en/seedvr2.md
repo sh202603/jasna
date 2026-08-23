@@ -87,6 +87,14 @@ folder input, so that cost is paid once per session.
   to the input with a linear ramp, reproducing BasicVSR++'s near-identity
   behavior outside the mosaic. Measured: the bbox-edge dark-line metric
   returns to the bvpp baseline.
+- **Outside-mask revert**: a 1-step diffusion resynthesizes the whole crop,
+  so even without the dark line the blend falloff annulus composites content
+  whose low frequencies drift from the original (a few luma/chroma) and whose
+  grain is roughly halved — the enlarged bbox reads as a visible patch. The
+  pipeline therefore reverts everything outside the detection mask's trust
+  zone (mask + blend dilation) to the input, using the blend mask's own
+  falloff as the ramp: the detector-miss safety margin stays fully restored,
+  while the falloff zone effectively blends original content.
 - **Determinism**: the seed and the CUDA allocator (cudaMallocAsync) are
   pinned; identical input reproduces identical output.
 - **Error policy**: a failed clip here means the mosaic stays in the output,
