@@ -176,6 +176,34 @@ def _build_secondary_restorer(config: SessionConfig, device: "torch.device"):
     raise ValueError(f"Unsupported secondary restoration: {config.secondary_restoration}")
 
 
+def _build_seedvr2_restorer(config: SessionConfig, device: "torch.device"):
+    from jasna.restorer.seedvr2_lora_restorer import Seedvr2LoraRestorer, default_seedvr2_python
+
+    if not str(config.seedvr2_repo).strip():
+        raise ValueError("--seedvr2-repo is required for --restoration-model-name seedvr2")
+    repo = Path(str(config.seedvr2_repo)).expanduser()
+    if not repo.is_dir():
+        raise FileNotFoundError(f"--seedvr2-repo not found: {repo}")
+
+    py_arg = str(config.seedvr2_python).strip()
+    py = Path(py_arg).expanduser() if py_arg else default_seedvr2_python(repo)
+    if not py.exists():
+        raise FileNotFoundError(f"SeedVR2 Python not found: {py}. Pass --seedvr2-python.")
+
+    return Seedvr2LoraRestorer(
+        repo_path=str(repo),
+        lora_path=str(config.restoration_model_path),
+        device=device,
+        python_path=str(py),
+        model_dir=str(config.seedvr2_model_dir).strip() or None,
+        dit_model=str(config.seedvr2_dit),
+        lora_rank=int(config.seedvr2_lora_rank),
+        window=int(config.seedvr2_window),
+        overlap=int(config.seedvr2_overlap),
+        color_fix=str(config.seedvr2_color_fix),
+    )
+
+
 def build_restoration_session(
     config: SessionConfig,
     *,

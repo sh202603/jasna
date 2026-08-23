@@ -93,6 +93,15 @@ def _session_config_from_args(
         flashvsr_dtype=str(getattr(args, "flashvsr_dtype", "bf16")),
         flashvsr_tiles=int(getattr(args, "flashvsr_tiles", 1)),
         flashvsr_log_level=str(getattr(args, "log_level", "error")),
+        restoration_model_name=str(args.restoration_model_name),
+        seedvr2_repo=str(getattr(args, "seedvr2_repo", "") or ""),
+        seedvr2_python=str(getattr(args, "seedvr2_python", "") or ""),
+        seedvr2_model_dir=str(getattr(args, "seedvr2_model_dir", "") or ""),
+        seedvr2_dit=str(getattr(args, "seedvr2_dit", "seedvr2_ema_3b_fp16.safetensors")),
+        seedvr2_lora_rank=int(getattr(args, "seedvr2_lora_rank", 16)),
+        seedvr2_window=int(getattr(args, "seedvr2_window", 33)),
+        seedvr2_overlap=int(getattr(args, "seedvr2_overlap", 9)),
+        seedvr2_color_fix=str(getattr(args, "seedvr2_color_fix", "lab")),
     )
 
 
@@ -327,6 +336,67 @@ def build_parser() -> argparse.ArgumentParser:
              'inline in the streaming pipeline (no intermediate files, needs a patched '
              'FlashVSR repo). Both need --flashvsr-repo. See the "FlashVSR" group for '
              'its options.',
+    )
+
+    seedvr2 = parser.add_argument_group("SeedVR2 (primary restoration, experimental)")
+    seedvr2.add_argument(
+        "--seedvr2-repo",
+        type=str,
+        default="",
+        help="Path to a ComfyUI-SeedVR2_VideoUpscaler checkout with its own venv "
+             "(required for --restoration-model-name seedvr2).",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-python",
+        type=str,
+        default="",
+        help="Python interpreter of the SeedVR2 venv (default: <repo>/.venv/bin/python, "
+             "Scripts\\python.exe on Windows).",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-model-dir",
+        type=str,
+        default="",
+        help="SeedVR2 base weights directory (default: <repo>/models/SEEDVR2; "
+             "auto-downloaded there on first load).",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-dit",
+        type=str,
+        default="seedvr2_ema_3b_fp16.safetensors",
+        help="DiT weights filename inside the model dir (default: %(default)s)",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-lora",
+        type=str,
+        default="",
+        help='LoRA checkpoint path (default: "<model_weights>/lada_seedvr2_lora_v2.pt").',
+    )
+    seedvr2.add_argument(
+        "--seedvr2-lora-rank",
+        type=int,
+        default=16,
+        help="LoRA rank (must match the checkpoint; default: %(default)s)",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-window",
+        type=int,
+        default=33,
+        help="Sliding-window length in frames, must be 4n+1 (default: %(default)s)",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-overlap",
+        type=int,
+        default=9,
+        help="Cross-fade overlap between windows in frames (default: %(default)s)",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-color-fix",
+        type=str,
+        default="lab",
+        choices=["none", "lab", "wavelet"],
+        help="Per-clip color correction against the input crops. 'wavelet' can re-introduce "
+             "mosaic grid structure from the reference (default: %(default)s)",
     )
 
     sd15 = parser.add_argument_group("SD 1.5 image restoration")
