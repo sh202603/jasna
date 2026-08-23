@@ -142,6 +142,10 @@ def test_build_pipeline_passes_through_config_and_session() -> None:
         progress_callback=progress_callback,
         segments=segments,
         splice_plan=splice_plan,
+        frame_gen_multiplier=1,
+        frame_generator=None,
+        decode_backend=VideoBackend.NATIVE,
+        encode_backend=VideoBackend.NATIVE,
     )
 
 

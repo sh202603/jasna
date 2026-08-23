@@ -379,9 +379,7 @@ def make_video_encoder(
         lut_path=lut_path,
         sharpen_strength=sharpen_strength,
         output_fps=output_fps,
-        mux_audio=mux_audio,
         pts_origin=pts_origin,
-        match_input_bit_depth=match_input_bit_depth,
         smart_fragment=smart_fragment,
         fmp4=fmp4,
     )
