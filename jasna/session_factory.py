@@ -103,6 +103,34 @@ def _build_secondary_restorer(config: SessionConfig, device: "torch.device"):
     raise ValueError(f"Unsupported secondary restoration: {config.secondary_restoration}")
 
 
+def _build_seedvr2_restorer(config: SessionConfig, device: "torch.device"):
+    from jasna.restorer.seedvr2_lora_restorer import Seedvr2LoraRestorer, default_seedvr2_python
+
+    if not str(config.seedvr2_repo).strip():
+        raise ValueError("--seedvr2-repo is required for --restoration-model-name seedvr2")
+    repo = Path(str(config.seedvr2_repo)).expanduser()
+    if not repo.is_dir():
+        raise FileNotFoundError(f"--seedvr2-repo not found: {repo}")
+
+    py_arg = str(config.seedvr2_python).strip()
+    py = Path(py_arg).expanduser() if py_arg else default_seedvr2_python(repo)
+    if not py.exists():
+        raise FileNotFoundError(f"SeedVR2 Python not found: {py}. Pass --seedvr2-python.")
+
+    return Seedvr2LoraRestorer(
+        repo_path=str(repo),
+        lora_path=str(config.restoration_model_path),
+        device=device,
+        python_path=str(py),
+        model_dir=str(config.seedvr2_model_dir).strip() or None,
+        dit_model=str(config.seedvr2_dit),
+        lora_rank=int(config.seedvr2_lora_rank),
+        window=int(config.seedvr2_window),
+        overlap=int(config.seedvr2_overlap),
+        color_fix=str(config.seedvr2_color_fix),
+    )
+
+
 def build_restoration_session(
     config: SessionConfig,
     *,
@@ -126,11 +154,14 @@ def build_restoration_session(
             f"Secondary restoration '{config.secondary_restoration}' is not available in the AMD build yet"
         )
 
+    use_seedvr2 = config.restoration_model_name == "seedvr2"
     compile_result = ensure_engines_compiled(
         EngineCompilationRequest(
             device=str(device),
             fp16=bool(config.fp16),
-            basicvsrpp=bool(config.compile_basicvsrpp) and not disable_basicvsrpp_tensorrt and not amd,
+            # For seedvr2, restoration_model_path is the LoRA checkpoint and
+            # BasicVSR++ never loads — skip its engine compilation entirely.
+            basicvsrpp=bool(config.compile_basicvsrpp) and not disable_basicvsrpp_tensorrt and not amd and not use_seedvr2,
             basicvsrpp_model_path=str(config.restoration_model_path),
             detection=True,
             detection_model_name=config.detection_model_name,
@@ -142,14 +173,18 @@ def build_restoration_session(
     )
 
     secondary_restorer = _build_secondary_restorer(config, device)
-    restoration_pipeline = RestorationPipeline(
-        restorer=BasicvsrppMosaicRestorer(
+    if use_seedvr2:
+        primary_restorer = _build_seedvr2_restorer(config, device)
+    else:
+        primary_restorer = BasicvsrppMosaicRestorer(
             checkpoint_path=str(config.restoration_model_path),
             device=device,
             max_clip_size=int(config.max_clip_size),
             use_tensorrt=compile_result.use_basicvsrpp_tensorrt,
             fp16=bool(config.fp16),
-        ),
+        )
+    restoration_pipeline = RestorationPipeline(
+        restorer=primary_restorer,
         secondary_restorer=secondary_restorer,
         denoise_strength=DenoiseStrength(config.denoise_strength),
         denoise_step=DenoiseStep(config.denoise_step),

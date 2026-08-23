@@ -8,7 +8,7 @@ Jasna 是免费的。支持者会获得一个密钥，用于解锁为本项目�
 
 > ### ⚙️ 这是 Jasna 的 `+modi` 分支
 >
-> 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1 的改版构建，新增**帧生成**（`--frame-gen` 2x/4x）、**torchcodec 视频后端**、**FP8 修复后端**、**FlashVSR 二级修复**等改进。
+> 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1 的改版构建，新增**帧生成**（`--frame-gen` 2x/4x）、**torchcodec 视频后端**、**FP8 修复后端**、**SeedVR2 一级修复**、**FlashVSR 二级修复**等改进。
 >
 > - **源码（本分支）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
 > - **与上游的完整变更:** [docs/en/changes_vs_upstream.md](docs/en/changes_vs_upstream.md)
@@ -77,6 +77,16 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 ```
 
 主要收益在 VRAM：不再分配 TensorRT upsample 引擎加载时的内部工作区（默认 `--max-clip-size 90` 下约 2.2GB），实测 480p 至 4K 片源的 VRAM 峰值降低 1.2–1.7GB。该阶段本身快约 1.5 倍，但流水线瓶颈在检测侧，整体 fps 不变。输出与 FP16 引擎在视觉上无法区分，且多次运行按位一致。需要支持 FP8 的 GPU（sm89 及以上，即 RTX 40 系或更新；加速仅在 Blackwell 上验证）和 fp16 模式；任何失败都会自动回退到 TensorRT 引擎。已在 Linux 和 Windows 上验证。详情: [docs/en/fp8_recon.md](docs/en/fp8_recon.md)。
+
+### SeedVR2+LoRA 一级修复（实验性）
+
+`--restoration-model-name seedvr2` 将一级修复器 BasicVSR++ 替换为 [SeedVR2](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler) 3B one-step diffusion + 专门训练的去马赛克 LoRA，是质量模式（约 6 倍耗时）:
+
+```bash
+jasna --input in.mp4 --output out.mp4 --restoration-model-name seedvr2 --seedvr2-repo ~/seedvr2_videoupscaler
+```
+
+推理在检出自带 venv 的常驻 worker 中运行（不向 jasna 的 venv 安装任何东西），以 33 帧滑窗 + 重叠交叉淡化处理每个片段。需要 16GB 显卡；`ComfyUI-SeedVR2_VideoUpscaler` 检出（base 权重首次自动下载，约 7.3GB）与 [sh202603/lada-seedvr2-lora](https://huggingface.co/sh202603/lada-seedvr2-lora) 的 LoRA（约 90MB）由用户自备。不兼容 VR 模式 / `--frame-gen` / `flashvsr-inline`；可与离线 `flashvsr` 模式组合成最高质量配置。详情: [docs/en/seedvr2.md](docs/en/seedvr2.md)。
 
 ### FlashVSR 二级修复（实验性）
 
@@ -161,6 +171,7 @@ jasna --input input_folder --output output_folder
 - **[帧生成](docs/en/frame_generation.md)** — RIFE 2x/4x 帧率提升与独立工具 `jasna-framegen`。
 - **[视频后端](docs/en/torchcodec_backend.md)** — 实验性 torchcodec 解码/编码后端。
 - **[FP8 修复后端](docs/en/fp8_recon.md)** — cuDNN FP8 上采样阶段，降低峰值显存。
+- **[SeedVR2 一级修复](docs/en/seedvr2.md)** — 替换 BasicVSR++ 的 diffusion+LoRA 去马赛克。
 - **[FlashVSR 二级修复](docs/en/flashvsr.md)** — 离线/内联扩散 4x 放大。
 - **[冻结构建](docs/en/frozen_build.md)** — 实验性 Nuitka 独立构建。
 - **[与上游的完整变更](docs/en/changes_vs_upstream.md)** — 本分支的全部差异。

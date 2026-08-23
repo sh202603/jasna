@@ -33,8 +33,14 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 
 | オプション | デフォルト | 説明 |
 | ------ | ------- | ----- |
-| `--restoration-model-name` | `basicvsrpp` | 動画復元モデル（現在は `basicvsrpp` のみ）。 |
-| `--restoration-model-path` | `model_weights/lada_mosaic_restoration_model_generic_v1.2.pth` | 復元モデルの重み。 |
+| `--restoration-model-name` | `basicvsrpp` | 動画復元モデル。*(+modi)* さらに `seedvr2`（外部 venv で動く SeedVR2 3B diffusion + LoRA。品質モード、約 6 倍遅い。`--seedvr2-repo` 必須）。詳細: [seedvr2.md](seedvr2.md)。 |
+| `--restoration-model-path` | `model_weights/lada_mosaic_restoration_model_generic_v1.2.pth` | 復元モデルの重み（BasicVSR++ 専用）。 |
+| `--seedvr2-repo` | — | *(+modi)* `ComfyUI-SeedVR2_VideoUpscaler` checkout のパス。`seedvr2` で必須。 |
+| `--seedvr2-python` | `<repo>/.venv/bin/python` | *(+modi)* SeedVR2 venv の Python。 |
+| `--seedvr2-lora` | `model_weights/lada_seedvr2_lora_v2.pt` | *(+modi)* LoRA checkpoint（fine-tune 品への差し替え口）。 |
+| `--seedvr2-window` / `--seedvr2-overlap` | `33` / `9` | *(+modi)* スライディングウィンドウ長（4n+1）とクロスフェード幅。 |
+| `--seedvr2-color-fix` | `lab` | *(+modi)* クリップ単位の色補正: `none`、`lab`、`wavelet`。 |
+| `--seedvr2-model-dir`、`--seedvr2-dit`、`--seedvr2-lora-rank` | `--help` 参照 | *(+modi)* base 重み関連の上書き。詳細: [seedvr2.md](seedvr2.md)。 |
 | `--compile-basicvsrpp` / `--no-compile-basicvsrpp` | オン | TensorRT コンパイル: 大幅な高速化、VRAM 増。詳しくは[調整ガイド](tuning.md)。 |
 | `--max-clip-size` | `90` | 追跡するクリップの最大フレーム数。VRAM の主な調整項目です。 |
 | `--temporal-overlap` | `8` | クリップ分割位置でのオーバーラップ+破棄マージン。境界のフリッカーを軽減します。 |

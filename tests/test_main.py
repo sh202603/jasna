@@ -1154,3 +1154,167 @@ class TestNonStreamingRun:
         inp, out, rest, det = _make_model_files(tmp_path)
         pipeline_cls = _run_main(_base_argv(inp, out, rest, det))
         pipeline_cls.return_value.run_streaming.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# SeedVR2 primary restoration
+# ---------------------------------------------------------------------------
+
+def _make_seedvr2_env(tmp_path):
+    """Fake seedvr2 checkout (marker + venv pythons) and a LoRA file."""
+    repo = tmp_path / "seedvr2_repo"
+    (repo / "src" / "core").mkdir(parents=True)
+    (repo / "src" / "core" / "generation_utils.py").touch()
+    (repo / ".venv" / "bin").mkdir(parents=True)
+    (repo / ".venv" / "bin" / "python").touch()
+    (repo / ".venv" / "Scripts").mkdir(parents=True)
+    (repo / ".venv" / "Scripts" / "python.exe").touch()
+    (repo / "models" / "SEEDVR2").mkdir(parents=True)
+    lora = tmp_path / "lora.pt"
+    lora.touch()
+    return repo, lora
+
+
+def _seedvr2_argv(inp, out, rest, det, repo, lora, extra=None):
+    argv = _base_argv(inp, out, rest, det, [
+        "--restoration-model-name", "seedvr2",
+        "--seedvr2-repo", str(repo),
+        "--seedvr2-lora", str(lora),
+        "--vr-mode", "off",
+    ])
+    if extra:
+        argv.extend(extra)
+    return argv
+
+
+class TestSeedvr2Main:
+    def test_flag_defaults(self):
+        args = build_parser().parse_args(["--input", "a.mp4", "--output", "b.mp4"])
+        assert args.restoration_model_name == "basicvsrpp"
+        assert args.seedvr2_repo == ""
+        assert args.seedvr2_lora == ""
+        assert args.seedvr2_lora_rank == 16
+        assert args.seedvr2_window == 33
+        assert args.seedvr2_overlap == 9
+        assert args.seedvr2_color_fix == "lab"
+        assert args.seedvr2_dit == "seedvr2_ema_3b_fp16.safetensors"
+
+    def _run_expect_error(self, argv, match):
+        with _main_patches():
+            with patch.object(sys, "argv", argv):
+                from jasna.main import main
+                with pytest.raises(ValueError, match=match):
+                    main()
+
+    def test_requires_repo(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        _, lora = _make_seedvr2_env(tmp_path)
+        argv = _base_argv(inp, out, rest, det, [
+            "--restoration-model-name", "seedvr2",
+            "--seedvr2-lora", str(lora),
+            "--vr-mode", "off",
+        ])
+        self._run_expect_error(argv, "requires --seedvr2-repo")
+
+    def test_missing_lora_names_download(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        repo, _ = _make_seedvr2_env(tmp_path)
+        argv = _base_argv(inp, out, rest, det, [
+            "--restoration-model-name", "seedvr2",
+            "--seedvr2-repo", str(repo),
+            "--seedvr2-lora", str(tmp_path / "missing.pt"),
+            "--vr-mode", "off",
+        ])
+        with _main_patches():
+            with patch.object(sys, "argv", argv):
+                from jasna.main import main
+                with pytest.raises(FileNotFoundError, match="huggingface"):
+                    main()
+
+    def test_window_must_be_4n1(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        repo, lora = _make_seedvr2_env(tmp_path)
+        argv = _seedvr2_argv(inp, out, rest, det, repo, lora, ["--seedvr2-window", "32"])
+        self._run_expect_error(argv, "4n\\+1")
+
+    def test_overlap_must_be_below_window(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        repo, lora = _make_seedvr2_env(tmp_path)
+        argv = _seedvr2_argv(inp, out, rest, det, repo, lora, ["--seedvr2-overlap", "33"])
+        self._run_expect_error(argv, "seedvr2-overlap")
+
+    def test_rejects_frame_gen(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        repo, lora = _make_seedvr2_env(tmp_path)
+        argv = _seedvr2_argv(inp, out, rest, det, repo, lora, ["--frame-gen", "2x"])
+        self._run_expect_error(argv, "frame-gen")
+
+    def test_rejects_flashvsr_inline_combo(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        repo, lora = _make_seedvr2_env(tmp_path)
+        argv = _seedvr2_argv(inp, out, rest, det, repo, lora, [
+            "--secondary-restoration", "flashvsr-inline",
+            "--flashvsr-repo", str(tmp_path / "fv"),
+        ])
+        self._run_expect_error(argv, "flashvsr-inline")
+
+    def test_rejects_vr_sbs(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        repo, lora = _make_seedvr2_env(tmp_path)
+        argv = _base_argv(inp, out, rest, det, [
+            "--restoration-model-name", "seedvr2",
+            "--seedvr2-repo", str(repo),
+            "--seedvr2-lora", str(lora),
+            "--vr-mode", "sbs",
+        ])
+        self._run_expect_error(argv, "VR processing")
+
+    def test_rejects_vr_auto_when_detected(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        repo, lora = _make_seedvr2_env(tmp_path)
+        argv = _base_argv(inp, out, rest, det, [
+            "--restoration-model-name", "seedvr2",
+            "--seedvr2-repo", str(repo),
+            "--seedvr2-lora", str(lora),
+            "--vr-mode", "auto",
+        ])
+        with _main_patches(), \
+                patch("jasna.media.get_video_meta_data", return_value=MagicMock()), \
+                patch("jasna.vr180.resolve_vr_mode",
+                      return_value=MagicMock(resolved="sbs-fisheye", reason="8k aspect")):
+            with patch.object(sys, "argv", argv):
+                from jasna.main import main
+                with pytest.raises(ValueError, match="detected VR content"):
+                    main()
+
+    def test_dispatch_builds_seedvr2_and_skips_basicvsrpp_engines(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        repo, lora = _make_seedvr2_env(tmp_path)
+        argv = _seedvr2_argv(inp, out, rest, det, repo, lora)
+        mock_basicvsrpp = MagicMock()
+        with (
+            patch("jasna.main.check_ascii_install_path", return_value=(True, "C:\\fake")),
+            patch("jasna.main.check_supported_gpu", return_value=(True, "Fake GPU")),
+            patch("jasna.main.check_gpu_driver_version", return_value=(True, "610.18")),
+            patch("jasna.main.check_required_executables"),
+            patch("jasna.main.check_windows_nvidia_sysmem_fallback_policy", return_value=(True, "OK")),
+            patch("jasna.engine_compiler.ensure_engines_compiled",
+                  return_value=MagicMock(use_basicvsrpp_tensorrt=False)) as mock_compile,
+            patch("jasna.pipeline.Pipeline", return_value=MagicMock()) as pipeline_cls,
+            patch("jasna.restorer.basicvsrpp_mosaic_restorer.BasicvsrppMosaicRestorer", mock_basicvsrpp),
+            patch("jasna.restorer.seedvr2_lora_restorer.Seedvr2LoraRestorer") as mock_seedvr2,
+        ):
+            with patch.object(sys, "argv", argv):
+                from jasna.main import main
+                main()
+
+        mock_seedvr2.assert_called_once()
+        kw = mock_seedvr2.call_args.kwargs
+        assert kw["lora_path"] == str(lora)
+        assert kw["window"] == 33
+        assert kw["overlap"] == 9
+        assert kw["color_fix"] == "lab"
+        mock_basicvsrpp.assert_not_called()
+        req = mock_compile.call_args[0][0]
+        assert req.basicvsrpp is False
+        pipeline_cls.assert_called_once()

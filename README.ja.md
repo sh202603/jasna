@@ -8,7 +8,7 @@ Jasna は無料です。支援者には、このプロジェクト用に訓練�
 
 > ### ⚙️ これは Jasna の `+modi` フォークです
 >
-> 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1 をベースにした改変ビルドで、**フレーム生成**（`--frame-gen` 2x/4x）、**torchcodec 動画バックエンド**、**FP8 復元バックエンド**、**FlashVSR セカンダリ復元**などを追加しています。
+> 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1 をベースにした改変ビルドで、**フレーム生成**（`--frame-gen` 2x/4x）、**torchcodec 動画バックエンド**、**FP8 復元バックエンド**、**SeedVR2 一次復元**、**FlashVSR セカンダリ復元**などを追加しています。
 >
 > - **ソース（このフォーク/ブランチ）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
 > - **上流との変更点一覧:** [docs/ja/changes_vs_upstream.md](docs/ja/changes_vs_upstream.md)
@@ -86,6 +86,16 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 ```
 
 主な利点は VRAM です。TensorRT upsample エンジンがロード時に確保するアリーナ（既定 `--max-clip-size 90` で約 2.2GB）を確保しなくなり、480p〜4K のクリップで peak VRAM が 1.2〜1.7GB 下がることを実測しています。ステージ単体は約 1.5 倍速くなりますが、パイプラインの律速は検出側なので全体 fps は変わりません。出力は FP16 エンジンと目視で区別できず、走行間でビット決定的です。FP8 対応 GPU（sm89 以上、RTX 40 系以降。速度利得の実測は Blackwell のみ）と fp16 モードが必要で、失敗時は TensorRT エンジンへ自動フォールバックします。Linux と Windows の両方で動作確認済みです。詳細: [docs/ja/fp8_recon.md](docs/ja/fp8_recon.md)。
+
+### SeedVR2+LoRA 一次復元（実験的）
+
+`--restoration-model-name seedvr2` は、一次復元器 BasicVSR++ を [SeedVR2](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler) 3B one-step diffusion + モザイク除去自体を学習した自作 LoRA に差し替える品質モードです（壁時計で約 6 倍）:
+
+```bash
+jasna --input in.mp4 --output out.mp4 --restoration-model-name seedvr2 --seedvr2-repo ~/seedvr2_videoupscaler
+```
+
+推論は checkout 専用 venv 内の常駐 worker で行われ（jasna の venv には何も入りません）、各クリップを 33 フレームのスライディングウィンドウ + 重なりクロスフェードで処理します。16GB カードが必要です。`ComfyUI-SeedVR2_VideoUpscaler` の checkout（base 重みは初回に自動ダウンロード、約 7.3GB）と、[sh202603/lada-seedvr2-lora](https://huggingface.co/sh202603/lada-seedvr2-lora) の LoRA（約 90MB）は利用者が用意します。VR モード / `--frame-gen` / `flashvsr-inline` とは併用不可。オフライン `flashvsr` モードとは合成可能で、最高品質構成になります。詳細: [docs/ja/seedvr2.md](docs/ja/seedvr2.md)。
 
 ### FlashVSR セカンダリ復元（実験的）
 
@@ -170,6 +180,7 @@ jasna --input input_folder --output output_folder
 - **[フレーム生成](docs/ja/frame_generation.md)** — RIFE 2x/4x フレームレート アップコンバートとスタンドアロン `jasna-framegen`。
 - **[ビデオバックエンド](docs/ja/torchcodec_backend.md)** — 実験的な torchcodec デコード/エンコードバックエンド。
 - **[FP8 復元バックエンド](docs/ja/fp8_recon.md)** — cuDNN FP8 アップサンプル段でピーク VRAM を削減。
+- **[SeedVR2 一次復元](docs/ja/seedvr2.md)** — BasicVSR++ を置き換える diffusion+LoRA のモザイク除去。
 - **[FlashVSR セカンダリ復元](docs/ja/flashvsr.md)** — オフライン/インラインの拡散 4x アップスケール。
 - **[フローズンビルド](docs/ja/frozen_build.md)** — 実験的な Nuitka スタンドアロンビルド。
 - **[上流との変更点一覧](docs/ja/changes_vs_upstream.md)** — このフォークの全差分。

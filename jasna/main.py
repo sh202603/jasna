@@ -77,6 +77,15 @@ def _session_config_from_args(
         flashvsr_dtype=str(getattr(args, "flashvsr_dtype", "bf16")),
         flashvsr_tiles=int(getattr(args, "flashvsr_tiles", 1)),
         flashvsr_log_level=str(getattr(args, "log_level", "error")),
+        restoration_model_name=str(args.restoration_model_name),
+        seedvr2_repo=str(getattr(args, "seedvr2_repo", "") or ""),
+        seedvr2_python=str(getattr(args, "seedvr2_python", "") or ""),
+        seedvr2_model_dir=str(getattr(args, "seedvr2_model_dir", "") or ""),
+        seedvr2_dit=str(getattr(args, "seedvr2_dit", "seedvr2_ema_3b_fp16.safetensors")),
+        seedvr2_lora_rank=int(getattr(args, "seedvr2_lora_rank", 16)),
+        seedvr2_window=int(getattr(args, "seedvr2_window", 33)),
+        seedvr2_overlap=int(getattr(args, "seedvr2_overlap", 9)),
+        seedvr2_color_fix=str(getattr(args, "seedvr2_color_fix", "lab")),
     )
 
 
@@ -199,8 +208,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--restoration-model-name",
         type=str,
         default="basicvsrpp",
-        choices=["basicvsrpp"],
-        help='Restoration model for video input (only "basicvsrpp" supported for now).',
+        choices=["basicvsrpp", "seedvr2"],
+        help='Restoration model for video input. "seedvr2" replaces BasicVSR++ with the '
+             'SeedVR2 3B one-step diffusion model + LoRA running in an external venv '
+             '(quality mode, ~6x slower; needs --seedvr2-repo, see the "SeedVR2" group).',
     )
     restoration.add_argument(
         "--restoration-model-path",
@@ -268,6 +279,67 @@ def build_parser() -> argparse.ArgumentParser:
              'inline in the streaming pipeline (no intermediate files, needs a patched '
              'FlashVSR repo). Both need --flashvsr-repo. See the "FlashVSR" group for '
              'its options.',
+    )
+
+    seedvr2 = parser.add_argument_group("SeedVR2 (primary restoration, experimental)")
+    seedvr2.add_argument(
+        "--seedvr2-repo",
+        type=str,
+        default="",
+        help="Path to a ComfyUI-SeedVR2_VideoUpscaler checkout with its own venv "
+             "(required for --restoration-model-name seedvr2).",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-python",
+        type=str,
+        default="",
+        help="Python interpreter of the SeedVR2 venv (default: <repo>/.venv/bin/python, "
+             "Scripts\\python.exe on Windows).",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-model-dir",
+        type=str,
+        default="",
+        help="SeedVR2 base weights directory (default: <repo>/models/SEEDVR2; "
+             "auto-downloaded there on first load).",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-dit",
+        type=str,
+        default="seedvr2_ema_3b_fp16.safetensors",
+        help="DiT weights filename inside the model dir (default: %(default)s)",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-lora",
+        type=str,
+        default="",
+        help='LoRA checkpoint path (default: "<model_weights>/lada_seedvr2_lora_v2.pt").',
+    )
+    seedvr2.add_argument(
+        "--seedvr2-lora-rank",
+        type=int,
+        default=16,
+        help="LoRA rank (must match the checkpoint; default: %(default)s)",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-window",
+        type=int,
+        default=33,
+        help="Sliding-window length in frames, must be 4n+1 (default: %(default)s)",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-overlap",
+        type=int,
+        default=9,
+        help="Cross-fade overlap between windows in frames (default: %(default)s)",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-color-fix",
+        type=str,
+        default="lab",
+        choices=["none", "lab", "wavelet"],
+        help="Per-clip color correction against the input crops. 'wavelet' can re-introduce "
+             "mosaic grid structure from the reference (default: %(default)s)",
     )
 
     sd15 = parser.add_argument_group("SD 1.5 image restoration")
@@ -858,13 +930,32 @@ def main() -> None:
 
     restoration_model_name = str(args.restoration_model_name)
     restoration_model_path_arg = str(args.restoration_model_path).strip()
-    if restoration_model_path_arg:
-        restoration_model_path = Path(restoration_model_path_arg)
+    if restoration_model_name == "seedvr2":
+        # restoration_model_path carries the LoRA checkpoint for seedvr2.
+        if restoration_model_path_arg:
+            print("Warning: --restoration-model-path is BasicVSR++-only and ignored with "
+                  "--restoration-model-name seedvr2 (use --seedvr2-lora)")
+        lora_arg = str(args.seedvr2_lora).strip()
+        if lora_arg:
+            restoration_model_path = Path(lora_arg).expanduser()
+        else:
+            from jasna.model_weights_resolver import resolve_model_weights_file
+            restoration_model_path = resolve_model_weights_file("lada_seedvr2_lora_v2.pt")
+        if not restoration_model_path.exists():
+            raise FileNotFoundError(
+                f"SeedVR2 LoRA checkpoint not found: {restoration_model_path}. Download it with:\n"
+                "  wget -O model_weights/lada_seedvr2_lora_v2.pt "
+                "https://huggingface.co/sh202603/lada-seedvr2-lora/resolve/main/lada_seedvr2_lora_v2.pt\n"
+                "or pass --seedvr2-lora."
+            )
     else:
-        from jasna.model_weights_resolver import resolve_model_weights_file
-        restoration_model_path = resolve_model_weights_file("lada_mosaic_restoration_model_generic_v1.2.pth")
-    if not restoration_model_path.exists():
-        raise FileNotFoundError(str(restoration_model_path))
+        if restoration_model_path_arg:
+            restoration_model_path = Path(restoration_model_path_arg)
+        else:
+            from jasna.model_weights_resolver import resolve_model_weights_file
+            restoration_model_path = resolve_model_weights_file("lada_mosaic_restoration_model_generic_v1.2.pth")
+        if not restoration_model_path.exists():
+            raise FileNotFoundError(str(restoration_model_path))
 
     segments = None
     splice_plan = None
@@ -959,10 +1050,64 @@ def main() -> None:
     if not (0.0 <= detection_score_threshold <= 1.0):
         raise ValueError("--detection-score-threshold must be in [0, 1]")
 
-    if restoration_model_name != "basicvsrpp":
+    secondary_name = str(args.secondary_restoration).lower()
+    if restoration_model_name == "seedvr2":
+        seedvr2_log = logging.getLogger(__name__)
+        if not str(args.seedvr2_repo).strip():
+            raise ValueError(
+                "--restoration-model-name seedvr2 requires --seedvr2-repo "
+                "(path to a ComfyUI-SeedVR2_VideoUpscaler checkout)"
+            )
+        if int(args.seedvr2_window) < 1 or int(args.seedvr2_window) % 4 != 1:
+            raise ValueError("--seedvr2-window must be 4n+1 (e.g. 33)")
+        if not 0 <= int(args.seedvr2_overlap) < int(args.seedvr2_window):
+            raise ValueError("--seedvr2-overlap must be >= 0 and smaller than --seedvr2-window")
+        if frame_gen_multiplier > 1:
+            raise ValueError(
+                "--restoration-model-name seedvr2 does not support --frame-gen "
+                "(no VRAM budget next to the resident worker; run frame generation as a separate pass)"
+            )
+        if secondary_name == "flashvsr-inline":
+            raise ValueError(
+                "--restoration-model-name seedvr2 cannot be combined with --secondary-restoration "
+                "flashvsr-inline (the two resident workers exceed a 16 GB card; use the offline "
+                "'flashvsr' mode, whose phases never co-reside)"
+            )
+        if secondary_name == "tvai":
+            seedvr2_log.warning(
+                "[seedvr2] TVAI sharpening on top of a diffusion primary risks over-enhancement"
+            )
+        if getattr(args, "fp8_recon", False):
+            seedvr2_log.warning("[seedvr2] --fp8-recon is BasicVSR++-only and has no effect with seedvr2")
+        if is_streaming:
+            seedvr2_log.warning(
+                "[seedvr2] streaming: mosaic-dense stretches are limited to the SeedVR2 "
+                "rate (~17-21 crop-fps); expect player stalls on such content"
+            )
+        # jasna's VR crops are projection-conditioned — out of distribution for
+        # the LoRA and unverified (same rejection style as flashvsr offline).
+        vr_mode = str(args.vr_mode).strip().lower()
+        if vr_mode in ("sbs", "sbs-fisheye"):
+            raise ValueError(
+                f"--restoration-model-name seedvr2 does not support VR processing (--vr-mode {vr_mode})"
+            )
+        if vr_mode == "auto":
+            from jasna.media import get_video_meta_data
+            from jasna.vr180 import resolve_vr_mode
+
+            probe_videos = folder_videos if folder_videos else ([input_video] if input_video is not None else [])
+            for probe_path in probe_videos:
+                vr_resolution = resolve_vr_mode("auto", get_video_meta_data(str(probe_path)), probe_path)
+                if vr_resolution.resolved != "off":
+                    raise ValueError(
+                        "--restoration-model-name seedvr2 does not support VR processing, but "
+                        f"--vr-mode auto detected VR content in {probe_path.name} "
+                        f"({vr_resolution.resolved}: {vr_resolution.reason}). "
+                        "Pass --vr-mode off to force flat processing."
+                    )
+    elif restoration_model_name != "basicvsrpp":
         raise ValueError(f"Unsupported restoration model: {restoration_model_name}")
 
-    secondary_name = str(args.secondary_restoration).lower()
     if secondary_name == "flashvsr-inline":
         from jasna.restorer.flashvsr_offline import DEFAULT_MAX_CLIP_FRAMES
         # tiny-long co-resides with the primary only within a bounded clip (the

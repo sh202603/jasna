@@ -107,6 +107,8 @@ dist_nuitka\jasna\
   配布先マシンで triton がカーネルを JIT コンパイルできることに依存するためである。
 - FlashVSR は同梱されない。
   `flashvsr` と `flashvsr-inline` のどちらも、ソース実行時と同じく、パッチ適用済みの FlashVSR チェックアウトと専用 venv が配布先マシンに別途必要である（`--flashvsr-repo`）。
+- **SeedVR2 も同梱されない**:
+  `--restoration-model-name seedvr2` は `ComfyUI-SeedVR2_VideoUpscaler` のチェックアウトと専用 venv（`--seedvr2-repo`）、および `model_weights\` への LoRA 配置が配布先マシンに別途必要である。バンドルに入るのは worker スクリプト（`jasna\restorer\seedvr2_lora_worker.py`）のみ。
   配布物に含まれるのは jasna 側のオーケストレーション（`jasna\restorer\` 配下の worker と driver のスクリプトを含む）だけである。
 - 配布物は、書き込み可能で ASCII のみのパスに展開する必要がある。
   TRT エンジンが exe の隣の `model_weights\` に書き込まれるためであり、ASCII 制約はソース実行時と同じ RTX Super-Res の制限である。

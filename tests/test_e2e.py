@@ -517,3 +517,44 @@ class TestRestorationPipelineRtxE2E:
             assert sr.frame_shape == (h, w)
         finally:
             rtx.close()
+
+
+# ---------------------------------------------------------------------------
+# SeedVR2+LoRA primary restorer (real checkout; export JASNA_SEEDVR2_REPO)
+# ---------------------------------------------------------------------------
+
+SEEDVR2_REPO = Path(os.environ.get("JASNA_SEEDVR2_REPO", str(Path.home() / "seedvr2_videoupscaler")))
+SEEDVR2_LORA = Path("model_weights/lada_seedvr2_lora_v2.pt")
+REQUIRES_SEEDVR2 = pytest.mark.skipif(
+    not (SEEDVR2_REPO / "src" / "core" / "generation_utils.py").is_file() or not SEEDVR2_LORA.exists(),
+    reason="SeedVR2 checkout (JASNA_SEEDVR2_REPO) or LoRA not found",
+)
+
+
+@REQUIRES_CUDA
+@REQUIRES_SEEDVR2
+class TestSeedvr2RealWorker:
+    def test_raw_process_real_checkout(self):
+        """Boot the real worker (model load + LoRA injection) and restore one
+        synthetic 16-frame clip: verifies the venv wiring, the wire protocol
+        against the real child, and the (T,C,256,256) float [0,1] contract."""
+        from jasna.restorer.seedvr2_lora_restorer import Seedvr2LoraRestorer
+
+        r = Seedvr2LoraRestorer(
+            repo_path=str(SEEDVR2_REPO),
+            lora_path=str(SEEDVR2_LORA),
+            device="cuda:0",
+        )
+        try:
+            g = torch.Generator().manual_seed(0)
+            frames = [
+                (torch.rand(3, 256, 256, generator=g) * 255.0).to(torch.float32)
+                for _ in range(16)
+            ]
+            out = r.raw_process(frames)
+            assert out.shape == (16, 3, 256, 256)
+            assert out.dtype == torch.float16
+            assert out.device.type == "cuda"
+            assert 0.0 <= float(out.min()) and float(out.max()) <= 1.0
+        finally:
+            r.close()

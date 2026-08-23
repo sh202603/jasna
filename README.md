@@ -8,7 +8,7 @@ Jasna is free. Supporters get a key that unlocks the extra models trained for th
 
 > ### ⚙️ This is the `+modi` fork of Jasna
 >
-> A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1, adding **frame generation** (`--frame-gen` 2x/4x), an experimental **torchcodec video backend**, an experimental **FP8 restoration backend**, and **FlashVSR secondary restoration**, among other improvements.
+> A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1, adding **frame generation** (`--frame-gen` 2x/4x), an experimental **torchcodec video backend**, an experimental **FP8 restoration backend**, **SeedVR2 primary restoration**, and **FlashVSR secondary restoration**, among other improvements.
 >
 > - **Source (this fork/branch):** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
 > - **Full list of changes vs upstream:** [docs/en/changes_vs_upstream.md](docs/en/changes_vs_upstream.md)
@@ -86,6 +86,16 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 ```
 
 The main benefit is VRAM: the TensorRT upsample engine's load-time arena (~2.2 GB at the default `--max-clip-size 90`) is never allocated, measured as 1.2–1.7 GB lower peak VRAM across 480p–4K clips. The stage itself also runs ~1.5x faster, though end-to-end fps is unchanged because the pipeline is detection-bound. Output stays visually indistinguishable from the FP16 engine and is bit-deterministic across runs. Requires an FP8-capable GPU (sm89+, i.e. RTX 40 series or newer; the speedup is validated on Blackwell only) and fp16 mode; falls back to the TensorRT engine on any failure. Verified on both Linux and Windows. Details: [docs/en/fp8_recon.md](docs/en/fp8_recon.md).
+
+### SeedVR2+LoRA primary restoration (experimental)
+
+`--restoration-model-name seedvr2` replaces the BasicVSR++ primary restorer with [SeedVR2](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler) 3B one-step diffusion + a custom LoRA trained to remove mosaic itself — a quality mode at ~6x the wall clock:
+
+```bash
+jasna --input in.mp4 --output out.mp4 --restoration-model-name seedvr2 --seedvr2-repo ~/seedvr2_videoupscaler
+```
+
+Inference runs in a resident worker inside the checkout's own venv (nothing is installed into jasna's), sliding a 33-frame window with cross-faded overlaps over each clip. Needs a 16 GB card; you supply the `ComfyUI-SeedVR2_VideoUpscaler` checkout (base weights auto-download, ~7.3 GB) and the ~90 MB LoRA from [sh202603/lada-seedvr2-lora](https://huggingface.co/sh202603/lada-seedvr2-lora). Not compatible with VR modes / `--frame-gen` / `flashvsr-inline`; composes with the offline `flashvsr` mode into the maximum-quality stack. Details: [docs/en/seedvr2.md](docs/en/seedvr2.md).
 
 ### FlashVSR secondary restoration (experimental)
 
@@ -172,6 +182,7 @@ If you run out of VRAM during processing, reduce **max clip size** first, for ex
 - **[Frame generation](docs/en/frame_generation.md)** — RIFE 2x/4x frame-rate up-conversion and the standalone `jasna-framegen` tool.
 - **[Video backend](docs/en/torchcodec_backend.md)** — the experimental torchcodec decode/encode backend.
 - **[FP8 restoration backend](docs/en/fp8_recon.md)** — the cuDNN FP8 upsample stage with lower peak VRAM.
+- **[SeedVR2 primary restoration](docs/en/seedvr2.md)** — diffusion+LoRA mosaic removal replacing BasicVSR++.
 - **[FlashVSR secondary restoration](docs/en/flashvsr.md)** — offline and inline diffusion 4x upscaling.
 - **[Frozen build](docs/en/frozen_build.md)** — the experimental Nuitka standalone build.
 - **[Changes vs upstream](docs/en/changes_vs_upstream.md)** — the full delta of this fork.
