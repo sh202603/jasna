@@ -15,7 +15,7 @@ Windows で Jasna のセットアップを行い、**ソースから実行**す�
 > - `setuptools<80` の固定
 > - MKVToolNix（`mkvmerge`）
 >
-> 既存環境にこれらが残っていても害はありません（`CUDA_PATH` は torchcodec バックエンドの DLL 解決フォールバックが参照するため、残しておくと役に立つことがあります）。一方で **NVIDIA ドライバの要求が 610 以上に上がりました**（起動チェックが Windows では 610 未満を拒否します）。残る特殊手順は **PyAV wheel**（4節。PyAV 18.1.0 が PyPI に公開されるまでの暫定）だけです。
+> 既存環境にこれらが残っていても害はありません（`CUDA_PATH` は torchcodec バックエンドの DLL 解決フォールバックが参照するため、残しておくと役に立つことがあります）。一方で **NVIDIA ドライバの要求が 610 以上に上がりました**（起動チェックが Windows では 610 未満を拒否します）。かつて残っていた特殊手順の **PyAV wheel 自前ビルド**も、av 18.1.0 の PyPI 公開により不要になりました（4節）。
 >
 > **このブランチの主な追加機能:** RIFE による 2x/4x フレーム生成（[frame_generation.md](frame_generation.md)）、torchcodec バックエンド（[torchcodec_backend.md](torchcodec_backend.md)）、cuDNN FP8 復元（[fp8_recon.md](fp8_recon.md)）、SeedVR2 一次復元（[seedvr2.md](seedvr2.md)）、FlashVSR 二次復元（[flashvsr.md](flashvsr.md)）。v0.7.2+modi にあった AV1 / 8bit / BT.601 と BT.2020 出力は upstream v0.8.0 に吸収されました。全差分は [changes_vs_upstream.md](changes_vs_upstream.md) を参照してください。
 
@@ -35,7 +35,7 @@ Windows で Jasna のセットアップを行い、**ソースから実行**す�
 | ffmpeg / ffprobe | **v8**（実行時 CLI） | [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases) の `ffmpeg-n8.1-latest-win64-gpl-shared-*.zip` 推奨（下記） | 起動チェックが `ffprobe` のメジャーバージョン 8 を要求 |
 | VS Build Tools | 2022 (Desktop development with C++) | `Microsoft.VisualStudio.2022.BuildTools` | **PyAV wheel を自前ビルドする場合のみ**（4節 (B)） |
 
-CUDA Toolkit は不要になりました。torch / tensorrt の pip wheel が CUDA ランタイムを同梱しており、自前でコンパイルするネイティブ拡張は PyAV だけで、PyAV は CUDA を使いません（NVDEC/NVENC はリンク先 FFmpeg 側の機能です）。
+CUDA Toolkit は基本セットアップでは不要になりました。torch / tensorrt の pip wheel が CUDA ランタイムを同梱しており、基本セットアップでコンパイルするものはありません（av 18.1.0 以降、PyAV wheel は PyPI から入ります。4節）。例外は任意の PyAV 自前ビルド（4節 (B)）と任意の VALI バックエンドのビルド（5.3節）だけです。
 
 ### 1.1 ffmpeg の選択と PATH への追加
 
@@ -104,21 +104,25 @@ uv の managed Python で問題ありません（システム Python が必要�
 
 ---
 
-## 4. PyAV wheel の導入（暫定手順。PyAV 18.1.0 公開までのつなぎ）
+## 4. PyAV wheel の導入
 
-v0.8.0 の GPU パスは PyAV 18.1.0 で入る **current_ctx API**（torch が初期化済みの CUDA コンテキストを NVDEC/NVENC と共有する仕組み）を使いますが、18.1.0 は未公開で、PyPI の av 18.0.0 にはこの API がありません。
+GPU パスは PyAV の **current_ctx API**（torch が初期化済みの CUDA コンテキストを NVDEC/NVENC と共有する仕組み）に加え、v0.9.1 ベースからはエンコーダが `CudaContext(cuda_stream=...)` で渡す **CUDA stream 明示指定**を使います。**av 18.1.0（PyPI、2026-08 公開）は両 API を含む最初のリリース**であり、公式 wheel が標準の導入経路になりました。
 
-さらに、リンク先には **nv-codec-headers 12.2 以降でビルドされた FFmpeg 8** が必要です。古い nv-codec-headers の FFmpeg にリンクした PyAV では、`hevc_nvenc` に `lookahead_level` オプションが無いため、jasna の全エンコードが開始直後に `ValueError: hevc_nvenc did not accept encoder option(s): ['lookahead_level']` で失敗します（Linux の distro FFmpeg で実際に踏んだ症状。BtbN のビルドはこの条件を満たします）。
+### (A) 公式 PyPI wheel を使う（標準経路）
 
-### (A) av 18.1.0 が PyPI に公開されていればそれを使う（最初に確認）
+`pyproject.toml` の `av>=18.1,<19` が 5 節のインストールで解決されます（`uv pip install "av>=18.1"` 単体でも可）。PyPI のバイナリ wheel は十分新しい nv-codec-headers でビルドされた FFmpeg 8 を同梱しており（執筆時点で 8.1.2、`hevc_nvenc` は `lookahead_level` を受理）、BtbN ビルドの取得も delvewheel 修復も不要です。
 
-PyPI に av 18.1.0 が出ていれば本節の残りは不要です。PyPI のバイナリ wheel は対応済みの FFmpeg を同梱しているため、`uv pip install "av>=18.1"` するだけで済みます（5節のインストールでも解決されます）。
+公式 18.1.0 wheel は Linux 実機で検証済みです（2026-08-24、NVDEC デコード・NVENC エンコードを含むメディア層テストとフルパイプライン e2e が合格）。Windows 実機での再検証は未実施ですが、Windows で検証済みの自前ビルド wheel のコミット `f6f0a5e` は v18.1.0 リリースに含まれており、公式 wheel は同じコードです。
 
-> **v0.9.1 ベースでの更新（2026-07-30、Windows 実機検証済み）:** v0.9.1 ベースのエンコーダは PyAV の CUDA stream 明示指定（`CudaContext(cuda_stream=...)`）を追加で必要とし、`61e4aa8` にはこの API がありません。PyAV **main** からビルドしてください（検証コミットは Linux/Windows とも `f6f0a5e`。以下のビルド手順自体は不変で、(B) は `f6f0a5e` で Windows 実機検証済み）。任意の VALI デコードバックエンド（フォーク `python_vali` wheel）の Windows ビルドは 5.3 節を参照。無くてもリーダーは PyAV にフォールバックし、全機能が動作します。
+任意の VALI デコードバックエンド（フォーク `python_vali` wheel）の Windows ビルドは 5.3 節を参照。無くてもリーダーは PyAV にフォールバックし、全機能が動作します。
 
-### (B) PyAV main から自前ビルド（実機検証済み）
+> **既存 venv の移行:** 暫定の自前ビルド wheel はバージョンが `18.0.0` で、`av>=18.1` を満たさなくなったため、次回の 5 節のインストールで公式 wheel に自動で置き換わります。すぐ切り替えるだけなら `uv pip install "av>=18.1"` を一度実行してください。暫定 wheel が残っているかは `Test-Path .venv\Lib\site-packages\av.libs`（delvewheel 修復版のみ存在、公式 wheel には無い）で判別できます。
 
-CUDA stream API まで入った upstream main `f6f0a5e` をチェックアウトし、BtbN の shared ビルドにリンクして wheel を作ります。追加の前提は VS Build Tools 2022 だけです（**Developer PowerShell for VS 2022** セッションで実行する）。
+### (B) PyAV main から自前ビルド（暫定期の手順。通常は不要、実機検証済み）
+
+18.1.0 未公開の間に必要だった経路で、ソースビルドが再び必要になった場合に備えて残しています。リンク先には **nv-codec-headers 12.2 以降でビルドされた FFmpeg 8** が必要です。古い nv-codec-headers の FFmpeg では `hevc_nvenc` に `lookahead_level` オプションが無く、jasna の全エンコードが開始直後に `ValueError: hevc_nvenc did not accept encoder option(s): ['lookahead_level']` で失敗します（Linux の distro FFmpeg で実際に踏んだ症状。BtbN のビルドはこの条件を満たします）。
+
+upstream main `f6f0a5e`（v18.1.0 に包含）をチェックアウトし、BtbN の shared ビルドにリンクして wheel を作ります。追加の前提は VS Build Tools 2022 だけです（**Developer PowerShell for VS 2022** セッションで実行する）。
 
 > **pkg-config / pkgconf は不要です。** PyAV の setup.py は pkg-config を **Windows では呼びません**（非 Windows のみの分岐）。`PKG_CONFIG_PATH` を設定しても無視され、FFmpeg のヘッダ/ライブラリの場所は MSVC 標準の環境変数 `INCLUDE` / `LIB` からしか伝わりません。これを設定せずにビルドすると `fatal error C1083: libavcodec/avcodec.h: No such file or directory` で失敗します。
 
@@ -126,7 +130,7 @@ CUDA stream API まで入った upstream main `f6f0a5e` をチェックアウト
 cd $Workspace
 git clone https://github.com/PyAV-Org/PyAV.git
 cd PyAV
-# v0.9.1 ベースは main からビルド（Linux 検証コミット f6f0a5e）。61e4aa8 には CUDA stream API がない
+# f6f0a5e は Linux/Windows 両実機で検証済み。v18.1.0 リリースに包含
 git checkout f6f0a5e
 
 # cl.exe は INCLUDE を、link.exe は LIB を参照する（Developer PowerShell の既存値に追記）
@@ -149,7 +153,7 @@ python -c "import av; from av.video.frame import CudaContext; print(av.ffmpeg_ve
 
 delvewheel は DLL をハッシュ付き名で `av.libs\` に同梱するため、torchcodec が実行時にロードする FFmpeg DLL とはプロセス内で別コピーになりますが、Windows は DLL ごとにシンボル空間が独立しており、Linux で問題になった同名ライブラリの衝突は起きません（スモークテスト一式で確認済み）。
 
-> **注意: 自前ビルドの wheel はバージョン番号が PyPI の 18.0.0 と同じです。** `uv pip show av` では区別できず、取り違えると実行時に current_ctx 関連のエラーになります（トラブルシューティング参照）。5節の `uv pip install -e .[dev,nvidia]` は同版の av を置き換えない（実測確認済み）ため、本節を先に済ませておけばそのまま維持されます。導入済みかは `Test-Path .venv\Lib\site-packages\av.libs`（delvewheel 同梱の証拠）で判別できます。
+> **注意: 自前ビルドの wheel はバージョンが `18.0.0` で、`pyproject.toml` の `av>=18.1` を満たしません。** そのため 5 節のインストールは公式 PyPI wheel へ置き換えます。自前ビルド版を使い続けたい場合は、5 節の後に `uv pip install --reinstall (Get-Item dist\repaired\av-*.whl)` で入れ直してください。どちらが入っているかは `Test-Path .venv\Lib\site-packages\av.libs`（delvewheel 修復版のみ存在）で判別できます。
 
 ---
 
@@ -352,7 +356,7 @@ upstream 自身のパッケージングツール（同じく Nuitka ベース）
 ### PyAV / FFmpeg
 
 - **エンコード開始直後に `ValueError: hevc_nvenc did not accept encoder option(s): ['lookahead_level']`**
-  PyAV が古い nv-codec-headers の FFmpeg にリンクされている。4節 (B) のとおり `INCLUDE` / `LIB` を BtbN ビルドに向けて wheel を作り直す。
+  PyAV が古い nv-codec-headers の FFmpeg にリンクされている。公式 PyPI wheel（18.1 以降は対応 FFmpeg を同梱）では起きないため、`uv pip install --reinstall "av>=18.1"` で入れ直す。あえて自前ビルドする場合は 4節 (B) のとおり `INCLUDE` / `LIB` を BtbN ビルドに向ける。
 
 - **`import av` が `ImportError: DLL load failed while importing _core` で失敗する**
   自前ビルドの wheel を delvewheel なしでインストールしている。Python 3.8+ は拡張モジュールの依存 DLL を PATH から探さないため、BtbN の `bin\` を PATH に置くだけでは解決しない。4節 (B) の delvewheel repair を適用した wheel を入れ直す。
@@ -361,7 +365,7 @@ upstream 自身のパッケージングツール（同じく Nuitka ベース）
   FFmpeg の場所がコンパイラに伝わっていない。`PKG_CONFIG_PATH` は Windows では無視される（setup.py が pkg-config を呼ばない）。4節 (B) のとおり `INCLUDE` / `LIB` に BtbN 展開物の `include` / `lib` を追記する。
 
 - **エンコーダ/デコーダ初期化時に `current_ctx` 関連の `TypeError` 等で失敗する**
-  av が PyPI の 18.0.0 のまま（4節の wheel 未導入、または依存再インストールで置き換わった）。4節の wheel を `uv pip install --reinstall` で入れ直す。
+  av が 18.0.0 のまま（PyPI の旧リリース、またはバージョン表記が同じ `18.0.0` の暫定自前ビルド wheel）。`uv pip install "av>=18.1"` で入れ直す（4節 (A)）。
 
 - **Jasna が起動拒否: ffprobe のバージョン違い**
   起動チェックは `ffprobe` の**メジャーバージョン 8** を要求する。v8 ビルドの `bin\` を `PATH` に追加する（1.1節）。`mkvmerge` のチェックは v0.8.0 で廃止された。
