@@ -135,6 +135,7 @@ def process_frame_batch(
     min_detection_duration: int = 0,
     scene_detector: SceneCutDetector | None = None,
     vr_projector=None,
+    blend_safe_border_px: int = 0,
 ) -> BatchProcessResult:
     effective_bs = len(pts_list)
     if effective_bs == 0:
@@ -169,7 +170,8 @@ def process_frame_batch(
                 crop_buffers[track_id] = CropBuffer(track_id=track_id, start_frame=clip.start_frame)
             bbox = clip.bboxes[-1]
             raw_crop = _extract_region_crop(
-                frame, bbox, frame_h, frame_w, crop_eye_width, vr_projector
+                frame, bbox, frame_h, frame_w, crop_eye_width, vr_projector,
+                blend_safe_border_px,
             )
             crop_buffers[track_id].add(raw_crop)
 
@@ -180,7 +182,8 @@ def process_frame_batch(
             if crop_buffers[tid].frame_count < ec.clip.frame_count:
                 bbox = ec.clip.bboxes[-1]
                 raw_crop = _extract_region_crop(
-                    frame, bbox, frame_h, frame_w, crop_eye_width, vr_projector
+                    frame, bbox, frame_h, frame_w, crop_eye_width, vr_projector,
+                    blend_safe_border_px,
                 )
                 crop_buffers[tid].add(raw_crop)
 
@@ -211,13 +214,18 @@ def _extract_region_crop(
     frame_w: int,
     crop_eye_width: int | None,
     vr_projector,
+    blend_safe_border_px: int = 0,
 ) -> RawCrop:
     x_bounds = _eye_bounds(bbox, crop_eye_width, frame_w)
     if vr_projector is not None:
         return vr_projector.extract_region_crop(
-            frame, bbox, frame_h, frame_w, x_bounds=x_bounds
+            frame, bbox, frame_h, frame_w, x_bounds=x_bounds,
+            blend_safe_border_px=blend_safe_border_px,
         )
-    return extract_crop(frame, bbox, frame_h, frame_w, x_bounds=x_bounds)
+    return extract_crop(
+        frame, bbox, frame_h, frame_w, x_bounds=x_bounds,
+        blend_safe_border_px=blend_safe_border_px,
+    )
 
 
 def _eye_bounds(
