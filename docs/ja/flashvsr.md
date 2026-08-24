@@ -14,7 +14,8 @@ FlashVSR には 2 つのモードがある:
   段階再開が可能。以下は主にこのモードの説明。
 - **`--secondary-restoration flashvsr-inline`(inline、単一パス)** — 通常のストリー
   ミングパイプラインに FlashVSR を挟む。**中間ファイル・ディスクゲート・二重 encode
-  が無い**。**16 GB カード + tiny-long パッチ当ての FlashVSR checkout が前提**。詳細は
+  が無い**。**16 GB カード + tiny-long パッチ当ての FlashVSR checkout が前提**。**非推奨
+  (今後のリリースで廃止予定)。オフラインモードを推奨**。詳細は
   末尾の「inline モード」を参照。
 
 オフライン 3 段が存在する理由: FlashVSR の tiny モードは**単体で 12–16 GB VRAM** を
@@ -177,6 +178,9 @@ jasna は自動でこれを見張る: Phase 1 前に bundle dir が tmpfs なら
   モデル。checkout・重み・venv は利用者が用意する。jasna のサポーターモデルとは無関係。
 
 ## inline モード(`--secondary-restoration flashvsr-inline`)
+
+> **非推奨**: inline モードは今後のリリースで廃止予定。オフライン 3 段モードを
+> 推奨する。SeedVR2 一次復元と組み合わせれば、最高品質構成もオフライン側で賄える。
 
 オフライン 3 段と同じ FlashVSR checkout / 重み / venv・同じ `--flashvsr-*` フラグ
 (`repo` / `python` / `model-dir` / `version` / `dtype`)を使うが、**中間ファイルを
