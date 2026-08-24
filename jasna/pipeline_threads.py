@@ -23,6 +23,7 @@ from jasna.progressbar import Progressbar
 from jasna.restorer import RestorationPipeline
 from jasna.restorer.secondary_restorer import AsyncSecondaryRestorer
 from jasna.tracking.clip_tracker import ClipTracker
+from jasna.tracking.blending import blend_safe_border_px
 from jasna.tracking.scene_detector import SceneCutDetector
 from jasna.vram_offloader import VramOffloader
 
@@ -65,6 +66,7 @@ def decode_detect_loop(
     progress: Progressbar | None,
     video_backend: VideoBackend | str = VideoBackend.NATIVE,
     encode_backend_name: str = "native",
+    blend_safe_border: bool = False,
 ) -> None:
     timer = LoopTimer("decode-detect")
     try:
@@ -91,6 +93,9 @@ def decode_detect_loop(
             target_hw = (int(metadata.video_height), int(metadata.video_width))
             crop_eye_width = (
                 int(metadata.video_width) // 2 if vr_mode == "sbs" else None
+            )
+            safe_border_px = (
+                blend_safe_border_px(target_hw[0]) if blend_safe_border else 0
             )
             frame_idx = 0 if seek_ts is None else _estimate_start_frame(metadata, seek_ts)
             frame_shape = target_hw
@@ -185,6 +190,7 @@ def decode_detect_loop(
                                     min_detection_duration=min_detection_duration,
                                     scene_detector=scene_detector,
                                     vr_projector=vr_projector,
+                                    blend_safe_border_px=safe_border_px,
                                 )
                                 frame_idx = res.next_frame_idx
                             else:
@@ -731,6 +737,7 @@ def run_restoration_pass(
                 progress=progress,
                 video_backend=decode_backend,
                 encode_backend_name=encode_backend_name,
+                blend_safe_border=getattr(restoration_pipeline, "blend_safe_border", False),
             ),
             name="DecodeDetect", daemon=True,
         ),

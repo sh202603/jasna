@@ -86,3 +86,40 @@ class TestPrepareCropsDtype:
         assert out.shape == (3, RESTORATION_SIZE, RESTORATION_SIZE)
         assert out.device.type == device.type
         assert float(out.max()) <= 255.0
+
+
+class TestExpandBboxBlendSafeBorder:
+    def test_floor_widens_default_border(self):
+        from jasna.crop_buffer import expand_bbox
+
+        # 300px box at 1080p: default border = max(20, 6% of 300) = 20, and the
+        # 340px crop needs no aspect expansion toward 256.
+        x1, y1, x2, y2 = expand_bbox(500, 400, 800, 700, 1080, 1920)
+        assert (500 - x1, 400 - y1, x2 - 800, y2 - 700) == (20, 20, 20, 20)
+
+        x1, y1, x2, y2 = expand_bbox(500, 400, 800, 700, 1080, 1920, blend_safe_border_px=62)
+        assert (500 - x1, 400 - y1, x2 - 800, y2 - 700) == (62, 62, 62, 62)
+
+    def test_floor_below_default_is_inert(self):
+        from jasna.crop_buffer import expand_bbox
+
+        base = expand_bbox(500, 400, 800, 700, 1080, 1920)
+        floored = expand_bbox(500, 400, 800, 700, 1080, 1920, blend_safe_border_px=10)
+        assert base == floored
+
+    def test_floor_still_clamps_to_frame(self):
+        from jasna.crop_buffer import expand_bbox
+
+        x1, y1, x2, y2 = expand_bbox(10, 10, 310, 310, 1080, 1920, blend_safe_border_px=62)
+        assert x1 >= 0 and y1 >= 0 and x2 <= 1920 and y2 <= 1080
+
+    def test_compute_enlarged_bbox_threads_floor(self):
+        import numpy as np
+
+        from jasna.crop_buffer import compute_enlarged_bbox
+
+        bbox = np.array([500, 400, 800, 700])
+        base = compute_enlarged_bbox(bbox, 1080, 1920)
+        wide = compute_enlarged_bbox(bbox, 1080, 1920, blend_safe_border_px=62)
+        assert base == (480, 380, 820, 720)
+        assert wide == (438, 338, 862, 762)

@@ -336,8 +336,12 @@ class _RegionProjector:
         frame_w: int,
         *,
         x_bounds: tuple[int, int] | None = None,
+        blend_safe_border_px: int = 0,
     ) -> RawCrop:
-        x1, y1, x2, y2 = compute_enlarged_bbox(bbox, frame_h, frame_w, x_bounds)
+        x1, y1, x2, y2 = compute_enlarged_bbox(
+            bbox, frame_h, frame_w, x_bounds,
+            blend_safe_border_px=blend_safe_border_px,
+        )
         offset = x_bounds[0] if x_bounds is not None else self._eye_offset((x1, y1, x2, y2))
         local = (x1 - offset, y1, x2 - offset, y2)
         patch_size = self._patch_size((x1, y1, x2, y2))
