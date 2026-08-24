@@ -13,9 +13,12 @@ checkout you supply.
 Wall clock is roughly 6x BasicVSR++, proportional to mosaic screen time
 (measured in lada-ex: 17–21 output crop-fps vs 100–157 fps, RTX 5080). Being
 generative, the output is sharp but adds *plausible* detail — it is not signal
-recovery. The default model stays `basicvsrpp`; this feature is strictly
-opt-in, and the basicvsrpp path's output is bit-identical to before the
-feature was added.
+recovery. It is at its best on low-resolution, heavily degraded sources,
+where the diffusion prior rebuilds detail BasicVSR++ can only smooth over; it
+is not a full replacement for BasicVSR++, so choose the primary per source.
+The default model stays `basicvsrpp`; this feature is strictly opt-in, and
+the basicvsrpp path's output is bit-identical to before the feature was
+added.
 
 ## Requirements
 
