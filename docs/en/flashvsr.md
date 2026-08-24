@@ -15,7 +15,8 @@ FlashVSR has two modes:
 - **`--secondary-restoration flashvsr-inline` (inline, single pass)** — runs
   FlashVSR inside the normal streaming pipeline with **no intermediate files, no
   disk gate, and no double encode**. Requires a **16 GB card and a FlashVSR
-  checkout with the tiny-long patch**. See "Inline mode" at the end.
+  checkout with the tiny-long patch**. **Deprecated: scheduled for removal in a
+  future release; prefer the offline mode.** See "Inline mode" at the end.
 
 Why offline 3-phase exists: FlashVSR's tiny mode peaks at **12–16 GB VRAM on its
 own**, so it cannot co-reside with jasna's primary pipeline on a 16 GB card.
@@ -185,6 +186,10 @@ before the expensive Phase 2** if it won't fit (keeping the bundle so you can po
   the jasna supporter models.
 
 ## Inline mode (`--secondary-restoration flashvsr-inline`)
+
+> **Deprecated**: inline mode is scheduled for removal in a future release.
+> Prefer the offline 3-phase mode; combined with the SeedVR2 primary restorer
+> it also covers the maximum-quality use case.
 
 Uses the same FlashVSR checkout / weights / venv and the same `--flashvsr-*`
 flags (`repo` / `python` / `model-dir` / `version` / `dtype`) as the offline
