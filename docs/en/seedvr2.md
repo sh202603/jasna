@@ -141,6 +141,15 @@ jasna's vendored mmagic subset (inference-only) does not carry. Fine-tune in
 
 - Generative output adds plausible detail; it is not recovery of the original
   signal.
+- Thin mosaic strips cut off by the frame edge (a real, detected mosaic that
+  ends up as a ~30px band at the border of a large square crop) are outside
+  the LoRA's training distribution and can come back as flat gray instead of
+  reconstructed content. BasicVSR++ does not break on the same input, so
+  running the same segment with the default restorer is the quickest way to
+  attribute such a band to SeedVR2 rather than to detection or the source.
+  The fix is on the training side (adding such strips to the dataset);
+  skipping slivers in the pipeline is not an option because they are real
+  mosaic.
 - VR modes are rejected at startup until evaluated.
 - Tracking of numz repo internals is confined to the single worker file
   (`jasna/restorer/seedvr2_lora_worker.py`, kept verbatim-identical with
