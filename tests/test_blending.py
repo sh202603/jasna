@@ -102,14 +102,17 @@ def _reference_fullres_blend_mask(
     bbox: tuple[int, int, int, int],
     frame_shape: tuple[int, int],
 ) -> torch.Tensor:
-    """Old algorithm: nearest-upsample mask to bbox size at frame res, then blur there."""
+    """Free-field reference: nearest-upsample the whole mask to frame res,
+    blur the whole frame, then slice the bbox — the profile a bbox slice must
+    reproduce regardless of where its window edges fall."""
     x1, y1, x2, y2 = bbox
     frame_h, frame_w = frame_shape
     hm, wm = mask_lr.shape
-    y_idx = (torch.arange(y1, y2) * hm) // frame_h
-    x_idx = (torch.arange(x1, x2) * wm) // frame_w
-    crop_mask = mask_lr.float().index_select(0, y_idx).index_select(1, x_idx)
-    return create_blend_mask(crop_mask, frame_height=frame_h, scale_y=1.0, scale_x=1.0)
+    y_idx = (torch.arange(frame_h) * hm) // frame_h
+    x_idx = (torch.arange(frame_w) * wm) // frame_w
+    frame_mask = mask_lr.float().index_select(0, y_idx).index_select(1, x_idx)
+    full = create_blend_mask(frame_mask, frame_height=frame_h, scale_y=1.0, scale_x=1.0)
+    return full[y1:y2, x1:x2]
 
 
 def test_bbox_blend_mask_close_to_fullres_reference() -> None:
