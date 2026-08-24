@@ -11,6 +11,20 @@ BLEND_DILATION_RATIO = 0.028
 BLEND_FALLOFF_RATIO = 0.028
 
 
+def blend_safe_border_px(frame_height: int) -> int:
+    """Crop border (frame px) that fits the whole blend transition.
+
+    The blend reaches dilation+falloff (~0.056*frame_height) past the mask
+    edge, while ``expand_bbox``'s default border is max(20px, 6% of the
+    detection box), so for typical detections the transition band is cut off
+    at the enlarged bbox and the composite steps to the original along the
+    box edge. Restorers that resynthesize the crop (not near-identity outside
+    the mosaic) advertise ``blend_safe_border = True`` and get this as the
+    border floor so the transition ends inside the composite region.
+    """
+    return round(frame_height * (BLEND_DILATION_RATIO + BLEND_FALLOFF_RATIO)) + 2
+
+
 def _moving_average(x: torch.Tensor, size: int, dim: int) -> torch.Tensor:
     """Moving average without creating a shape-specific convolution problem."""
     prefix = x.cumsum(dim=dim)
@@ -123,6 +137,15 @@ def create_bbox_blend_mask(
     ``out_size`` overrides the output resolution ((y2-y1, x2-x1) by default):
     the restoration pipeline samples the same weight profile at the 256-space
     crop size for its outside-mask revert.
+
+    The blur window is the bbox slice grown by the kernel reach on every side
+    (clamped at the mask border = frame border), then cut back to the bbox:
+    blurring the bare slice would let the reflect padding mirror any mask
+    within kernel reach of a slice edge and pin the blend high along that
+    edge, printing the bbox rectangle into the composite. With the grown
+    window the profile matches a full-frame computation; only sides clamped
+    at the frame border keep the reflect-pad termination (no seam exists
+    there).
     """
     x1, y1, x2, y2 = bbox_xyxy
     frame_h, frame_w = frame_shape
@@ -132,9 +155,20 @@ def create_bbox_blend_mask(
     my2 = ((y2 - 1) * hm) // frame_h + 1
     mx1 = (x1 * wm) // frame_w
     mx2 = ((x2 - 1) * wm) // frame_w + 1
-    mask_slice = mask_lr[my1:my2, mx1:mx2]
 
-    blend_lr = create_blend_mask(mask_slice, frame_h, frame_h / hm, frame_w / wm)
+    scale_y = frame_h / hm
+    scale_x = frame_w / wm
+    dilation_px = max(3, round(frame_h * BLEND_DILATION_RATIO))
+    falloff_px = max(3, round(frame_h * BLEND_FALLOFF_RATIO))
+    reach_y = max(1, round(dilation_px / scale_y)) + max(1, round(falloff_px / scale_y)) + 1
+    reach_x = max(1, round(dilation_px / scale_x)) + max(1, round(falloff_px / scale_x)) + 1
+    ey1 = max(0, my1 - reach_y)
+    ey2 = min(hm, my2 + reach_y)
+    ex1 = max(0, mx1 - reach_x)
+    ex2 = min(wm, mx2 + reach_x)
+
+    blend_ext = create_blend_mask(mask_lr[ey1:ey2, ex1:ex2], frame_h, scale_y, scale_x)
+    blend_lr = blend_ext[my1 - ey1:my2 - ey1, mx1 - ex1:mx2 - ex1]
     return F.interpolate(
         blend_lr.unsqueeze(0).unsqueeze(0),
         size=out_size if out_size is not None else (y2 - y1, x2 - x1),

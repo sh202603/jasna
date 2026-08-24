@@ -466,6 +466,7 @@ class Pipeline:
                     cancel_event=self._cancel_event,
                     video_backend=self.decode_backend,
                     encode_backend_name=encode_backend_name,
+                    blend_safe_border=self.restoration_pipeline.blend_safe_border,
                 ),
                 name="DecodeDetect", daemon=True,
             ),

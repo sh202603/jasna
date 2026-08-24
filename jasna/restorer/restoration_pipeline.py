@@ -90,14 +90,18 @@ def _revert_outside_mask(
       near-identity outside the mosaic; this revert grants that property to
       any restorer, while the weight-1 zone (mask + dilation, the
       detector-miss safety margin) stays fully restored.
-    - a crop-border ramp: for a large mosaic the mask + dilation covers the
-      whole enlarged bbox (its border margin, max(20px, 6%), is narrower than
-      the 30px blend dilation), so the falloff is clipped at the bbox edge and
-      the composite would jump from ~0.7-weight resynthesized content straight
-      to the original there. The ramp forces the crop content itself to
-      converge to the input at the border over ~20 frame px — the mask-free
-      margin expand_bbox guarantees — except on sides clamped to the frame
-      edge, where no seam exists and the mosaic may genuinely reach the crop.
+    - a crop-border ramp: with the default border margin (max(20px, 6%),
+      narrower than the 30px blend dilation) the mask + dilation can cover the
+      whole enlarged bbox, so the falloff is clipped at the bbox edge and the
+      composite would jump from ~0.7-weight resynthesized content straight to
+      the original there. Restorers with ``blend_safe_border`` get a border
+      wide enough for the whole transition (the keep weight reaches ~0 before
+      the border), which demotes this ramp to a backstop; it still matters
+      when the mask spills past its detection box toward the border. The ramp
+      forces the crop content itself to converge to the input at the border
+      over ~20 frame px — the mask-free margin expand_bbox guarantees — except
+      on sides clamped to the frame edge, where no seam exists and the mosaic
+      may genuinely reach the crop.
     """
     frame_h, frame_w = frame_shape
     for i, crop in enumerate(resized_crops):
@@ -153,6 +157,13 @@ class RestorationPipeline:
             denoise_strength.name,
             denoise_step.name,
         )
+
+    @property
+    def blend_safe_border(self) -> bool:
+        """True when the primary restorer wants the crop border widened to fit
+        the whole blend transition (generative primaries; see
+        blending.blend_safe_border_px)."""
+        return bool(getattr(self.restorer, "blend_safe_border", False))
 
     @property
     def secondary_num_workers(self) -> int:

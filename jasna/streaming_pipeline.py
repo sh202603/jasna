@@ -247,6 +247,7 @@ def _run_streaming_pass(
                 seek_ts=seek_ts,
                 vr_mode=pipeline._vr_resolution.resolved,
                 vr_projector=pipeline._vr_projector,
+                blend_safe_border=pipeline.restoration_pipeline.blend_safe_border,
             ),
             name="StreamDecodeDetect", daemon=True,
         ),

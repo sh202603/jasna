@@ -25,11 +25,16 @@ def _torch_pad_reflect(image: torch.Tensor, paddings: tuple[int, int, int, int])
 
 def expand_bbox(
     x1: int, y1: int, x2: int, y2: int, frame_h: int, frame_w: int,
+    blend_safe_border_px: int = 0,
 ) -> tuple[int, int, int, int]:
     w = x2 - x1
     h = y2 - y1
 
+    # blend_safe_border_px raises the border floor so the blend transition
+    # (dilation+falloff, ~0.056*frame_h) ends inside the crop instead of being
+    # cut off at the enlarged bbox edge; see blending.blend_safe_border_px.
     border = max(MIN_BORDER, int(max(w, h) * BORDER_RATIO)) if BORDER_RATIO > 0.0 else 0
+    border = max(border, int(blend_safe_border_px))
     x1_exp = max(0, x1 - border)
     y1_exp = max(0, y1 - border)
     x2_exp = min(frame_w, x2 + border)
@@ -110,6 +115,7 @@ def compute_enlarged_bbox(
     frame_h: int,
     frame_w: int,
     x_bounds: tuple[int, int] | None = None,
+    blend_safe_border_px: int = 0,
 ) -> tuple[int, int, int, int]:
     """Clamp ``bbox`` to ``x_bounds`` (an SBS eye seam) and grow it toward the
     256 restoration aspect via ``expand_bbox``. Shared by the axis-aligned 2D
@@ -133,6 +139,7 @@ def compute_enlarged_bbox(
         y2,
         frame_h,
         x_max - x_min,
+        blend_safe_border_px=blend_safe_border_px,
     )
     return x1_exp + x_min, y1_exp, x2_exp + x_min, y2_exp
 
@@ -144,9 +151,10 @@ def extract_crop(
     frame_w: int,
     *,
     x_bounds: tuple[int, int] | None = None,
+    blend_safe_border_px: int = 0,
 ) -> RawCrop:
     x1_exp, y1_exp, x2_exp, y2_exp = compute_enlarged_bbox(
-        bbox, frame_h, frame_w, x_bounds
+        bbox, frame_h, frame_w, x_bounds, blend_safe_border_px=blend_safe_border_px
     )
     if frame.device.type == "cpu":
         crop = torch.from_numpy(np.array(frame.numpy()[:, y1_exp:y2_exp, x1_exp:x2_exp]))

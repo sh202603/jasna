@@ -374,6 +374,9 @@ def run_restoration_pass(
                 end_pts=window.end_pts,
                 vr_mode=vr_resolution.resolved,
                 vr_projector=vr_projector,
+                blend_safe_border=getattr(
+                    session.restoration_pipeline, "blend_safe_border", False
+                ),
             ),
             name="PreviewDecodeDetect", daemon=True,
         ),
