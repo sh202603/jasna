@@ -337,8 +337,12 @@ class RegionProjector:
         bbox,
         frame_h: int,
         frame_w: int,
+        *,
+        blend_safe_border_px: int = 0,
     ) -> RawCrop:
-        x1, y1, x2, y2 = compute_enlarged_bbox(bbox, frame_h, frame_w, self.layout.eye_of(bbox))
+        x1, y1, x2, y2 = compute_enlarged_bbox(
+            bbox, frame_h, frame_w, self.layout.eye_of(bbox), blend_safe_border_px=blend_safe_border_px,
+        )
         origin, local = self._local((x1, y1, x2, y2))
         patch_size = self._patch_size((x1, y1, x2, y2))
         sampled = self._forward_sample(frame, origin, local, patch_size, patch_size)
