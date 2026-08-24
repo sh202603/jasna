@@ -71,6 +71,13 @@ class Seedvr2LoraRestorer:
     # pipeline reverts everything outside the detection mask's trust zone to
     # the input (see _revert_outside_mask).
     revert_outside_mask = True
+    # Under the sharp resynthesized output the blend transition band must end
+    # inside the crop: with the default border (max(20px, 6%) of the detection
+    # box) it is cut off at the enlarged bbox and prints a faint persistent
+    # edge along the box (the lada-ex P2 finding). The pipeline widens the
+    # crop border to the blend reach (~0.056*frame_h); BasicVSR++ keeps the
+    # default (near-identity outside the mosaic, no visible edge).
+    blend_safe_border = True
     tensorrt_active = False
 
     def __init__(
