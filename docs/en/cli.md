@@ -37,7 +37,7 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 | `--restoration-model-path` | `model_weights/lada_mosaic_restoration_model_generic_v1.2.pth` | Restoration weights (BasicVSR++ only). |
 | `--seedvr2-repo` | — | *(+modi)* Path to your `ComfyUI-SeedVR2_VideoUpscaler` checkout. Required for `seedvr2`. |
 | `--seedvr2-python` | `<repo>/.venv/bin/python` | *(+modi)* Python of the SeedVR2 venv. |
-| `--seedvr2-lora` | `model_weights/lada_seedvr2_lora_v2.pt` | *(+modi)* LoRA checkpoint (swap-in point for fine-tunes). |
+| `--seedvr2-lora` | `model_weights/lada_seedvr2_lora_v3.pt` | *(+modi)* LoRA checkpoint (swap-in point for fine-tunes). |
 | `--seedvr2-window` / `--seedvr2-overlap` | `33` / `9` | *(+modi)* Sliding-window length (4n+1) and cross-fade overlap. |
 | `--seedvr2-color-fix` | `lab` | *(+modi)* Per-clip color correction: `none`, `lab`, `wavelet`. |
 | `--seedvr2-model-dir`, `--seedvr2-dit`, `--seedvr2-lora-rank` | see `--help` | *(+modi)* Base-weights overrides. See [seedvr2.md](seedvr2.md). |
