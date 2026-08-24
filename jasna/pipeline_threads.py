@@ -28,6 +28,7 @@ from jasna.restorer.restoration_pipeline import RestorationPipeline
 from jasna.restorer.secondary_restorer import AsyncSecondaryRestorer
 from jasna.session_config import DecodeBackendName
 from jasna.tracking.clip_tracker import ClipTracker
+from jasna.tracking.blending import blend_safe_border_px
 from jasna.tracking.scene_detector import SceneCutDetector
 from jasna.vram_offloader import VramOffloader
 
@@ -106,8 +107,6 @@ def decode_detect_loop(
     output_frame_count: int | None,
     output_fps: float | None,
     progress: Progressbar | None,
-    video_backend: VideoBackend | str = VideoBackend.NATIVE,
-    encode_backend_name: str = "native",
 ) -> None:
     """Decode, detect and track; ``pipeline`` supplies the detector, tracker settings and VR layout."""
     timer = LoopTimer("decode-detect")
@@ -159,6 +158,11 @@ def _detect_batches(
     discard_margin = pipeline.config.temporal_overlap
     blend_frames = pipeline.config.temporal_overlap // 3
     target_hw = (int(ctx.metadata.video_height), int(ctx.metadata.video_width))
+    # +modi: a secondary restorer that wants the whole blend transition inside the crop (seedvr2).
+    safe_border_px = (
+        blend_safe_border_px(target_hw[0])
+        if getattr(pipeline.restoration_pipeline, "blend_safe_border", False) else 0
+    )
     frame_idx = 0 if ctx.seek_ts is None else _estimate_start_frame(ctx.metadata, ctx.seek_ts)
     frame_shape = target_hw
     effect_active = effect_ranges is None
@@ -228,6 +232,7 @@ def _detect_batches(
                     min_detection_duration=pipeline.config.min_detection_duration,
                     scene_detector=scene_detector,
                     vr_projector=pipeline.vr_projector,
+                    blend_safe_border_px=safe_border_px,
                 )
         ctx.debug_memory.snapshot("decode", f"frame_start={batch_start} batch={effective_bs}")
         if progress is not None:
