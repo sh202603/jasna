@@ -133,3 +133,21 @@ def test_discover_seedvr2_missing_lora_returns_none(tmp_path, monkeypatch) -> No
     monkeypatch.setattr("jasna.engine_paths.model_weights_dir", lambda: weights)
 
     assert discover_seedvr2() is None
+
+
+def test_discover_seedvr2_prefers_v3_over_v2(tmp_path, monkeypatch) -> None:
+    from jasna.restorer.checkpoint_info import discover_seedvr2
+
+    repo = tmp_path / "repo"
+    (repo / "src" / "core").mkdir(parents=True)
+    (repo / "src" / "core" / "generation_utils.py").touch()
+    weights = tmp_path / "weights"
+    weights.mkdir()
+    (weights / "lada_seedvr2_lora_v2.pt").touch()
+    (weights / "lada_seedvr2_lora_v3.pt").touch()
+    monkeypatch.setenv("JASNA_SEEDVR2_REPO", str(repo))
+    monkeypatch.setattr("jasna.engine_paths.model_weights_dir", lambda: weights)
+
+    result = discover_seedvr2()
+    assert result is not None
+    assert result[1] == weights / "lada_seedvr2_lora_v3.pt"
