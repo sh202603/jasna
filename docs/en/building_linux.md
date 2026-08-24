@@ -19,13 +19,13 @@ How to set up Jasna on Linux and run it **from source**.
 | Category | Requirement | Source | Notes |
 |---|---|---|---|
 | OS | Ubuntu 26.04 x64 (or similar) | n/a | Verified on 26.04; ships ffmpeg 8 in `apt` |
-| Build tools | `build-essential`, `pkg-config` | apt | Used only to build the PyAV wheel (Section 4) |
-| Python | **3.13 + 3.13-dev + 3.13-tk** | apt (`python3.13 python3.13-dev python3.13-tk`) | v0.8.1 relaxed `requires-python` to `>=3.12`, but this guide is verified on 3.13 only (Ubuntu 26.04's default `python3` = 3.14 is unverified against the cu130 GPU stack). `python3.13-dev` is needed to build the PyAV wheel; `python3.13-tk` is needed to run the GUI |
+| Build tools | `build-essential`, `pkg-config` | apt | Used only for the optional VALI backend build (Section 5.3) |
+| Python | **3.13 + 3.13-dev + 3.13-tk** | apt (`python3.13 python3.13-dev python3.13-tk`) | v0.8.1 relaxed `requires-python` to `>=3.12`, but this guide is verified on 3.13 only (Ubuntu 26.04's default `python3` = 3.14 is unverified against the cu130 GPU stack). `python3.13-dev` is needed only for the optional VALI wheel build (Section 5.3); `python3.13-tk` is needed to run the GUI |
 | uv | latest | [astral.sh/uv](https://docs.astral.sh/uv/) | Manages the venv |
 | NVIDIA driver | **580+** | your distro / NVIDIA | The startup check requires 580+ on Linux. GPU must be compute capability 7.5+ |
 | ffmpeg / ffprobe | **v8** (runtime CLI) | apt | The startup check requires `ffprobe` major version 8; the `ffmpeg` CLI is used by HLS streaming and similar paths |
 
-The CUDA Toolkit is no longer needed. The torch / tensorrt pip wheels bundle the CUDA runtime, and the only native extension you compile yourself is PyAV, which does not use CUDA (NVDEC/NVENC come from the linked FFmpeg).
+The CUDA Toolkit is no longer needed for the core setup, and nothing is compiled natively anymore (since av 18.1.0 the PyAV wheel comes from PyPI, Section 4). Only the optional VALI backend build compiles an extension, and its extra prerequisites (including the CUDA Toolkit) are listed in Section 5.3.
 
 ### 1.1 Install system packages
 
@@ -43,7 +43,7 @@ Install `uv` if you don't have it:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-> ⚠ **The apt ffmpeg is used as a CLI only.** Linking the PyAV wheel against the distro's FFmpeg libraries makes every encode fail right at startup (see Section 4 for why). The `libav*-dev` packages the old guide required are no longer needed for the core setup (having them installed does no harm as long as `PKG_CONFIG_PATH` is set correctly); only the optional VALI backend build needs them again (Section 5.3).
+> ⚠ **The apt ffmpeg is used as a CLI only.** The av wheel from PyPI bundles its own FFmpeg and never touches the distro libraries (Section 4). The `libav*-dev` packages the old guide required are no longer needed for the core setup; only the optional VALI backend build needs them (Section 5.3).
 
 ---
 
@@ -78,54 +78,15 @@ The old guide's tool pre-install (`cmake ninja scikit-build "setuptools<80" whee
 
 ---
 
-## 4. Build and install the PyAV wheel (interim)
+## 4. PyAV wheel (resolves from PyPI since av 18.1.0)
 
-The GPU path needs PyAV's **current_ctx API** plus (since the v0.9.1 base) the **explicit CUDA stream support** the encoder passes via `CudaContext(cuda_stream=...)`. PyPI's av 18.0.0 has neither, so you build a wheel from PyAV upstream **main** (upstream docs say the same; `f6f0a5e` is the commit verified with this guide).
+The GPU path needs PyAV's **current_ctx API** plus (since the v0.9.1 base) the **explicit CUDA stream support** the encoder passes via `CudaContext(cuda_stream=...)`. **av 18.1.0 (PyPI, 2026-08) is the first release that ships both**, so there is nothing to build here anymore: the `av>=18.1,<19` requirement in `pyproject.toml` resolves during the Section 5 install.
 
-**Once av 18.1.0 reaches PyPI, this whole section becomes unnecessary.** The `av>=18,<19` requirement in `pyproject.toml` will resolve on its own (the PyPI binary wheels bundle a compatible FFmpeg).
+The PyPI binary wheel bundles its own FFmpeg 8 built with new-enough nv-codec-headers (8.1.2 at the time of writing; `hevc_nvenc` accepts `lookahead_level`), so the distro-FFmpeg linking problem of the old self-build procedure does not apply. Verified with the official 18.1.0 wheel on Linux hardware (2026-08-24): the media-layer suite and the full-pipeline e2e tests pass, including NVDEC decode and NVENC encode.
 
-The link target must be an **FFmpeg 8 built with nv-codec-headers 12.2+**. Distro FFmpeg builds use older nv-codec-headers whose `hevc_nvenc` lacks the `lookahead_level` option; with PyAV linked against one, every jasna encode fails right at startup with `ValueError: hevc_nvenc did not accept encoder option(s): ['lookahead_level']`. The BtbN shared builds (below) are confirmed to satisfy the requirement.
+> **Migrating an existing venv:** the interim self-built wheel reports version `18.0.0`, which no longer satisfies `av>=18.1`, so the next Section 5 install replaces it with the official wheel automatically. To switch immediately without reinstalling everything, run `uv pip install "av>=18.1"` once; nothing else changes.
 
-### 4.1 Get the BtbN FFmpeg 8.1 shared build
-
-Download `ffmpeg-n8.1-latest-linux64-gpl-shared-*.tar.xz` from the [BtbN/FFmpeg-Builds releases](https://github.com/BtbN/FFmpeg-Builds/releases) and extract it.
-
-```bash
-cd "$WORKSPACE"
-tar xf ffmpeg-n8.1-latest-linux64-gpl-shared-*.tar.xz
-mv ffmpeg-n8.1-latest-linux64-gpl-shared "$WORKSPACE/ffmpeg-n8.1-shared"
-ls "$WORKSPACE/ffmpeg-n8.1-shared/lib/pkgconfig"   # should list libavcodec.pc etc.
-```
-
-### 4.2 Build the wheel
-
-```bash
-cd "$WORKSPACE"
-git clone https://github.com/PyAV-Org/PyAV.git
-cd PyAV
-# build from main; f6f0a5e is the commit verified with this guide
-git checkout f6f0a5e
-
-export PKG_CONFIG_PATH="$WORKSPACE/ffmpeg-n8.1-shared/lib/pkgconfig"
-export VIRTUAL_ENV="$WORKSPACE/jasna/.venv"        # already set if you did Section 3 in this shell
-uv build --wheel                                   # -> dist/av-18.0.0-cp311-abi3-linux_x86_64.whl
-```
-
-### 4.3 Vendor FFmpeg into the wheel with auditwheel (mandatory)
-
-Vendor the FFmpeg `.so` files into the wheel with auditwheel. This step cannot be skipped: av and the torchcodec backend each bring libraries with the same sonames (`libavcodec.so.62` etc.) from different builds, and if resolution is left to the system, whichever loads first captures the other, so things break depending on load order. auditwheel rewrites (mangles) the sonames of the vendored copies to be av-private, which removes the collision entirely.
-
-```bash
-uv pip install auditwheel patchelf
-LD_LIBRARY_PATH="$WORKSPACE/ffmpeg-n8.1-shared/lib" \
-  "$WORKSPACE/jasna/.venv/bin/auditwheel" repair dist/av-*.whl \
-  --plat manylinux_2_41_x86_64 -w dist/
-uv pip install dist/av-18.0.0-*manylinux*.whl
-```
-
-The result is named like `av-18.0.0-cp311-abi3-manylinux_2_28_x86_64.manylinux_2_41_x86_64.whl` (an abi3 wheel, so it works on Python 3.13 as-is).
-
-> **Note: this wheel carries the same version number as PyPI's 18.0.0.** `uv pip show av` cannot tell them apart; if they get mixed up you see current_ctx-related errors at runtime (see Troubleshooting). The `uv pip install -e .[dev,nvidia]` in Section 5 does not replace an installed av of the same version, so doing this section first keeps your wheel in place.
+The interim procedure this section used to describe (build a wheel from PyAV upstream main, commit `f6f0a5e`, linked against a BtbN FFmpeg 8.1 shared build, then vendor the libraries with auditwheel) is in this guide's git history, should it ever be needed again.
 
 ---
 
@@ -207,7 +168,7 @@ Since the v0.9.1 base, the native decode path tries a VALI NVDEC decoder first a
 Additional prerequisites on top of Section 1:
 
 - **CUDA Toolkit 13.x** under `/usr/local/cuda-13.3`. The bare distro `nvcc` at `/usr/bin/nvcc` does not satisfy CMake's `FindCUDAToolkit`, so the toolkit paths are passed explicitly below.
-- **FFmpeg 8 dev packages**: `sudo apt-get install -y libavcodec-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev`. Unlike the av wheel (Section 4), the vali build links the distro FFmpeg and vendors nothing into the wheel. VALI only demuxes/parses with FFmpeg, so the nv-codec-headers problem that rules out distro FFmpeg for the av wheel does not apply here.
+- **FFmpeg 8 dev packages**: `sudo apt-get install -y libavcodec-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev`. Unlike the av wheel (which vendors its own FFmpeg), the vali build links the distro FFmpeg and vendors nothing into the wheel. VALI only demuxes/parses with FFmpeg, so the nv-codec-headers constraint on the av side's FFmpeg does not apply here.
 - cmake, ninja, scikit-build and a setuptools that still ships `pkg_resources`: all already present in the venv after Section 5.
 
 ```bash
@@ -315,13 +276,10 @@ The publicly supported path is therefore **running from source** (Section 7). If
 ### PyAV / FFmpeg
 
 - **Every encode fails right at startup with `ValueError: hevc_nvenc did not accept encoder option(s): ['lookahead_level']`**
-  The PyAV wheel is linked against an FFmpeg built with old nv-codec-headers (e.g. the distro build). Rebuild the wheel with `PKG_CONFIG_PATH` pointing at the BtbN build (Section 4) and reinstall with `uv pip install --reinstall`.
+  The av wheel is linked against an FFmpeg built with old nv-codec-headers. This cannot happen with the official PyPI wheel (18.1+ bundles a compatible FFmpeg); it indicates a leftover wheel from the interim self-build era or a source build against the distro FFmpeg. Fix: `uv pip install --reinstall "av>=18.1"`.
 
 - **Encoder/decoder initialization fails with a current_ctx-related `TypeError` or similar**
-  av is still PyPI's 18.0.0 (the custom wheel was never installed, or a dependency reinstall replaced it). Reinstall the Section 4 wheel with `uv pip install --reinstall dist/av-*manylinux*.whl`.
-
-- **`uv build` cannot find `libavcodec`**
-  `pkg-config` is missing, or `PKG_CONFIG_PATH` does not point at the extracted BtbN `lib/pkgconfig` (Sections 4.1–4.2).
+  av is still 18.0.0: either PyPI's old release or the interim self-built wheel, which also reports `18.0.0`. Fix: `uv pip install "av>=18.1"` (Section 4).
 
 - **Jasna refuses to start: wrong ffprobe version**
   The startup check requires `ffprobe` **major version 8**. Install apt's ffmpeg 8 (Section 1.1). The `mkvmerge` check was removed in v0.8.0.
