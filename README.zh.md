@@ -86,7 +86,7 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 jasna --input in.mp4 --output out.mp4 --restoration-model-name seedvr2 --seedvr2-repo ~/seedvr2_videoupscaler
 ```
 
-推理在检出自带 venv 的常驻 worker 中运行（不向 jasna 的 venv 安装任何东西），以 33 帧滑窗 + 重叠交叉淡化处理每个片段。需要 16GB 显卡；`ComfyUI-SeedVR2_VideoUpscaler` 检出（base 权重首次自动下载，约 7.3GB）与 [sh202603/lada-seedvr2-lora](https://huggingface.co/sh202603/lada-seedvr2-lora) 的 LoRA（约 90MB）由用户自备。不兼容 VR 模式 / `--frame-gen` / `flashvsr-inline`；可与离线 `flashvsr` 模式组合成最高质量配置。详情: [docs/en/seedvr2.md](docs/en/seedvr2.md)。
+推理在检出自带 venv 的常驻 worker 中运行（不向 jasna 的 venv 安装任何东西），以 33 帧滑窗 + 重叠交叉淡化处理每个片段。需要 16GB 显卡；`ComfyUI-SeedVR2_VideoUpscaler` 检出（base 权重首次自动下载，约 7.3GB）与 [sh202603/lada-seedvr2-lora](https://huggingface.co/sh202603/lada-seedvr2-lora) 的 LoRA（约 90MB）由用户自备。不兼容 VR 模式 / `--frame-gen` / `flashvsr-inline`；可与离线 `flashvsr` 模式组合成最高质量配置。该 LoRA 最擅长低分辨率、劣化严重的素材（diffusion 先验能从信息量极少的输入中重建 BasicVSR++ 只能抹平的细节）；生成式输出补出的是貌似合理的细节而非还原原始信号，因此它并不能完全替代默认的 basicvsrpp，请按素材选用。详情: [docs/en/seedvr2.md](docs/en/seedvr2.md)。
 
 ### FlashVSR 二级修复（实验性）
 
@@ -96,7 +96,7 @@ jasna --input in.mp4 --output out.mp4 --restoration-model-name seedvr2 --seedvr2
 jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvsr-repo ~/FlashVSR_plus
 ```
 
-FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存。它以**峰值 VRAM 在时间上互不重叠的三个子进程**运行:(1) 一级修复 → 将裁剪块序列化到磁盘 *bundle*，(2) 在其专用 venv 中执行 FlashVSR 4x，(3) 重新混合并编码最终输出。你需自备 `FlashVSR_plus` 检出、其 v1.1 权重以及一个 **uv 托管的独立 Python venv**（系统 Python 无法 JIT 编译 FlashVSR 的 Triton 注意力内核）。仅文件输出；不兼容 `--stream` / `--frame-gen`。单趟版本 `--secondary-restoration flashvsr-inline` 在流水线内运行 FlashVSR，**无中间文件**（需 16GB 显卡以及打了 tiny-long 多块修复补丁的检出）。详情: [docs/en/flashvsr.md](docs/en/flashvsr.md)。
+FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存。它以**峰值 VRAM 在时间上互不重叠的三个子进程**运行:(1) 一级修复 → 将裁剪块序列化到磁盘 *bundle*，(2) 在其专用 venv 中执行 FlashVSR 4x，(3) 重新混合并编码最终输出。你需自备 `FlashVSR_plus` 检出、其 v1.1 权重以及一个 **uv 托管的独立 Python venv**（系统 Python 无法 JIT 编译 FlashVSR 的 Triton 注意力内核）。仅文件输出；不兼容 `--stream` / `--frame-gen`。单趟版本 `--secondary-restoration flashvsr-inline` 在流水线内运行 FlashVSR，**无中间文件**（需 16GB 显卡以及打了 tiny-long 多块修复补丁的检出）。inline 版已**弃用**，将在后续版本中移除；请改用离线模式。详情: [docs/en/flashvsr.md](docs/en/flashvsr.md)。
 
 ### TensorRT-RTX 风味（可选，加速引擎编译）
 

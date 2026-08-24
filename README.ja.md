@@ -95,7 +95,7 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 jasna --input in.mp4 --output out.mp4 --restoration-model-name seedvr2 --seedvr2-repo ~/seedvr2_videoupscaler
 ```
 
-推論は checkout 専用 venv 内の常駐 worker で行われ（jasna の venv には何も入りません）、各クリップを 33 フレームのスライディングウィンドウ + 重なりクロスフェードで処理します。16GB カードが必要です。`ComfyUI-SeedVR2_VideoUpscaler` の checkout（base 重みは初回に自動ダウンロード、約 7.3GB）と、[sh202603/lada-seedvr2-lora](https://huggingface.co/sh202603/lada-seedvr2-lora) の LoRA（約 90MB）は利用者が用意します。VR モード / `--frame-gen` / `flashvsr-inline` とは併用不可。オフライン `flashvsr` モードとは合成可能で、最高品質構成になります。詳細: [docs/ja/seedvr2.md](docs/ja/seedvr2.md)。
+推論は checkout 専用 venv 内の常駐 worker で行われ（jasna の venv には何も入りません）、各クリップを 33 フレームのスライディングウィンドウ + 重なりクロスフェードで処理します。16GB カードが必要です。`ComfyUI-SeedVR2_VideoUpscaler` の checkout（base 重みは初回に自動ダウンロード、約 7.3GB）と、[sh202603/lada-seedvr2-lora](https://huggingface.co/sh202603/lada-seedvr2-lora) の LoRA（約 90MB）は利用者が用意します。VR モード / `--frame-gen` / `flashvsr-inline` とは併用不可。オフライン `flashvsr` モードとは合成可能で、最高品質構成になります。この LoRA は低解像度で劣化の大きい素材に最も効きます（BasicVSR++ が均してしまう情報の少ない入力からも、diffusion の事前分布がディテールを再構成するため）。生成系の出力は原信号の復元ではなく「ありそうなディテール」の付与なので、既定の basicvsrpp を完全に置き換えるものではなく、素材に応じた使い分けが必要です。詳細: [docs/ja/seedvr2.md](docs/ja/seedvr2.md)。
 
 ### FlashVSR セカンダリ復元（実験的）
 
@@ -105,7 +105,7 @@ jasna --input in.mp4 --output out.mp4 --restoration-model-name seedvr2 --seedvr2
 jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvsr-repo ~/FlashVSR_plus
 ```
 
-FlashVSR は単体で 12〜16GB VRAM を消費するため、一次パイプライン（約 9GB）と同時常駐できません。**ピーク VRAM が時間的に重ならない 3 つのサブプロセス**として動きます:(1) 一次復元 → クロップをディスクの *bundle* へ直列化、(2) 専用 venv で FlashVSR 4x、(3) 最終出力を再 blend + encode。`FlashVSR_plus` の checkout・v1.1 重み・**uv-managed の standalone Python venv**（system Python では FlashVSR の Triton アテンションカーネルを JIT できない）は利用者が用意します。ファイル出力専用で、`--stream` / `--frame-gen` とは併用不可。単一パス版 `--secondary-restoration flashvsr-inline` は、FlashVSR をストリーミングパイプラインに挟んで**中間ファイル無し**で実行します（16GB カード + tiny-long マルチチャンク修正パッチを当てた checkout が前提）。詳細: [docs/ja/flashvsr.md](docs/ja/flashvsr.md)。
+FlashVSR は単体で 12〜16GB VRAM を消費するため、一次パイプライン（約 9GB）と同時常駐できません。**ピーク VRAM が時間的に重ならない 3 つのサブプロセス**として動きます:(1) 一次復元 → クロップをディスクの *bundle* へ直列化、(2) 専用 venv で FlashVSR 4x、(3) 最終出力を再 blend + encode。`FlashVSR_plus` の checkout・v1.1 重み・**uv-managed の standalone Python venv**（system Python では FlashVSR の Triton アテンションカーネルを JIT できない）は利用者が用意します。ファイル出力専用で、`--stream` / `--frame-gen` とは併用不可。単一パス版 `--secondary-restoration flashvsr-inline` は、FlashVSR をストリーミングパイプラインに挟んで**中間ファイル無し**で実行します（16GB カード + tiny-long マルチチャンク修正パッチを当てた checkout が前提）。この inline 版は**非推奨**で、今後のリリースで廃止予定です。オフラインモードを使ってください。詳細: [docs/ja/flashvsr.md](docs/ja/flashvsr.md)。
 
 ### TensorRT-RTX フレーバー（opt-in、エンジンコンパイル高速化）
 
