@@ -133,6 +133,13 @@ class TestConstructorValidation:
                 device="cpu", python_path=sys.executable, window=33, overlap=33,
             )
 
+    def test_rejects_bad_empty_cache(self, stub_env):
+        with pytest.raises(ValueError, match="empty-cache"):
+            Seedvr2LoraRestorer(
+                repo_path=str(stub_env["repo"]), lora_path=str(stub_env["lora"]),
+                device="cpu", python_path=sys.executable, empty_cache="sometimes",
+            )
+
     def test_rejects_missing_repo_marker(self, stub_env, tmp_path):
         bad_repo = tmp_path / "notrepo"
         bad_repo.mkdir()
