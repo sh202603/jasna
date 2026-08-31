@@ -314,7 +314,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--seedvr2-lora",
         type=str,
         default="",
-        help='LoRA checkpoint path (default: "<model_weights>/lada_seedvr2_lora_v3.pt").',
+        help='LoRA checkpoint path (default: "<model_weights>/lada_seedvr2_lora_v5.pt").',
     )
     seedvr2.add_argument(
         "--seedvr2-lora-rank",
@@ -950,12 +950,12 @@ def main() -> None:
             restoration_model_path = Path(lora_arg).expanduser()
         else:
             from jasna.model_weights_resolver import resolve_model_weights_file
-            restoration_model_path = resolve_model_weights_file("lada_seedvr2_lora_v3.pt")
+            restoration_model_path = resolve_model_weights_file("lada_seedvr2_lora_v5.pt")
         if not restoration_model_path.exists():
             raise FileNotFoundError(
                 f"SeedVR2 LoRA checkpoint not found: {restoration_model_path}. Download it with:\n"
-                "  wget -O model_weights/lada_seedvr2_lora_v3.pt "
-                "https://huggingface.co/sh202603/lada-seedvr2-lora/resolve/main/lada_seedvr2_lora_v3.pt\n"
+                "  wget -O model_weights/lada_seedvr2_lora_v5.pt "
+                "https://huggingface.co/sh202603/lada-seedvr2-lora/resolve/main/lada_seedvr2_lora_v5.pt\n"
                 "or pass --seedvr2-lora."
             )
     else:
