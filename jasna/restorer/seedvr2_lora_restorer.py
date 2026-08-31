@@ -93,6 +93,7 @@ class Seedvr2LoraRestorer:
         window: int = 33,
         overlap: int = 9,
         color_fix: str = "lab",
+        empty_cache: str = "auto",
         startup_timeout_s: float = 600.0,
     ) -> None:
         if window % 4 != 1 or window < 1:
@@ -101,6 +102,8 @@ class Seedvr2LoraRestorer:
             raise ValueError(f"[seedvr2] --seedvr2-overlap must be in [0, window), got {overlap}")
         if color_fix not in ("none", "lab", "wavelet"):
             raise ValueError(f"[seedvr2] --seedvr2-color-fix must be none|lab|wavelet, got {color_fix}")
+        if empty_cache not in ("auto", "always", "never"):
+            raise ValueError(f"[seedvr2] --seedvr2-empty-cache must be auto|always|never, got {empty_cache}")
 
         repo = Path(repo_path).expanduser()
         if not (repo / _REPO_MARKER).is_file():
@@ -150,7 +153,17 @@ class Seedvr2LoraRestorer:
                "--window", str(int(window)),
                "--overlap", str(int(overlap)),
                "--color-fix", color_fix,
+               "--empty-cache", empty_cache,
                "--device", "cuda:0"]
+        # Measurement knob (lada-ex issue #37 C3, undocumented): keep the LoRA
+        # adapters in peft's default fp16 instead of the fp32 promotion, for
+        # quality/speed A/B runs. Unset (the default) means fp32.
+        lora_dtype = os.environ.get("JASNA_SEEDVR2_LORA_DTYPE")
+        if lora_dtype:
+            if lora_dtype not in ("fp32", "fp16"):
+                raise ValueError(
+                    f"[seedvr2] JASNA_SEEDVR2_LORA_DTYPE must be fp32|fp16, got {lora_dtype}")
+            cmd += ["--lora-dtype", lora_dtype]
         if logger.isEnabledFor(logging.DEBUG):
             cmd.append("--verbose")
 

@@ -56,6 +56,15 @@ def _parse_args() -> argparse.Namespace:
     ap.add_argument("--color-fix", default="lab", choices=["none", "lab", "wavelet"],
                     help="clip-level color correction against the mosaic input "
                          "(applied post-crossfade, pre-quantization)")
+    ap.add_argument("--empty-cache", default="auto", choices=["auto", "always", "never"],
+                    help="per-clip torch.cuda.empty_cache() policy. Returns cached VRAM to the "
+                         "co-resident detection/decode process after every clip; auto = always "
+                         "if the GPU has < 20GiB total memory, never otherwise")
+    ap.add_argument("--lora-dtype", default="fp32", choices=["fp32", "fp16"],
+                    help="measurement-only knob: fp16 keeps the LoRA adapters in the peft "
+                         "default dtype (truncating the fp32 checkpoint) instead of promoting "
+                         "them to fp32. Reproduces the pre-fix behaviour for A/B measurement; "
+                         "fp32 is the numerically verified default")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--verbose", action="store_true", help="send worker stdout to stderr, not /dev/null")
@@ -144,7 +153,7 @@ def _build_runner(repo: str, model_dir: str, dit_model: str, device: str):
     return runner, ctx
 
 
-def _inject_lora(runner, ckpt_path: str, rank: int, alpha: int) -> int:
+def _inject_lora(runner, ckpt_path: str, rank: int, alpha: int, lora_dtype: str = "fp32") -> int:
     """peft の inject_adapter_in_model でラッパー無しにその場注入し、LoRA 重みを読む。
     lora_B ゼロ初期化 + strict=False ロードなので、キー不一致はゼロ寄与のまま残る —
     ロード数 0 は設定ミス (rank/alpha 違い等) として起動失敗にする。"""
@@ -167,9 +176,12 @@ def _inject_lora(runner, ckpt_path: str, rank: int, alpha: int) -> int:
     # おり、訓練/評価ハーネス (lora_setup.inject_lora adapter_dtype=fp32) も fp32 の
     # まま推論する。fp16 のままロードすると adapter が切り捨てられ、ハーネスとの
     # 出力一致 (§10-3 worker 一致ゲート) が量子化誤差レベルを超えて崩れる。
-    for n, p in dit.named_parameters():
-        if "lora_" in n:
-            p.data = p.data.to(torch.float32)
+    # --lora-dtype fp16 はその修正前挙動を再現する計測ノブ (fp32 ckpt は load_state_dict
+    # の copy_ cast で fp16 に切り捨てられる)。
+    if lora_dtype == "fp32":
+        for n, p in dit.named_parameters():
+            if "lora_" in n:
+                p.data = p.data.to(torch.float32)
     for p in runner.dit.parameters():
         p.requires_grad_(False)
     for p in runner.vae.parameters():
@@ -373,9 +385,26 @@ def main() -> None:
     if str(device).startswith("cuda"):
         torch.cuda.set_device(device)
 
+    # クリップ毎 empty_cache は自プロセスの OOM 対策ではない (caching allocator は割り当て
+    # 失敗時に自前でキャッシュ解放+リトライする)。目的は同居する検出/デコード側プロセスへの
+    # VRAM 返却で、16GB では同居 OOM の実測歴がある保険、大容量 GPU では純損 → 総 VRAM で
+    # 自動切替する。
+    if args.empty_cache == "auto":
+        per_clip_empty_cache = False
+        if str(device).startswith("cuda"):
+            total = torch.cuda.get_device_properties(device).total_memory
+            per_clip_empty_cache = total < 20 * (1 << 30)
+            print(f"seedvr2_lora_worker: empty_cache policy: auto -> "
+                  f"{'always' if per_clip_empty_cache else 'never'} "
+                  f"(total VRAM {total / (1 << 30):.2f}GiB)", file=sys.stderr)
+    else:
+        per_clip_empty_cache = args.empty_cache == "always"
+        print(f"seedvr2_lora_worker: empty_cache policy: {args.empty_cache}", file=sys.stderr)
+
     runner, ctx = _build_runner(args.repo, args.model_dir, args.dit, device)
-    n_lora = _inject_lora(runner, args.lora, args.rank, args.alpha)
-    print(f"seedvr2_lora_worker: injected {n_lora} LoRA tensors from {args.lora}", file=sys.stderr)
+    n_lora = _inject_lora(runner, args.lora, args.rank, args.alpha, args.lora_dtype)
+    print(f"seedvr2_lora_worker: injected {n_lora} LoRA tensors ({args.lora_dtype}) from {args.lora}",
+          file=sys.stderr)
 
     # Warm-up: one minimal window through the full forward. Surfaces CUDA/model
     # errors before the ready handshake and pays the one-off kernel-selection
@@ -388,6 +417,7 @@ def main() -> None:
     proto.write((json.dumps({"status": "ready"}) + "\n").encode("utf-8"))
 
     window, overlap, stride = args.window, args.overlap, args.window - args.overlap
+    acc_device = torch.device(device)
 
     while True:
         header = _read_header(stdin)
@@ -406,9 +436,11 @@ def main() -> None:
             rgb = np.ascontiguousarray(crops[..., ::-1])  # wire BGR -> RGB
 
             # ov9 窓ループ: 重複部は線形ランプで float32 アキュムレータへクロスフェード
-            # 合成し、合成完了後に 1 回だけ量子化 (二重量子化を避ける)。
-            acc = np.zeros((n, h, w, 3), np.float32)
-            wsum = np.zeros((n, 1, 1, 1), np.float32)
+            # 合成し、合成完了後に 1 回だけ量子化 (二重量子化を避ける)。アキュムレータは
+            # GPU 常駐 (channel-first)・CPU への転送は合成完了後の 1 回のみ。fp32 の要素毎
+            # mul/add は演算順序含め CPU 合成と同一なので出力は bit 不変 (§10-3 ゲート検証済)。
+            acc = torch.zeros((n, 3, h, w), dtype=torch.float32, device=acc_device)
+            wsum = torch.zeros((n, 1, 1, 1), dtype=torch.float32, device=acc_device)
             starts = list(range(0, max(n - overlap, 1), stride))
             for s in starts:
                 batch = rgb[s:s + window]
@@ -426,10 +458,9 @@ def main() -> None:
                             wgt = (i + 1) / (overlap + 1)
                         if s + window < n and i >= stride:  # 末尾ランプ (次チャンクとの重なり)
                             wgt = min(wgt, (t_orig - i) / (overlap + 1))
-                    frame = out01[:, i].detach().to(torch.float32).cpu().numpy().transpose(1, 2, 0)
-                    acc[s + i] += wgt * frame
+                    acc[s + i] += wgt * out01[:, i].detach().to(torch.float32)
                     wsum[s + i] += wgt
-            blended = acc / np.maximum(wsum, 1e-8)
+            blended = (acc / wsum.clamp_min(1e-8)).permute(0, 2, 3, 1).contiguous().cpu().numpy()
 
             if args.color_fix == "lab":
                 blended = _color_fix_lab(blended, rgb)
@@ -444,7 +475,7 @@ def main() -> None:
             proto.write(resp.encode("utf-8"))
             proto.write(out_arr.tobytes())
 
-            if str(device).startswith("cuda"):
+            if per_clip_empty_cache and str(device).startswith("cuda"):
                 torch.cuda.empty_cache()
         except Exception as e:  # keep the worker alive; report per-clip failure
             traceback.print_exc()
