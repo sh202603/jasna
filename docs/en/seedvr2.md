@@ -67,13 +67,15 @@ folder input, so that cost is paid once per session.
 | `--seedvr2-window` | `33` | Sliding-window length; must be 4n+1 |
 | `--seedvr2-overlap` | `9` | Cross-fade overlap between windows |
 | `--seedvr2-color-fix` | `lab` | Per-clip color correction (`none`/`lab`/`wavelet`) |
+| `--seedvr2-empty-cache` | `auto` | Per-clip VRAM release to the co-resident detection/decode process. `auto` = `always` below 20GiB total VRAM (OOM safeguard), `never` above (pure overhead) |
 
 ## How it works
 
 - **Windowing**: the model is trained on short 4n+1 frame sequences, so clips
   are inferred in 33-frame windows at stride 24, and the 9-frame overlap
-  between adjacent windows is cross-faded with a linear ramp (quantization
-  happens once, after blending). Clip-boundary seams are covered by jasna's
+  between adjacent windows is cross-faded with a linear ramp into a
+  GPU-resident accumulator — one download per clip, quantization once after
+  blending. Clip-boundary seams are covered by jasna's
   standard overlap+discard splitting and cross-fade.
 - **Zero padding**: the 256px crop padding is zero-fill for this restorer
   instead of reflect, matching the LoRA's training distribution. The
