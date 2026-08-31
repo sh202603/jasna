@@ -38,8 +38,8 @@ uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu
 uv pip install -r requirements.txt
 
 # 2. LoRA を jasna の model_weights/ へ
-wget -O model_weights/lada_seedvr2_lora_v3.pt \
-  https://huggingface.co/sh202603/lada-seedvr2-lora/resolve/main/lada_seedvr2_lora_v3.pt
+wget -O model_weights/lada_seedvr2_lora_v5.pt \
+  https://huggingface.co/sh202603/lada-seedvr2-lora/resolve/main/lada_seedvr2_lora_v5.pt
 
 # 3. 実行 (base 重みは初回に checkout 側へ自動ダウンロードされる)
 jasna --input in.mp4 --output out.mp4 \
@@ -58,7 +58,7 @@ worker の起動(モデルロード + LoRA 注入 + ウォームアップ)は重
 | `--seedvr2-python` | `<repo>/.venv/bin/python` | venv の Python(Windows は `Scripts\python.exe`) |
 | `--seedvr2-model-dir` | `<repo>/models/SEEDVR2` | base 重みディレクトリ |
 | `--seedvr2-dit` | `seedvr2_ema_3b_fp16.safetensors` | DiT 重みファイル名 |
-| `--seedvr2-lora` | `<model_weights>/lada_seedvr2_lora_v3.pt` | LoRA checkpoint(fine-tune 品への差し替え口) |
+| `--seedvr2-lora` | `<model_weights>/lada_seedvr2_lora_v5.pt` | LoRA checkpoint(fine-tune 品への差し替え口) |
 | `--seedvr2-lora-rank` | `16` | LoRA rank(checkpoint と一致必須) |
 | `--seedvr2-window` | `33` | スライディングウィンドウ長。4n+1 制約 |
 | `--seedvr2-overlap` | `9` | ウィンドウ間クロスフェード幅 |
