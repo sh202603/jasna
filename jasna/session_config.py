@@ -94,6 +94,7 @@ class SessionConfig:
     seedvr2_window: int = 33
     seedvr2_overlap: int = 9
     seedvr2_color_fix: str = "lab"
+    seedvr2_empty_cache: str = "auto"
 
     def model_path(self, name: RestorationModelName) -> Path:
         """``restoration_model_path`` belongs to the job's model; another model loads from its
