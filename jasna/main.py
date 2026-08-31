@@ -86,6 +86,7 @@ def _session_config_from_args(
         seedvr2_window=int(getattr(args, "seedvr2_window", 33)),
         seedvr2_overlap=int(getattr(args, "seedvr2_overlap", 9)),
         seedvr2_color_fix=str(getattr(args, "seedvr2_color_fix", "lab")),
+        seedvr2_empty_cache=str(getattr(args, "seedvr2_empty_cache", "auto")),
     )
 
 
@@ -340,6 +341,15 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["none", "lab", "wavelet"],
         help="Per-clip color correction against the input crops. 'wavelet' can re-introduce "
              "mosaic grid structure from the reference (default: %(default)s)",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-empty-cache",
+        type=str,
+        default="auto",
+        choices=["auto", "always", "never"],
+        help="Per-clip VRAM release in the worker, returning cached VRAM to the co-resident "
+             "detection/decode process. 'auto' resolves to 'always' below 20GiB total VRAM "
+             "(an OOM safeguard there) and 'never' above (pure overhead) (default: %(default)s)",
     )
 
     sd15 = parser.add_argument_group("SD 1.5 image restoration")

@@ -40,6 +40,7 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 | `--seedvr2-lora` | `model_weights/lada_seedvr2_lora_v3.pt` | *(+modi)* LoRA checkpoint (swap-in point for fine-tunes). |
 | `--seedvr2-window` / `--seedvr2-overlap` | `33` / `9` | *(+modi)* Sliding-window length (4n+1) and cross-fade overlap. |
 | `--seedvr2-color-fix` | `lab` | *(+modi)* Per-clip color correction: `none`, `lab`, `wavelet`. |
+| `--seedvr2-empty-cache` | `auto` | *(+modi)* Per-clip VRAM release in the SeedVR2 worker: `auto`, `always`, `never`. |
 | `--seedvr2-model-dir`, `--seedvr2-dit`, `--seedvr2-lora-rank` | see `--help` | *(+modi)* Base-weights overrides. See [seedvr2.md](seedvr2.md). |
 | `--compile-basicvsrpp` / `--no-compile-basicvsrpp` | on | TensorRT compilation: big speed boost, more VRAM. See [Tuning](tuning.md). |
 | `--max-clip-size` | `90` | Maximum tracked clip length in frames. Main VRAM lever. |

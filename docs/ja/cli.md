@@ -40,6 +40,7 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 | `--seedvr2-lora` | `model_weights/lada_seedvr2_lora_v3.pt` | *(+modi)* LoRA checkpoint（fine-tune 品への差し替え口）。 |
 | `--seedvr2-window` / `--seedvr2-overlap` | `33` / `9` | *(+modi)* スライディングウィンドウ長（4n+1）とクロスフェード幅。 |
 | `--seedvr2-color-fix` | `lab` | *(+modi)* クリップ単位の色補正: `none`、`lab`、`wavelet`。 |
+| `--seedvr2-empty-cache` | `auto` | *(+modi)* SeedVR2 worker のクリップ毎 VRAM 返却: `auto`、`always`、`never`。 |
 | `--seedvr2-model-dir`、`--seedvr2-dit`、`--seedvr2-lora-rank` | `--help` 参照 | *(+modi)* base 重み関連の上書き。詳細: [seedvr2.md](seedvr2.md)。 |
 | `--compile-basicvsrpp` / `--no-compile-basicvsrpp` | オン | TensorRT コンパイル: 大幅な高速化、VRAM 増。詳しくは[調整ガイド](tuning.md)。 |
 | `--max-clip-size` | `90` | 追跡するクリップの最大フレーム数。VRAM の主な調整項目です。 |

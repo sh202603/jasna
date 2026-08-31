@@ -1197,6 +1197,7 @@ class TestSeedvr2Main:
         assert args.seedvr2_window == 33
         assert args.seedvr2_overlap == 9
         assert args.seedvr2_color_fix == "lab"
+        assert args.seedvr2_empty_cache == "auto"
         assert args.seedvr2_dit == "seedvr2_ema_3b_fp16.safetensors"
 
     def _run_expect_error(self, argv, match):
@@ -1314,6 +1315,7 @@ class TestSeedvr2Main:
         assert kw["window"] == 33
         assert kw["overlap"] == 9
         assert kw["color_fix"] == "lab"
+        assert kw["empty_cache"] == "auto"
         mock_basicvsrpp.assert_not_called()
         req = mock_compile.call_args[0][0]
         assert req.basicvsrpp is False
