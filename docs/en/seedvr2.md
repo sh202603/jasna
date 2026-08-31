@@ -42,8 +42,8 @@ uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu
 uv pip install -r requirements.txt
 
 # 2. LoRA into jasna's model_weights/
-wget -O model_weights/lada_seedvr2_lora_v3.pt \
-  https://huggingface.co/sh202603/lada-seedvr2-lora/resolve/main/lada_seedvr2_lora_v3.pt
+wget -O model_weights/lada_seedvr2_lora_v5.pt \
+  https://huggingface.co/sh202603/lada-seedvr2-lora/resolve/main/lada_seedvr2_lora_v5.pt
 
 # 3. Run (base weights auto-download into the checkout on first load)
 jasna --input in.mp4 --output out.mp4 \
@@ -62,7 +62,7 @@ folder input, so that cost is paid once per session.
 | `--seedvr2-python` | `<repo>/.venv/bin/python` | The venv's Python (`Scripts\python.exe` on Windows) |
 | `--seedvr2-model-dir` | `<repo>/models/SEEDVR2` | Base weights directory |
 | `--seedvr2-dit` | `seedvr2_ema_3b_fp16.safetensors` | DiT weights filename |
-| `--seedvr2-lora` | `<model_weights>/lada_seedvr2_lora_v3.pt` | LoRA checkpoint (swap-in point for fine-tunes) |
+| `--seedvr2-lora` | `<model_weights>/lada_seedvr2_lora_v5.pt` | LoRA checkpoint (swap-in point for fine-tunes) |
 | `--seedvr2-lora-rank` | `16` | LoRA rank (must match the checkpoint) |
 | `--seedvr2-window` | `33` | Sliding-window length; must be 4n+1 |
 | `--seedvr2-overlap` | `9` | Cross-fade overlap between windows |
