@@ -383,7 +383,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--seedvr2-lora",
         type=str,
         default="",
-        help='LoRA checkpoint path (default: "<model_weights>/lada_seedvr2_lora_v5.pt").',
+        help='LoRA checkpoint path (default: "<model_weights>/lada_seedvr2_lora_v6.pt").',
     )
     seedvr2.add_argument(
         "--seedvr2-lora-rank",
