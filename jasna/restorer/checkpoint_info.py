@@ -69,7 +69,7 @@ def discover_seedvr2() -> tuple[Path, Path] | None:
 
     # Prefer the current default checkpoint; fall back to the previous ones so
     # installs that followed the older setup docs keep their GUI entry.
-    for name in ("lada_seedvr2_lora_v5.pt", "lada_seedvr2_lora_v3.pt", "lada_seedvr2_lora_v2.pt"):
+    for name in ("lada_seedvr2_lora_v6.pt", "lada_seedvr2_lora_v5.pt", "lada_seedvr2_lora_v3.pt", "lada_seedvr2_lora_v2.pt"):
         lora = model_weights_dir() / name
         if lora.is_file():
             return repo, lora
