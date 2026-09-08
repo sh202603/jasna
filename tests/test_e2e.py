@@ -524,7 +524,7 @@ class TestRestorationPipelineRtxE2E:
 # ---------------------------------------------------------------------------
 
 SEEDVR2_REPO = Path(os.environ.get("JASNA_SEEDVR2_REPO", str(Path.home() / "seedvr2_videoupscaler")))
-SEEDVR2_LORA = Path("model_weights/lada_seedvr2_lora_v2.pt")
+SEEDVR2_LORA = Path("model_weights/lada_seedvr2_lora_v6.pt")
 REQUIRES_SEEDVR2 = pytest.mark.skipif(
     not (SEEDVR2_REPO / "src" / "core" / "generation_utils.py").is_file() or not SEEDVR2_LORA.exists(),
     reason="SeedVR2 checkout (JASNA_SEEDVR2_REPO) or LoRA not found",
