@@ -127,7 +127,7 @@ jasna --input in.mp4 --output out.mkv \
 | `--flashvsr-version` | `11` | モデル版(`10` / `11`)。 |
 | `--flashvsr-dtype` | `bf16` | 計算 dtype(`fp16` / `bf16`)。 |
 | `--flashvsr-scale` | `4` | 両モード共通の処理倍率。`4` = モデルネイティブの 1024px、`2` = 512px(高速・低 VRAM)。詳細は「[処理倍率](#処理倍率--flashvsr-scale)」。 |
-| `--flashvsr-max-clip-frames` | `32` | Phase 1 の `--max-clip-size` を上限化し、各 clip を FlashVSR tiny の VRAM に収める。 |
+| `--flashvsr-max-clip-frames` | `90` | オフライン専用: Phase 1 の `--max-clip-size` の上限(tiny モードの VRAM 対策)。inline は `--max-clip-size` をそのまま使う。 |
 | `--flashvsr-unload-dit` / `--no-flashvsr-unload-dit` | on | VAE decode 前に DiT をオフロード(VRAM 節約)。 |
 | `--flashvsr-tiled-vae` / `--no-flashvsr-tiled-vae` | on | FlashVSR の VAE decode をタイル化(VRAM 節約)。 |
 | `--flashvsr-tiles` | `1` | inline 専用: DiT 推論を横短冊に分割して VRAM ピークを下げる(`2`〜`4`)。オフラインは無視する。詳細は「[strip タイリング](#strip-タイリング--flashvsr-tiles)」。 |
@@ -152,26 +152,24 @@ error 比 1.128、ゲート ≤1.2。目視 A/B も合格)。既定は 4 のま�
 ゲートを通したモデルネイティブの倍率)。
 
 jasna 自身の実測(RTX 5080 16 GB / Linux、`small-01.mp4` 480p / 4930 フレーム・全編
-モザイク。全走行で出力フレーム数 = 入力。壁時計はコマンド全体、VRAM は `nvidia-smi` の
-GPU 全体ピーク):
+モザイク、clip 90 / overlap 8 の既定。全走行で出力フレーム数 = 入力。壁時計はコマンド
+全体、VRAM は `nvidia-smi` の GPU 全体ピーク):
 
 | モード | scale / tiles | 壁時計 | FlashVSR 時間 | VRAM ピーク | 備考 |
 |---|---|---|---|---|---|
-| 一次のみ | — | 26 秒 | — | 3.8 GB | 参照(clip 32 + fp8-recon) |
-| inline | 4 / 2 | 853 秒 | 841 秒 | 13.4 GB | |
-| inline | 2 / 1 | 175 秒 | 163 秒 | 9.9 GB | 4 / 2 比で **4.9 倍速、3.5 GB 低い** |
-| inline、1080p(`test-flashvsr-fhd-02`、4203 f) | 2 / 1 | 283 秒 | 274 秒 | 10.7 GB | offload 0、アロケータ警告 0 |
-| offline | 4 | 920 秒 | Phase 2 864 秒 | 13.1 GB | bundle 16 GB(ゲート見積り 14.8 GiB) |
-| offline | 2 | 410 秒 | Phase 2 361 秒 | 7.8 GB | bundle 4.3 GB(ゲート見積り 3.7 GiB) |
+| 一次のみ | — | 20 秒 | — | 3.8 GB | 参照(fp8-recon) |
+| inline | 4 / 2 | 491 秒 | 479 秒 | 13.7 GB | |
+| inline | 2 / 1 | 113 秒 | 100 秒 | 10.1 GB | 4 / 2 比で **4.8 倍速、3.6 GB 低い** |
+| inline、1080p(`test-flashvsr-fhd-02`、4203 f) | 2 / 1 | 156 秒 | 146 秒 | 11.3 GB | offload 0、アロケータ警告 0 |
+| offline | 4 | 477 秒 | Phase 2 ~430 秒 | 13.2 GB | bundle 9.7 GB |
+| offline | 2 | 194 秒 | Phase 2 ~150 秒 | 7.8 GB | |
 
-同じ worker なのに jasna の壁時計が lada-ex の約 2 倍かかるのは clip の切り方の差で、
-worker の差ではない。jasna は両モードとも FlashVSR へ渡す clip を 32 フレームに
-上限化しており(temporal overlap 8 と FlashVSR が要求する 8n+5 パディングで、worker は
-ソース 1 フレームあたり約 1.3 DiT フレームを処理する。本素材で 175 clip)、clip ごとに
-tiny-long の呼び出し初期化を払う。lada-ex は 180 フレームの clip を渡す。移植前の
-worker との同一 clip での A/B は FlashVSR 時間が一致した(scale 2 で 162 秒 vs
-163 秒)ので、移植自体のコストはゼロで、常時適用の色補正が FlashVSR 時間の約 7% を
-足す。
+以前のビルドは clip を 32 に上限化しており、FlashVSR 時間は上表の約 2 倍だった
+(inline 4 / 2 で 841 秒、2 / 1 で 163 秒、offline 4 で 864 秒)。overlap 8 に対して
+clip 32 は 1 clip で 16 フレームしか前進せず、DiT フレーム数が 1.8 倍、呼び出し回数が
+3 倍になるためで、worker の差ではない(移植前 worker との A/B は一致。色補正の
+コストは +6〜7%)。上限撤廃による VRAM 増は一次側のキュー分のみ(480p +0.1〜0.3 GB、
+1080p +0.7 GB)。
 
 ### 色補正
 
@@ -192,17 +190,16 @@ wavelet 再構成で、FlashVSR 出力の高周波(テクスチャ)を入力の�
 CLI フラグは無い。A/B 検証専用に、環境変数
 `JASNA_FLASHVSR_COLOR_FIX=adain|wavelet|none` で両モードの方式を上書きできる。
 
-### clip 長を上限化する理由
+### clip 長
 
-Phase 2 は FlashVSR の **tiny** モードを使う。tiny は全 latent フレームを VRAM に
-保持し、ロスレスな tensor を返す。パイロットでは 16 GB カードで 21 フレーム=~13.5 GB、
-65 フレームで near-OOM だった。そのため一次の clip 長を上限化し
-(`--flashvsr-max-clip-frames`、既定 32)、各 clip をその予算内に収める。これが
-FlashVSR モードで clip が通常より短くなる理由で、増える継ぎ目は clip 境界の crossfade
-が吸収する。上限を上げると Phase 2 で OOM の恐れがある。
-上限は `--flashvsr-scale 2` でも同じ 32 である。scale 2 では tiny の latent が 1/4 に
-なり(480p 素材で Phase 2 のピークは scale 4 の 13.1 GB に対し 7.8 GB)、緩和の余地は
-あるが、現状のビルドでは行っていない(今後の検討事項)。
+clip の長さは通常どおり `--max-clip-size`(既定 90)で決まる。
+
+- **inline**: 上限なし。worker の tiny-long は VRAM が clip 長に対して平坦で、
+  一次側のコストは FlashVSR なしの実行と同じ([tuning](tuning.md))。
+- **offline**: Phase 2 の tiny モードは原理上 clip 長に比例するため
+  `--flashvsr-max-clip-frames`(既定 90)で上限化する。実測では 32 → 90 で Phase 2 の
+  ピークは平坦(scale 4 で 13.1 → 13.2 GB、scale 2 で 7.8 GB のまま)。90 超は未測定。
+  Phase 2 が OOM する環境ではこの値を下げる。
 
 ## ディスク容量
 
@@ -268,7 +265,7 @@ jasna --input in.mp4 --output out.mkv \
 | 中間ファイル | 256px + 拡大クロップの bundle(数十 GB 級) | **無し** |
 | encode 回数 | 2(捨て + 最終) | 1 |
 | FlashVSR モード | tiny(O(T)、~12–16 GB) | **tiny-long(O(1)、~11.9 GB)** |
-| 必要 VRAM | 各段が非同時なので実質 tiny 単体分 | primary と**同時常駐**(scale 4: 実測 ~14.8 GB @16 GB カード。scale 2: ~10 GB) |
+| 必要 VRAM | 各段が非同時なので実質 tiny 単体分 | primary と**同時常駐**(scale 4: tiles 2 で ~13.7 GB、tiles 無しは 16 GB の天井。scale 2: ~10〜11 GB) |
 | FlashVSR checkout | パッチ不要 | **tiny-long マルチチャンク修正のパッチ必須** |
 | 段階再開 | 可(bundle 永続化) | 不可(単一パス) |
 | 進捗 / キャンセル / GUI | 3 段フロー | 通常 secondary と同じ |
@@ -295,8 +292,7 @@ git apply /path/to/jasna/patches/flashvsr_plus_tinylong_multichunk_fix.patch
 
 ### 挙動と制約
 
-- **clip 32 上限・frame-gen off を強制**(オフラインと同じ理由)。`--max-clip-size` は
-  自動的に 32 へ丸められる。
+- **frame-gen off を強制**(オフラインと同じ理由)。
 - **fp8-recon を自動有効化**(未指定時)。一次のピークを ~0.9–1.7 GB 下げ、同時常駐の
   予算に収める。GPU が fp8 非対応(sm89 未満 / `--fp16` 無し)なら TRT へフォールバック。
 - 同期実行。FlashVSR(~15 crop-fps)が律速なので、モザイクが多い区間はその速度に
