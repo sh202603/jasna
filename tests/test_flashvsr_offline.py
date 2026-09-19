@@ -484,6 +484,67 @@ class TestOrchestrator:
         # max-clip-size capped (inserted since not present)
         assert "--max-clip-size" in dump["argv"]
 
+    def _phase2_cmd(self, args, monkeypatch, env_value=None):
+        calls = []
+
+        def fake_run(cmd, env=None):
+            calls.append(cmd)
+            return MagicMock(returncode=0)
+
+        if env_value is None:
+            monkeypatch.delenv("JASNA_FLASHVSR_COLOR_FIX", raising=False)
+        else:
+            monkeypatch.setenv("JASNA_FLASHVSR_COLOR_FIX", env_value)
+        argv = ["--input", args.input, "--output", args.output,
+                "--secondary-restoration", "flashvsr", "--flashvsr-repo", args.flashvsr_repo]
+        with (
+            patch("jasna.restorer.flashvsr_offline.subprocess.run", side_effect=fake_run),
+            patch("jasna.restorer.flashvsr_offline._preflight_bundle_disk"),
+            patch("jasna.restorer.flashvsr_offline._gate_phase2_disk"),
+            patch.object(sys, "argv", ["jasna", *argv]),
+        ):
+            fo.run_flashvsr_offline(args)
+        return calls[1]
+
+    def test_phase2_default_scale_4_and_no_color_fix_flag(self, tmp_path, monkeypatch):
+        cmd = self._phase2_cmd(self._make_args(tmp_path), monkeypatch)
+        assert cmd[cmd.index("--scale") + 1] == "4"
+        # always-on color correction is the driver's default; the method is
+        # passed only under the verification override
+        assert "--color-fix-method" not in cmd
+        assert "--color-fix" not in cmd  # the old upstream pipe(color_fix=) flag is gone
+
+    def test_phase2_scale_2_forwarded(self, tmp_path, monkeypatch):
+        args = self._make_args(tmp_path)
+        args.flashvsr_scale = 2
+        cmd = self._phase2_cmd(args, monkeypatch)
+        assert cmd[cmd.index("--scale") + 1] == "2"
+
+    @pytest.mark.parametrize("method", ["none", "adain", "wavelet"])
+    def test_phase2_color_fix_override_forwarded(self, tmp_path, monkeypatch, method):
+        cmd = self._phase2_cmd(self._make_args(tmp_path), monkeypatch, env_value=method)
+        assert cmd[cmd.index("--color-fix-method") + 1] == method
+
+    def test_phase2_invalid_color_fix_override_rejected(self, tmp_path, monkeypatch):
+        with pytest.raises(ValueError, match="JASNA_FLASHVSR_COLOR_FIX"):
+            self._phase2_cmd(self._make_args(tmp_path), monkeypatch, env_value="magic")
+
+    def test_disk_checks_receive_scale(self, tmp_path, monkeypatch):
+        args = self._make_args(tmp_path)
+        args.flashvsr_scale = 2
+        seen = {}
+        with (
+            patch("jasna.restorer.flashvsr_offline.subprocess.run",
+                  side_effect=lambda cmd, env=None: MagicMock(returncode=0)),
+            patch("jasna.restorer.flashvsr_offline._preflight_bundle_disk",
+                  side_effect=lambda b, i, sc: seen.setdefault("pre", sc)),
+            patch("jasna.restorer.flashvsr_offline._gate_phase2_disk",
+                  side_effect=lambda b, sc: seen.setdefault("gate", sc)),
+            patch.object(sys, "argv", ["jasna", "--input", args.input, "--output", args.output]),
+        ):
+            fo.run_flashvsr_offline(args)
+        assert seen == {"pre": 2, "gate": 2}
+
     def _make_args(self, tmp_path):
         repo = tmp_path / "repo"
         # default_flashvsr_python resolves per-platform; create both layouts.
@@ -504,6 +565,7 @@ class TestOrchestrator:
         args.flashvsr_max_clip_frames = 32
         args.flashvsr_unload_dit = True
         args.flashvsr_tiled_vae = True
+        args.flashvsr_scale = 4
         args.flashvsr_bundle_dir = str(bundle)
         args.flashvsr_keep_bundle = True
         args.input = str(inp)
@@ -570,6 +632,23 @@ class TestDiskSafeguards:
                    return_value=self._free(needed_one_clip_gib * 1.1)):
             fo._gate_phase2_disk(tmp_path)  # no raise
 
+    def test_estimates_scale_with_output_size(self):
+        assert fo._fvsr_bytes_per_frame(4) == 3 * 1024 * 1024 == fo._FVSR_BYTES_PER_FRAME
+        assert fo._fvsr_bytes_per_frame(2) == 3 * 512 * 512  # a quarter
+        assert fo._bytes_per_mosaic_frame_upper(4) == fo._BYTES_PER_MOSAIC_FRAME_UPPER
+        assert fo._bytes_per_mosaic_frame_upper(4) == int(4.6 * 1024 * 1024)
+        assert fo._bytes_per_mosaic_frame_upper(2) == int(1.5 * 3 * 512 * 512 + 0.1 * 1024 * 1024)
+
+    def test_gate_scale_2_needs_a_quarter(self, tmp_path):
+        # 2 clips x 100 frames: 600 MiB at 4x, 150 MiB at 2x. 0.3 GiB free fails
+        # the 4x gate (test above) but passes at 2x.
+        self._manifest(tmp_path, [100, 100])
+        with patch("jasna.restorer.flashvsr_offline.shutil.disk_usage", return_value=self._free(0.3)):
+            fo._gate_phase2_disk(tmp_path, scale=2)  # no raise
+        with patch("jasna.restorer.flashvsr_offline.shutil.disk_usage", return_value=self._free(0.1)):
+            with pytest.raises(RuntimeError, match="512px output"):
+                fo._gate_phase2_disk(tmp_path, scale=2)
+
     def _meta(self, num_frames):
         m = MagicMock()
         m.num_frames = num_frames
@@ -632,3 +711,27 @@ class TestPhase2DriverArgs:
         assert a.bundle_dir == "/b" and a.repo == "/r" and a.model_dir == "/m"
         assert a.version == "11" and a.dtype == "bf16"
         assert a.unload_dit is True and a.tiled_vae is True
+        # v2 defaults: model-native scale, always-on wavelet color correction
+        assert a.scale == 4 and a.color_fix_method == "wavelet"
+
+    def test_driver_scale_and_color_fix_choices(self):
+        from jasna.restorer import flashvsr_phase2_driver as drv
+        base = ["prog", "--bundle-dir", "/b", "--repo", "/r", "--model-dir", "/m"]
+        with patch.object(sys, "argv", [*base, "--scale", "2", "--color-fix-method", "adain"]):
+            a = drv._parse_args()
+        assert a.scale == 2 and a.color_fix_method == "adain"
+        for bad in (["--scale", "3"], ["--color-fix-method", "magic"], ["--color-fix"]):
+            with patch.object(sys, "argv", [*base, *bad]):
+                with pytest.raises(SystemExit):
+                    drv._parse_args()
+
+    def test_driver_shares_the_worker_color_fix(self):
+        # The driver loads _color_fix_frames by path from the sibling worker so
+        # both modes correct identically; a constant 180 output against a
+        # constant 0.25 input must come back as 63.75 (same as the worker test).
+        from jasna.restorer import flashvsr_phase2_driver as drv
+        from jasna.restorer import flashvsr_inline_worker as w
+        assert drv._color_fix_frames.__code__.co_filename == w.__file__
+        out = np.full((1, 16, 16, 3), 180.0, dtype=np.float32)
+        fixed = drv._color_fix_frames(out, torch.full((1, 4, 4, 3), 0.25), "wavelet", "cpu")
+        assert np.allclose(fixed, 63.75, atol=0.05)
