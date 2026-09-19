@@ -132,7 +132,7 @@ jasna --input in.mp4 --output out.mkv \
 | `--flashvsr-version` | `11` | Model version (`10` or `11`). |
 | `--flashvsr-dtype` | `bf16` | Compute dtype (`fp16` / `bf16`). |
 | `--flashvsr-scale` | `4` | Processing scale for both modes: `4` = model-native 1024px, `2` = 512px (faster, lower VRAM). See [Processing scale](#processing-scale---flashvsr-scale). |
-| `--flashvsr-max-clip-frames` | `32` | Caps Phase 1 `--max-clip-size` so each clip fits FlashVSR tiny-mode VRAM. |
+| `--flashvsr-max-clip-frames` | `90` | Offline only: cap on Phase 1 `--max-clip-size` (tiny-mode VRAM). Inline uses `--max-clip-size` as-is. |
 | `--flashvsr-unload-dit` / `--no-flashvsr-unload-dit` | on | Offload the FlashVSR DiT before VAE decode (saves VRAM). |
 | `--flashvsr-tiled-vae` / `--no-flashvsr-tiled-vae` | on | Tile the FlashVSR VAE decode (saves VRAM). |
 | `--flashvsr-tiles` | `1` | Inline only: split the DiT inference into horizontal strips (`2`–`4`) to cut peak VRAM. The offline path ignores it. See [Strip tiling](#strip-tiling---flashvsr-tiles). |
@@ -160,26 +160,26 @@ the ≤1.2 gate; visual A/B judged clean). The default stays at 4 (the
 model-native factor the original quality gates were run at).
 
 jasna's own measurements (RTX 5080 16 GB, Linux, `small-01.mp4` 480p / 4930
-frames with mosaic throughout, output frame count = input in every run; wall
-clock is the whole command, VRAM is the whole-GPU `nvidia-smi` peak):
+frames with mosaic throughout, the default clip 90 / overlap 8; output frame
+count = input in every run; wall clock is the whole command, VRAM is the
+whole-GPU `nvidia-smi` peak):
 
 | Mode | Scale / tiles | Wall clock | FlashVSR time | Peak VRAM | Notes |
 |---|---|---|---|---|---|
-| primary only | — | 26 s | — | 3.8 GB | reference (clip 32 + fp8-recon) |
-| inline | 4 / 2 | 853 s | 841 s | 13.4 GB | |
-| inline | 2 / 1 | 175 s | 163 s | 9.9 GB | **4.9x faster, 3.5 GB lower** than 4 / 2 |
-| inline, 1080p (`test-flashvsr-fhd-02`, 4203 f) | 2 / 1 | 283 s | 274 s | 10.7 GB | no offloads, no allocator warnings |
-| offline | 4 | 920 s | Phase 2 864 s | 13.1 GB | bundle 16 GB (gate estimate 14.8 GiB) |
-| offline | 2 | 410 s | Phase 2 361 s | 7.8 GB | bundle 4.3 GB (gate estimate 3.7 GiB) |
+| primary only | — | 20 s | — | 3.8 GB | reference (fp8-recon) |
+| inline | 4 / 2 | 491 s | 479 s | 13.7 GB | |
+| inline | 2 / 1 | 113 s | 100 s | 10.1 GB | **4.8x faster, 3.6 GB lower** than 4 / 2 |
+| inline, 1080p (`test-flashvsr-fhd-02`, 4203 f) | 2 / 1 | 156 s | 146 s | 11.3 GB | no offloads, no allocator warnings |
+| offline | 4 | 477 s | Phase 2 ~430 s | 13.2 GB | bundle 9.7 GB |
+| offline | 2 | 194 s | Phase 2 ~150 s | 7.8 GB | |
 
-jasna's absolute times are about half of lada-ex's for the same worker, and
-that is the clip regime, not the worker: both jasna modes cap FlashVSR clips at
-32 frames (with the 8-frame temporal overlap and the 8n+5 padding FlashVSR
-needs, the worker sees ~1.3 DiT frames per source frame, 175 clips here) and
-pay tiny-long's per-call warm-up every clip, whereas lada-ex feeds 180-frame
-clips. An A/B against the pre-port worker on the same clips gave the same
-FlashVSR time (162 s vs 163 s at scale 2), so the port itself costs nothing;
-the always-on color correction adds ~7 % of FlashVSR time.
+Earlier builds capped clips at 32 frames, and FlashVSR time was about twice the
+table above (841 s inline 4 / 2, 163 s inline 2 / 1, 864 s offline 4). Against
+the 8-frame overlap a 32-frame clip advances only 16 frames, so the DiT frame
+count was 1.8x and the call count 3x; the worker itself is unchanged (the A/B
+against the pre-port worker matched, and the color correction costs +6–7 %).
+Lifting the cap adds only the primary's queue frames in VRAM (+0.1–0.3 GB at
+480p, +0.7 GB at 1080p).
 
 ### Color correction
 
@@ -204,17 +204,17 @@ indistinguishable from "off".
 There is no CLI flag. For A/B verification only, the environment variable
 `JASNA_FLASHVSR_COLOR_FIX=adain|wavelet|none` overrides the method in both modes.
 
-### Why the clip-length cap
+### Clip length
 
-Phase 2 uses FlashVSR **tiny** mode, which holds every latent frame in VRAM and
-returns a lossless tensor. The pilot measured ~13.5 GB at 21 frames and near-OOM
-at 65 frames on a 16 GB card, so jasna caps the primary clip length
-(`--flashvsr-max-clip-frames`, default 32) to keep every clip within that budget.
-This is why FlashVSR-mode clips are shorter than a normal run's; the crossfade at
-clip seams handles the extra boundaries. Raising the cap risks OOM in Phase 2.
-The cap is the same at `--flashvsr-scale 2`, where tiny's latents are a quarter
-the size (Phase 2 peaked at 7.8 GB vs 13.1 GB at scale 4 on the 480p clip);
-relaxing it there is a possible follow-up, not something the current build does.
+Clip length is set by `--max-clip-size` (default 90), as in any run.
+
+- **Inline**: no cap. The worker's tiny-long is flat in VRAM with respect to
+  the clip length, and the primary's cost is the same as without FlashVSR
+  ([tuning](tuning.md)).
+- **Offline**: Phase 2's tiny mode scales with the clip length in principle, so
+  `--flashvsr-max-clip-frames` (default 90) caps it. Measured, the Phase 2 peak
+  is flat from 32 to 90 (13.1 → 13.2 GB at scale 4, 7.8 GB unchanged at scale
+  2); above 90 is unmeasured. Lower the value if Phase 2 OOMs.
 
 ## Disk space
 
@@ -286,7 +286,7 @@ jasna --input in.mp4 --output out.mkv \
 | Intermediate files | 256px + upscaled bundle (tens of GB) | **none** |
 | Encodes | 2 (throwaway + final) | 1 |
 | FlashVSR mode | tiny (O(T), ~12–16 GB) | **tiny-long (O(1), ~11.9 GB)** |
-| VRAM | phases non-concurrent, so effectively tiny alone | **co-resident** with primary (scale 4: ~14.8 GB measured on a 16 GB card; scale 2: ~10 GB) |
+| VRAM | phases non-concurrent, so effectively tiny alone | **co-resident** with primary (scale 4: ~13.7 GB at tiles 2, untiled hits the 16 GB ceiling; scale 2: ~10–11 GB) |
 | FlashVSR checkout | no patch needed | **requires the tiny-long multi-chunk fix** |
 | Staged resume | yes (persistent bundle) | no (single pass) |
 | Progress / cancel / GUI | 3-phase flow | same as any secondary |
@@ -315,8 +315,7 @@ stays).
 
 ### Behavior and constraints
 
-- **Forces clip 32 and frame-gen off** (same reasons as offline); `--max-clip-size`
-  is rounded down to 32 automatically.
+- **Forces frame-gen off** (same reason as offline).
 - **Auto-enables fp8-recon** (when unset) to shrink the primary peak ~0.9–1.7 GB so
   it fits the co-residence budget; falls back to TRT if the GPU can't do fp8
   (sm89+ / `--fp16`).
