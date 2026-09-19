@@ -833,7 +833,7 @@ def _phase2_upscale(
         "--version", str(getattr(args, "flashvsr_version", "11")),
         "--dtype", str(getattr(args, "flashvsr_dtype", "bf16")),
         "--device", str(args.device),
-        "--scale", "4",
+        "--scale", str(int(getattr(args, "flashvsr_scale", 4))),
     ]
     if bool(getattr(args, "flashvsr_unload_dit", True)):
         cmd.append("--unload-dit")
@@ -944,6 +944,17 @@ def add_flashvsr_arguments(group: "argparse._ArgumentGroup") -> None:
         default=True,
         action=argparse.BooleanOptionalAction,
         help="Tile the FlashVSR VAE decode to save VRAM (default: %(default)s).",
+    )
+    group.add_argument(
+        "--flashvsr-scale",
+        type=int,
+        default=4,
+        choices=[2, 4],
+        help="Processing scale for both FlashVSR modes (default: %(default)s). 4 is "
+             "model-native (256px crops processed at 1024px); 2 processes at 512px, "
+             "roughly 5x faster with a few GB lower peak VRAM (the model is 4x-trained, "
+             "so 2 is an opt-in). The output video resolution is unchanged either way: "
+             "the blend shrink-composites the crops back onto the frame.",
     )
     group.add_argument(
         "--flashvsr-tiles",

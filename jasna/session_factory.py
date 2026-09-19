@@ -98,6 +98,7 @@ def _build_secondary_restorer(config: SessionConfig, device: "torch.device"):
             dtype=str(config.flashvsr_dtype),
             device=config.device,
             tiles=int(config.flashvsr_tiles),
+            scale=int(config.flashvsr_scale),
             log_level=str(config.flashvsr_log_level),
         )
     raise ValueError(f"Unsupported secondary restoration: {config.secondary_restoration}")

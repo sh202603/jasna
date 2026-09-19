@@ -67,6 +67,7 @@ class SessionConfig:
     flashvsr_version: str = "11"
     flashvsr_dtype: str = "bf16"
     flashvsr_tiles: int = 1
+    flashvsr_scale: int = 4
     flashvsr_log_level: str = "error"
     # Primary restoration model. For "seedvr2", ``restoration_model_path``
     # carries the LoRA checkpoint instead of the BasicVSR++ checkpoint.

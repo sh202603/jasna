@@ -157,6 +157,21 @@ class TestBuildParser:
         assert args.flashvsr_unload_dit is True
         assert args.flashvsr_tiled_vae is True
         assert args.flashvsr_keep_bundle is False
+        assert args.flashvsr_scale == 4
+
+    def test_flashvsr_scale_choices(self):
+        args = build_parser().parse_args([
+            "--input", "a.mp4", "--output", "b.mp4",
+            "--secondary-restoration", "flashvsr-inline",
+            "--flashvsr-repo", "/opt/FlashVSR_plus",
+            "--flashvsr-scale", "2",
+        ])
+        assert args.flashvsr_scale == 2
+        with pytest.raises(SystemExit):
+            build_parser().parse_args([
+                "--input", "a.mp4", "--output", "b.mp4",
+                "--flashvsr-scale", "3",
+            ])
 
     def test_post_export_command(self):
         args = build_parser().parse_args([
@@ -365,6 +380,7 @@ class TestSecondaryRestorers:
         pipeline_cls.assert_called_once()
         mock_offline.assert_not_called()
         mock_r.assert_called_once()
+        assert mock_r.call_args.kwargs["scale"] == 4  # default reaches the restorer
         # fp8-recon is auto-enabled for inline (co-residence headroom).
         assert fp8_env == "1"
 

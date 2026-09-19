@@ -1,12 +1,20 @@
 """Inline FlashVSR secondary restorer (synchronous ``SecondaryRestorer``).
 
 Spawns a resident FlashVSR-venv worker (``flashvsr_inline_worker.py``) that
-upscales each clip's 256px primary crops to 1024px (4x) with the FlashVSR
-**tiny-long** pipeline, and streams them back over a length-prefixed
-stdin/stdout protocol (RGB payload). Runs inside jasna's normal streaming
-pipeline — no bundle, no 1024px intermediate files — because tiny-long is O(1)
-in VRAM and co-resides with the primary pipeline inside 16GB (see
-FLASHVSR_INLINE_FEASIBILITY §12).
+upscales each clip's 256px primary crops to 256*scale px (``scale`` 4 = the
+model-native 1024px, 2 = 512px) with the FlashVSR **tiny-long** pipeline, and
+streams them back over a length-prefixed stdin/stdout protocol. Runs inside
+jasna's normal streaming pipeline — no bundle, no 1024px intermediate files —
+because tiny-long is O(1) in VRAM and co-resides with the primary pipeline
+inside 16GB (see FLASHVSR_INLINE_FEASIBILITY §12).
+
+The worker file is kept verbatim-identical with lada-ex's
+``flashvsr_worker.py`` (same policy as the SeedVR2 worker: an upstream
+FlashVSR_plus breakage is fixed once and diff-copied), so the wire color order
+is lada-native **BGR**; this adapter flips RGB<->BGR around the wire. The
+worker also applies an always-on color correction of the output crops against
+the bicubic-upscaled input (wavelet by default; ``JASNA_FLASHVSR_COLOR_FIX``
+is a verification-only override, see ``__init__``).
 
 This is the inline counterpart of the offline 3-phase path
 (``flashvsr_offline.py``), which stays as the fallback for 12GB-class GPUs and
@@ -45,9 +53,11 @@ logger = logging.getLogger(__name__)
 # (tracebacks) is forwarded unchanged. Matched on bytes to avoid a decode step.
 _STDERR_SUPPRESS_RE = re.compile(rb"expandable_segments: memory mapping failed with OOM")
 
-# Marker left by tinylong_multichunk_fix.patch. The inline worker needs the
+# Markers left by tinylong_multichunk_fix.patch. The inline worker needs the
 # tiny-long multi-chunk fix; without it tiny-long crashes on the 2nd chunk.
-_FIX_MARKER = "FIX(jasna)"
+# lada-ex ships the identical fix under its own marker, so a checkout patched
+# from that repo is equally valid.
+_FIX_MARKERS = ("FIX(jasna)", "FIX(lada-ex)")
 _TINYLONG_REL = Path("src") / "pipelines" / "flashvsr_tiny_long.py"
 
 
@@ -61,7 +71,8 @@ def _check_patched_repo(repo: Path) -> None:
     tinylong = repo / _TINYLONG_REL
     if not tinylong.is_file():
         raise FileNotFoundError(f"FlashVSR tiny-long pipeline not found: {tinylong}")
-    if _FIX_MARKER not in tinylong.read_text(encoding="utf-8", errors="ignore"):
+    text = tinylong.read_text(encoding="utf-8", errors="ignore")
+    if not any(marker in text for marker in _FIX_MARKERS):
         raise RuntimeError(
             f"FlashVSR checkout at {repo} is missing the tiny-long multi-chunk fix.\n"
             "  --secondary-restoration flashvsr-inline uses tiny-long, which crashes on the\n"
@@ -90,6 +101,8 @@ class FlashvsrInlineSecondaryRestorer:
         startup_timeout_s: float = 300.0,
         verbose: bool = False,
     ) -> None:
+        if int(scale) not in (2, 4):
+            raise ValueError(f"[flashvsr-inline] scale must be 2 or 4, got {scale}")
         _check_patched_repo(Path(repo))
         worker = _resolve_worker_script()
         if not worker.is_file():
@@ -105,6 +118,18 @@ class FlashvsrInlineSecondaryRestorer:
             "--scale", str(int(scale)),
             "--tiles", str(int(tiles)),
         ]
+        # Color correction is always on (worker default: wavelet).
+        # JASNA_FLASHVSR_COLOR_FIX is a verification-only override
+        # (adain|wavelet|none) for A/B runs — deliberately an env var, not a
+        # CLI flag.
+        color_fix = os.environ.get("JASNA_FLASHVSR_COLOR_FIX")
+        if color_fix:
+            if color_fix not in ("adain", "wavelet", "none"):
+                raise ValueError(
+                    "[flashvsr-inline] JASNA_FLASHVSR_COLOR_FIX must be adain|wavelet|none, "
+                    f"got {color_fix!r}"
+                )
+            cmd += ["--color-fix-method", color_fix]
         if verbose:
             cmd.append("--verbose")
 
@@ -270,12 +295,14 @@ class FlashvsrInlineSecondaryRestorer:
         if t == 0 or ks >= ke:
             return []
 
-        # (T,C,256,256) float [0,1] -> (T,256,256,3) uint8 RGB HWC, C-contiguous.
+        # (T,C,256,256) float [0,1] RGB -> (T,256,256,3) uint8 BGR HWC,
+        # C-contiguous (the wire is lada-native BGR).
         hwc = (
             frames_256.detach().to("cpu", torch.float32).clamp_(0.0, 1.0)
             .mul_(255.0).round_().to(torch.uint8)
             .permute(0, 2, 3, 1).contiguous().numpy()
         )
+        hwc = np.ascontiguousarray(hwc[..., ::-1])
         h, w = int(hwc.shape[1]), int(hwc.shape[2])
 
         with self._lock:
@@ -299,7 +326,8 @@ class FlashvsrInlineSecondaryRestorer:
             raise RuntimeError(
                 f"[flashvsr-inline] frame-count mismatch: sent {t}, got {rn}"
             )
-        out = np.frombuffer(data, dtype=np.uint8).reshape(rn, rh, rw, 3)
-        # keep window -> CHW uint8 CPU tensors (blend moves each to device).
-        kept = np.ascontiguousarray(out[ks:ke].transpose(0, 3, 1, 2))
+        out = np.frombuffer(data, dtype=np.uint8).reshape(rn, rh, rw, 3)  # BGR
+        # keep window, BGR -> RGB, -> CHW uint8 CPU tensors (blend moves each
+        # to device).
+        kept = np.ascontiguousarray(out[ks:ke, ..., ::-1].transpose(0, 3, 1, 2))
         return list(torch.from_numpy(kept).unbind(0))
