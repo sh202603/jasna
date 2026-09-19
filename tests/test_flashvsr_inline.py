@@ -28,6 +28,7 @@ from jasna.restorer.flashvsr_inline_worker import (
     _adain,
     _color_fix_frames,
     _feather_mask_numpy,
+    _pipe_checked,
     _stitch_tiles,
     _strip_coords,
     _wavelet_reconstruct,
@@ -444,6 +445,54 @@ class TestScaleAndColorFixPlumbing:
         monkeypatch.setenv("JASNA_FLASHVSR_COLOR_FIX", "magic")
         with pytest.raises(ValueError, match="JASNA_FLASHVSR_COLOR_FIX"):
             _make_restorer(stub_env)
+
+
+class TestPipeChecked:
+    """tiny-long swallows exceptions and returns False; the worker must not turn
+    a partial clip into a frozen tail (the ghosting seen at the VRAM ceiling)."""
+
+    @staticmethod
+    def _fake_pipe(outcomes, captured):
+        calls = []
+
+        def pipe(LQ_video, **kw):
+            calls.append(LQ_video)
+            n_frames, ok = outcomes.pop(0)
+            captured.extend([object()] * n_frames)
+            return ok
+        return pipe, calls
+
+    def test_success_first_try(self):
+        captured = []
+        pipe, calls = self._fake_pipe([(21, True)], captured)
+        lq = iter(())
+        _pipe_checked(pipe, captured, 21, "cpu", lambda: lq, num_frames=25)
+        assert len(captured) == 21 and calls == [lq]
+
+    def test_partial_clip_retries_once_with_fresh_lq(self, capsys):
+        captured = []
+        pipe, calls = self._fake_pipe([(13, False), (21, True)], captured)
+        made = []
+
+        def make_lq():
+            made.append(object()); return made[-1]
+        _pipe_checked(pipe, captured, 21, "cpu", make_lq)
+        assert len(captured) == 21          # the failed attempt's frames were discarded
+        assert calls == made and len(made) == 2  # a fresh generator per attempt
+        assert "retrying once" in capsys.readouterr().err
+
+    def test_short_output_without_false_is_still_a_failure(self):
+        # Defensive: too few frames means a failed run even if the return value lies.
+        captured = []
+        pipe, _ = self._fake_pipe([(13, True), (13, True)], captured)
+        with pytest.raises(RuntimeError, match="13/21 frames after a retry"):
+            _pipe_checked(pipe, captured, 21, "cpu", lambda: None)
+
+    def test_two_failures_raise_not_pad(self):
+        captured = []
+        pipe, _ = self._fake_pipe([(0, False), (5, False)], captured)
+        with pytest.raises(RuntimeError, match="failed mid-clip"):
+            _pipe_checked(pipe, captured, 21, "cpu", lambda: None)
 
 
 class TestColorFixPrimitives:
