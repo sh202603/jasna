@@ -201,8 +201,18 @@ the function). Upstream FlashVSR_plus has its own `color_fix`, but jasna does
 not use it: its call is wrapped in a bare `except: pass`, so a failure is
 indistinguishable from "off".
 
+Windows (RTX 5060 Ti, 1080p, inline scale 2 / tiles 1) confirms both the effect and
+its cost. The metric there is a separate implementation — the restored-region mask is
+taken from the `none` output, and `none` and `wavelet` are then measured on identical
+frames through that same mask — so its absolute values are not comparable with the
+table above, but none 5.88 → **wavelet 3.20** (ratio 0.54), with wavelet below none on
+**91.1%** of the 135 paired frames. The cost is **+5.3%** of FlashVSR time (wavelet
+524.5 s vs none 498.3 s), matching the +6-7% measured on Linux.
+
 There is no CLI flag. For A/B verification only, the environment variable
 `JASNA_FLASHVSR_COLOR_FIX=adain|wavelet|none` overrides the method in both modes.
+Leaving it set in the shell silently applies it to every later run, so pass it per
+command: `JASNA_FLASHVSR_COLOR_FIX=none jasna ...`.
 
 ### Clip length
 
@@ -336,9 +346,11 @@ stays).
   offloads, zero allocator warnings), so it needs neither tiling nor the ceiling
   tricks; see
   [Processing scale](#processing-scale---flashvsr-scale) for the full table.
-- **On Windows, `expandable_segments` is unavailable and the worker's reserved VRAM
-  balloons to ~13 GB**, so untiled inline runs pinned to the physical ceiling (it
-  completes, but with almost no headroom). At 1080p, use **`--flashvsr-tiles 2`**.
+- **The missing `expandable_segments` on Windows only costs VRAM at scale 4.** There
+  the worker's reserved VRAM balloons to ~13 GB, so untiled inline runs pinned to the
+  physical ceiling (it completes, but with almost no headroom) and 1080p wants
+  **`--flashvsr-tiles 2`**. Scale 2 takes no fragmentation hit — Windows measures
+  *below* Linux (10.8 GB at 1080p, 5.5 GB of headroom) — so **tiles 1 is fine**.
   Measurements: [Windows notes](#windows-notes).
 
 ### Strip tiling (`--flashvsr-tiles`)
@@ -392,15 +404,34 @@ harmless in practice since the blend feathers crop borders).
 
 ## Windows notes
 
-Verified on Windows 11 / RTX 5080 16 GB / torch 2.13.0+cu130 (FlashVSR venv). Bottom
-line: **on a 16 GB card, use offline (`flashvsr`), or inline with `--flashvsr-tiles`
-(`2` recommended at 1080p). Untiled inline completes, but with almost no headroom.**
+Two verification rigs: the original scale-4/tiling work on **Windows 11 / RTX 5080
+16 GB**, and the scale-2 and color-correction work on **Windows 11 / RTX 5060 Ti
+16 GB / driver 616.92** (both on torch 2.13.0+cu130 in the FlashVSR venv). The GPUs
+differ, so **wall clock is not comparable across the two**; VRAM peaks are, because
+the allocation sizes do not depend on the GPU model.
+
+Bottom line: **at 1080p on a 16 GB card, `--flashvsr-scale 2 --flashvsr-tiles 1` is
+the first choice** (10.8 GB peak, 5.5 GB below the ceiling). If you need scale 4, use
+offline (`flashvsr`) or inline with `--flashvsr-tiles 2`; untiled inline at scale 4
+completes, but with almost no headroom.
 
 - **PyTorch's `expandable_segments` is unsupported on Windows** (it warns and falls
-  back to the default caching allocator). tiny-long's reserved VRAM runs **+1–2 GB**
-  above the Linux "flat ~11.9 GB" figure due to fragmentation.
-  `backend:cudaMallocAsync` does not help (measured slightly worse). jasna therefore
-  does not set `expandable_segments` for the worker on Windows.
+  back to the default caching allocator). `backend:cudaMallocAsync` does not help
+  (measured slightly worse). jasna therefore does not set `expandable_segments` for
+  the worker on Windows.
+- **The fragmentation penalty is scale-dependent and only shows at scale 4.**
+  Comparing against Linux with the desktop residency subtracted:
+
+  | Configuration | Linux | Windows | Delta |
+  |---|---|---|---|
+  | inline scale 2 / tiles 1 (1080p) | 9642 MiB | 8925 MiB | **-717** |
+  | offline Phase 2 scale 2 (480p) | 6070 MiB | 6418 MiB | +348 |
+  | offline Phase 2 scale 4 (480p) | 11494 MiB | 13040 MiB | **+1546** |
+
+  Scale 4 processes at 1024px, where fragmentation bites and tiny-long's reserved
+  VRAM runs **+1–2 GB** above the Linux "flat ~11.9 GB" figure. Scale 2 processes at
+  512px and takes no such hit — Windows is actually lower. **The "Windows costs
+  +1–2 GB" rule of thumb does not apply to scale 2.**
 - **The WDDM desktop holds ~1 GB** (near zero on headless Linux), leaving
   **~15.2 GB effective** on a 16 GB card. A real desktop with a browser and IDE open
   can idle above ~2 GB.
@@ -416,9 +447,30 @@ line: **on a 16 GB card, use offline (`flashvsr`), or inline with `--flashvsr-ti
 
   Tiles `1` completed at both 480p and 1080p (zero offloads, zero OOM warnings), but
   the peak sits within 400 MiB of the physical ceiling (16303 MiB) — a resident app
-  opening a few tabs can tip it into OOM. **For regular 1080p use, run
+  opening a few tabs can tip it into OOM. **For regular 1080p use at scale 4, run
   `--flashvsr-tiles 2`** (~2 GB headroom, +25% wall clock). No strip-boundary seams
   (banding, color shift) were detected in these runs either.
+- Scale 2 vs scale 4 measurements (RTX 5060 Ti 16 GB, 1870 MiB desktop residency,
+  whole-GPU peak; 480p = 852x480 / 10661 frames, 1080p = 1920x1080 / 6242 frames):
+
+  | Mode | scale / tiles | Resolution | Peak | Headroom | Wall clock |
+  |---|---|---|---|---|---|
+  | inline | 2 / 1 | 480p | 10237 MiB | 6074 MiB | 824 s |
+  | inline | 2 / 1 | 1080p | **10795 MiB** | **5516 MiB** | 575 s |
+  | inline | 4 / 2 | 1080p | 15148 MiB | 1163 MiB | 2519 s |
+  | offline | 2 | 480p | 8288 MiB | 8023 MiB | 1220 s |
+  | offline | 4 | 480p | 14910 MiB | 1401 MiB | 3174 s |
+
+  Every run: zero offloads, zero worker clip retries, output frame count equal to the
+  input. Scale 4 / tiles 2 costs 4.38x the wall clock of scale 2 / tiles 1, matching
+  the 4.35x measured on Linux. **The scale-4 figures (inline 15148 MiB, offline
+  14910 MiB) include 1.9 GB of desktop residency**, so a machine idling at 2.5 GB is
+  left under 500 MiB of headroom — running scale 4 on 16 GB assumes you manage what
+  else holds VRAM.
+- Offline bundle sizes land where the estimate says (480p / 10661 frames): scale 2
+  estimated 7.0 GiB and wrote 8.1 GiB; scale 4 estimated 28.1 GiB and wrote 30 GiB
+  (29 GiB of 1024px output plus a 1000 MB 256px dump). Both fit "estimate plus the
+  dump". Phase 2 raises no `UnicodeEncodeError`.
 - Measured peaks (scale 4 / tiny-long / bf16 / sage / 85 frames, reserved):
   - **256px input (jasna's real workload): ~13.0 GB** — Phase 2 has the GPU to
     itself, so offline works on 16 GB Windows.
