@@ -2,6 +2,8 @@ from fractions import Fraction
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import threading
+
 import numpy as np
 import pytest
 import torch
@@ -328,4 +330,94 @@ class TestPipelineRunSync:
         ):
             with pytest.raises(RuntimeError, match="secondary boom"):
                 p.run()
+
+    def test_run_secondary_error_does_not_hang_with_blocked_producer(self):
+        """A dead secondary stage left the primary blocked forever on a full
+        secondary_queue (FrameQueue.put has no cancel), so run() never returned.
+        The pass now cancels on the first stage error and aborts the queues."""
+        p = _make_pipeline()
+        p.max_clip_size = 2  # secondary_queue holds one 2-frame clip; the 2nd put blocks
+        p.temporal_overlap = 0
+
+        frames_t = torch.randint(0, 256, (2, 3, 8, 8), dtype=torch.uint8)
+        batches = [(frames_t, [0, 1])]
+        reader_cls, _, _ = _make_two_readers(batches)
+
+        mock_encoder = MagicMock()
+        mock_encoder.__enter__ = MagicMock(return_value=mock_encoder)
+        mock_encoder.__exit__ = MagicMock(return_value=False)
+
+        def _clip(track_id):
+            return TrackedClip(
+                track_id=track_id,
+                start_frame=0,
+                mask_resolution=(2, 2),
+                bboxes=[np.array([1, 1, 5, 5], dtype=np.float32)] * 2,
+                masks=[torch.zeros((2, 2), dtype=torch.bool)] * 2,
+            )
+
+        from jasna.pipeline_processing import BatchProcessResult
+
+        def fake_process_batch(**kwargs):
+            bb = kwargs["blend_buffer"]
+            mq = kwargs["metadata_queue"]
+            cq = kwargs["clip_queue"]
+            frames = kwargs["frames"]
+            bb.register_frame(0, {1, 2, 3})
+            bb.register_frame(1, {1, 2, 3})
+            mq.put(FrameMeta(frame_idx=0, pts=0))
+            mq.put(FrameMeta(frame_idx=1, pts=1))
+            for tid in (1, 2, 3):
+                raw_crops = [
+                    RawCrop(crop=frames[i][:, 1:5, 1:5].clone(), enlarged_bbox=(1, 1, 5, 5), crop_shape=(4, 4))
+                    for i in range(2)
+                ]
+                cq.put(ClipRestoreItem(clip=_clip(tid), raw_crops=raw_crops, frame_shape=(8, 8),
+                                       keep_start=0, keep_end=2, crossfade_weights=None), frame_count=0)
+            return BatchProcessResult(next_frame_idx=2, clips_emitted=3)
+
+        def fake_primary(clip, raw_crops, frame_shape, keep_start, keep_end, crossfade_weights):
+            return PrimaryRestoreResult(
+                track_id=clip.track_id,
+                start_frame=0,
+                frame_count=2,
+                frame_shape=(8, 8),
+                frame_device=frames_t[0].device,
+                masks=clip.masks,
+                primary_raw=torch.zeros((2, 3, 256, 256)),
+                keep_start=0,
+                keep_end=2,
+                crossfade_weights=None,
+                enlarged_bboxes=[(1, 1, 5, 5)] * 2,
+                crop_shapes=[(4, 4)] * 2,
+                pad_offsets=[(126, 126)] * 2,
+                resize_shapes=[(4, 4)] * 2,
+            )
+        p.restoration_pipeline.prepare_and_run_primary.side_effect = fake_primary
+        p.restoration_pipeline._run_secondary.side_effect = RuntimeError("secondary boom")
+
+        result: list[BaseException | None] = []
+
+        def _run():
+            try:
+                p.run()
+                result.append(None)
+            except BaseException as e:  # noqa: BLE001
+                result.append(e)
+
+        with (
+            patch("jasna.pipeline.get_video_meta_data", return_value=_fake_metadata()),
+            patch("jasna.pipeline_threads.make_video_reader", reader_cls),
+            patch("jasna.pipeline.make_video_encoder", return_value=mock_encoder),
+            patch("jasna.pipeline_threads.process_frame_batch", side_effect=fake_process_batch),
+            patch("jasna.pipeline_threads.finalize_processing"),
+            patch("jasna.pipeline_threads.torch.cuda.set_device"),
+            patch("jasna.pipeline_threads.torch.inference_mode", return_value=_mock_inference_mode()),
+            patch("jasna.pipeline.torch.cuda.mem_get_info", return_value=(8 * 1024**3, 24 * 1024**3)),
+        ):
+            t = threading.Thread(target=_run, daemon=True)
+            t.start()
+            t.join(timeout=20.0)
+            assert not t.is_alive(), "run() hung after the secondary stage failed"
+        assert isinstance(result[0], RuntimeError) and "secondary boom" in str(result[0])
 

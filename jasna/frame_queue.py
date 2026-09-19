@@ -13,12 +13,26 @@ class FrameQueue:
         self._max_frames = max_frames
         self._current_frames = 0
         self._unfinished_tasks = 0
+        self._aborted = False
+
+    def abort(self) -> None:
+        """Release every blocked ``put`` (the item is dropped) and wake ``get``
+        waiters. Used when the pass is torn down after a stage failed: the
+        consumer is gone, so a producer blocked on a full queue would otherwise
+        never return."""
+        with self._cond:
+            self._aborted = True
+            self._cond.notify_all()
 
     def put(self, item: Any, frame_count: int = 0) -> None:
         with self._cond:
             if frame_count > 0:
                 while self._current_frames > 0 and self._current_frames + frame_count > self._max_frames:
+                    if self._aborted:
+                        return
                     self._cond.wait()
+            if self._aborted:
+                return
             self._deque.append((item, frame_count))
             self._current_frames += frame_count
             self._unfinished_tasks += 1

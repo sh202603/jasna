@@ -507,8 +507,25 @@ class Pipeline:
         vram_offloader.start()
         for t in threads:
             t.start()
-        for t in threads:
-            t.join()
+        # A stage that dies leaves its producer blocked on a full queue forever
+        # (FrameQueue.put has no cancel), so a plain join hung after any stage
+        # error. Watch error_holder while joining: on the first error cancel the
+        # pass and unblock the queues so every stage unwinds; the error is
+        # re-raised below.
+        while any(t.is_alive() for t in threads):
+            for t in threads:
+                t.join(timeout=0.2)
+            if error_holder and not self._cancel_event.is_set():
+                log.error("[pipeline] a stage failed; cancelling the pass")
+                self._cancel_event.set()
+            if self._cancel_event.is_set():
+                for q in (clip_queue, secondary_queue, encode_queue):
+                    q.abort()
+                while True:  # keep the decode stage's metadata puts from blocking
+                    try:
+                        metadata_queue.get_nowait()
+                    except Empty:
+                        break
         vram_offloader.stop()
         frame_writer.close()
 

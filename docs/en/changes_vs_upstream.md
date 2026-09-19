@@ -183,6 +183,10 @@ Process model: a resident worker in the user-supplied [ComfyUI-SeedVR2_VideoUpsc
 
 The modi **A/B model comparison** (§11) can also select seedvr2 as a side: when the external checkout (`$JASNA_SEEDVR2_REPO`, default `~/seedvr2_videoupscaler`) and the LoRA are present, a `seedvr2` pseudo entry joins the checkpoint dropdown (its value is the LoRA path; the side config carries the model name and repo). The EMA-weights check, TRT badge, and engine-compile button are BasicVSR++-only and are skipped/hidden for that side; the session-slot cache key includes the model name so switching a side rebuilds its session; VR videos are refused for a seedvr2 side with a localized message (5 languages). Covered by CPU tests in `test_ab_compare_worker.py`, `test_ab_compare_window.py`, `test_checkpoint_info.py`, and `test_video_session.py`.
 
+## 15. Bug fix: the pipeline hung instead of failing after a stage error
+
+When a stage thread died (e.g. the secondary restorer raising on a worker error), its producer stayed blocked forever on a full `FrameQueue.put` (no cancel path), so `Pipeline.run()` never returned: the progress bar sat at 100 % while the encode-stall watchdog logged diagnostics every 30 s. `_run_pass` now watches `error_holder` while joining; on the first error it sets the cancel event, aborts the frame queues (`FrameQueue.abort()` releases blocked `put`s and drops the item) and drains the metadata queue, so every stage unwinds and the original error is re-raised. Covered by `test_run_secondary_error_does_not_hang_with_blocked_producer` (hangs on the old code). Surfaced by §9 v2.1 (2): the worker's mid-clip failure became a real error and exposed the hang.
+
 ---
 
 ## Appendix: rebase history
