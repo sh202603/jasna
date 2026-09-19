@@ -153,7 +153,7 @@ class TestBuildParser:
         assert args.flashvsr_repo == "/opt/FlashVSR_plus"
         assert args.flashvsr_version == "11"
         assert args.flashvsr_dtype == "bf16"
-        assert args.flashvsr_max_clip_frames == 32
+        assert args.flashvsr_max_clip_frames == 90
         assert args.flashvsr_unload_dit is True
         assert args.flashvsr_tiled_vae is True
         assert args.flashvsr_keep_bundle is False
@@ -365,6 +365,7 @@ class TestSecondaryRestorers:
         argv = _base_argv(inp, out, rest, det, [
             "--secondary-restoration", "flashvsr-inline",
             "--flashvsr-repo", str(repo),
+            "--max-clip-size", "180",
         ])
         with _main_patches() as pipeline_cls, \
                 patch("jasna.restorer.flashvsr_inline_secondary_restorer.FlashvsrInlineSecondaryRestorer") as mock_r, \
@@ -383,6 +384,9 @@ class TestSecondaryRestorers:
         assert mock_r.call_args.kwargs["scale"] == 4  # default reaches the restorer
         # fp8-recon is auto-enabled for inline (co-residence headroom).
         assert fp8_env == "1"
+        # No clip-length cap for inline (tiny-long is flat in the clip length):
+        # the user's --max-clip-size reaches the pipeline unchanged.
+        assert pipeline_cls.call_args.kwargs["max_clip_size"] == 180
 
     def test_flashvsr_inline_requires_repo(self, tmp_path):
         inp, out, rest, det = _make_model_files(tmp_path)

@@ -58,12 +58,11 @@ logger = logging.getLogger(__name__)
 
 BUNDLE_VERSION = 1
 
-# FlashVSR tiny mode holds every latent frame in VRAM; the Phase-0 pilot measured
-# ~13.5 GB @ 21 frames and near-OOM @ 65 frames on a 16 GB RTX 5080. Capping the
-# primary clip length keeps every clip within tiny's budget so Phase 2 can return
-# *lossless* tensors (tiny mode) rather than falling back to a lossy mp4 round-trip
-# (tiny-long). This is the flashvsr-specific default for Phase 1's --max-clip-size.
-DEFAULT_MAX_CLIP_FRAMES = 32
+# Offline (Phase 2) only: tiny mode holds every latent frame, so Phase 1's clip
+# length is capped. 90 (= the primary's default) measured flat vs 32 on a 16 GB
+# card at both scales; longer is unmeasured. Inline (tiny-long, flat VRAM) does
+# not cap.
+DEFAULT_MAX_CLIP_FRAMES = 90
 
 
 # ---------------------------------------------------------------------------
@@ -963,7 +962,8 @@ def add_flashvsr_arguments(group: "argparse._ArgumentGroup") -> None:
         type=int,
         default=DEFAULT_MAX_CLIP_FRAMES,
         help="Cap Phase 1 --max-clip-size so each clip fits FlashVSR tiny-mode VRAM "
-             "(default: %(default)s). Larger values risk OOM in Phase 2.",
+             "(default: %(default)s, measured flat up to there on 16 GB). Values above "
+             "the default are unmeasured and may OOM in Phase 2.",
     )
     group.add_argument(
         "--flashvsr-unload-dit",

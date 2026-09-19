@@ -1120,25 +1120,13 @@ def main() -> None:
         raise ValueError(f"Unsupported restoration model: {restoration_model_name}")
 
     if secondary_name == "flashvsr-inline":
-        from jasna.restorer.flashvsr_offline import DEFAULT_MAX_CLIP_FRAMES
-        # tiny-long co-resides with the primary only within a bounded clip (the
-        # primary is O(clip)); frame-gen is a separate pass. Match the offline path.
+        # No clip cap (tiny-long is flat in VRAM vs clip length); frame-gen is a
+        # separate pass.
         if frame_gen_multiplier > 1:
             raise ValueError(
                 "--secondary-restoration flashvsr-inline does not support --frame-gen "
                 "(run frame generation as a separate pass)"
             )
-        if max_clip_size > DEFAULT_MAX_CLIP_FRAMES:
-            logging.getLogger(__name__).info(
-                "[flashvsr-inline] capping --max-clip-size %d -> %d (co-residence budget)",
-                max_clip_size, DEFAULT_MAX_CLIP_FRAMES,
-            )
-            max_clip_size = DEFAULT_MAX_CLIP_FRAMES
-            if 2 * temporal_overlap >= max_clip_size:
-                temporal_overlap = (max_clip_size - 1) // 2
-            # SessionConfig is built from args, so propagate the cap there too.
-            args.max_clip_size = max_clip_size
-            args.temporal_overlap = temporal_overlap
     if args.license_email and args.license_key:
         from jasna.protection import license_store
         license_store.set_license(args.license_email, args.license_key)
