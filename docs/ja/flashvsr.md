@@ -187,8 +187,17 @@ wavelet 再構成で、FlashVSR 出力の高周波(テクスチャ)を入力の�
 上流の FlashVSR_plus にも `color_fix` はあるが jasna は使わない。呼び出しが裸の
 `except: pass` で包まれており、失敗しても「未適用」と区別が付かないためである。
 
+Windows(RTX 5060 Ti、1080p、inline scale 2 / tiles 1)でも効果と代償を確認した。
+指標は上記と別実装(復元領域のマスクを none 出力基準で決め、none と wavelet を同一
+フレーム・同一マスクで測る対応比較)なので絶対値は上表と比較できないが、
+none 5.88 → **wavelet 3.20**(比 0.54)で、135 フレーム中 **91.1%** で wavelet が
+none を下回った。コストは FlashVSR 時間の **+5.3%**(wavelet 524.5 s 対 none 498.3 s)で、
+Linux の +6〜7% と整合する。
+
 CLI フラグは無い。A/B 検証専用に、環境変数
 `JASNA_FLASHVSR_COLOR_FIX=adain|wavelet|none` で両モードの方式を上書きできる。
+シェルに設定したまま戻し忘れると以後の走行が全て上書き値で回るので、
+`JASNA_FLASHVSR_COLOR_FIX=none jasna ...` のようにコマンド単位で渡すこと。
 
 ### clip 長
 
@@ -308,10 +317,11 @@ git apply /path/to/jasna/patches/flashvsr_plus_tinylong_multichunk_fix.patch
   VRAM が少ない環境や未パッチ checkout ではオフライン(`flashvsr`)を使う。**`--flashvsr-scale 2` では様相が変わる**: 分割なしで
   Linux の 480p 10.1 GB、1080p 11.3 GB(clip 90。offload 0、アロケータ警告 0)で、
   タイリングも天井対策も要らない。全表は「[処理倍率](#処理倍率--flashvsr-scale)」。
-- **Windows では `expandable_segments` が使えず worker の reserved が ~13 GB に膨らむ**
-  ため、tiles 無しの inline は物理天井に張り付く(完走はするが余裕がほぼ無い)。
-  1080p では **`--flashvsr-tiles 2` を推奨**。実測は
-  「[Windows での注意事項](#windows-での注意事項)」。
+- **Windows で `expandable_segments` が使えない影響は scale 4 でのみ出る**。scale 4 は
+  worker の reserved が ~13 GB に膨らんで tiles 無しの inline が物理天井に張り付くため、
+  1080p では **`--flashvsr-tiles 2` を推奨**。scale 2 は断片化の影響を受けず、Windows の
+  実測が Linux を下回る(1080p 10.8 GB、天井まで 5.5 GB)ので **tiles 1 のままでよい**。
+  実測は「[Windows での注意事項](#windows-での注意事項)」。
 
 ### strip タイリング(`--flashvsr-tiles`)
 
@@ -358,15 +368,33 @@ VRAM が許す**最小の枚数**を選ぶ。2 で収まれば 2、天井に張�
 
 ## Windows での注意事項
 
-検証環境: Windows 11 / RTX 5080 16 GB / torch 2.13.0+cu130(FlashVSR venv)。結論:
-**16 GB カードでは、オフライン(`flashvsr`)か、inline + `--flashvsr-tiles`
-(1080p は `2` 推奨)を使う。tiles 無しの inline は完走はするが余裕がほぼ無い。**
+検証環境は 2 つ。scale 4 / tiles の初回検証が **Windows 11 / RTX 5080 16 GB**、
+scale 2 と色補正の検証が **Windows 11 / RTX 5060 Ti 16 GB / driver 616.92**
+(どちらも torch 2.13.0+cu130 の FlashVSR venv)。GPU が異なるため**壁時計は
+両者間で比較できない**が、VRAM ピークは確保サイズが GPU 型番に依らないため比較できる。
+
+結論: **16 GB カードの 1080p は `--flashvsr-scale 2 --flashvsr-tiles 1` が第一選択**
+(ピーク 10.8 GB、天井まで 5.5 GB)。scale 4 を使う場合はオフライン(`flashvsr`)か
+inline + `--flashvsr-tiles 2` にする。scale 4 の tiles 無し inline は完走はするが
+余裕がほぼ無い。
 
 - **PyTorch の `expandable_segments` は Windows 未対応**(警告を出して既定の
-  キャッシングアロケータへフォールバック)。tiny-long の reserved VRAM は Linux の
-  「フラット ~11.9 GB」より断片化で **+1〜2 GB** 膨らむ。`backend:cudaMallocAsync`
-  でも改善しない(実測でむしろ微増)。jasna は Windows では worker に
-  `expandable_segments` を設定しない。
+  キャッシングアロケータへフォールバック)。`backend:cudaMallocAsync` でも改善しない
+  (実測でむしろ微増)。jasna は Windows では worker に `expandable_segments` を
+  設定しない。
+- **断片化のペナルティは scale 依存**で、scale 4 でのみ現れる。デスクトップ常駐を
+  差し引いたアプリ分で Linux と比べると:
+
+  | 構成 | Linux | Windows | 差 |
+  |---|---|---|---|
+  | inline scale 2 / tiles 1(1080p) | 9642 MiB | 8925 MiB | **-717** |
+  | offline Phase 2 scale 2(480p) | 6070 MiB | 6418 MiB | +348 |
+  | offline Phase 2 scale 4(480p) | 11494 MiB | 13040 MiB | **+1546** |
+
+  scale 4 は 1024px で処理するため断片化が効き、tiny-long の reserved が Linux の
+  「フラット ~11.9 GB」より **+1〜2 GB** 膨らむ。scale 2 は 512px 処理でこれが起きず、
+  Windows のほうがむしろ低い。**「Windows は一律 +1〜2 GB」という見積りは
+  scale 2 には当てはまらない。**
 - **WDDM デスクトップ常駐が ~1 GB** を取る(ヘッドレス Linux ではほぼ 0)。16 GB
   カードの実効空きは **~15.2 GB**。ブラウザや IDE も開いた実デスクトップでは
   アイドルで ~2 GB を超えることもある。
@@ -382,8 +410,28 @@ VRAM が許す**最小の枚数**を選ぶ。2 で収まれば 2、天井に張�
 
   tiles `1` は 480p でも 1080p でも完走した(offload 0 回、OOM 警告 0 件)が、
   ピークは物理天井(16303 MiB)まで 400 MiB を切り、常駐アプリの変動で OOM に
-  転じうる。**1080p の常用は `--flashvsr-tiles 2`**(余裕 ~2 GB、減速 +25%)。
+  転じうる。**scale 4 での 1080p 常用は `--flashvsr-tiles 2`**(余裕 ~2 GB、減速 +25%)。
   短冊境界のシーム(バンディング、色調ずれ)はこの実測でも検出されなかった。
+- scale 2 と scale 4 の実測(RTX 5060 Ti 16 GB、常駐 1870 MiB、GPU 全体ピーク。
+  480p = 852x480 / 10661 フレーム、1080p = 1920x1080 / 6242 フレーム):
+
+  | モード | scale / tiles | 解像度 | ピーク | 天井までの余裕 | 壁時計 |
+  |---|---|---|---|---|---|
+  | inline | 2 / 1 | 480p | 10237 MiB | 6074 MiB | 824 s |
+  | inline | 2 / 1 | 1080p | **10795 MiB** | **5516 MiB** | 575 s |
+  | inline | 4 / 2 | 1080p | 15148 MiB | 1163 MiB | 2519 s |
+  | offline | 2 | 480p | 8288 MiB | 8023 MiB | 1220 s |
+  | offline | 4 | 480p | 14910 MiB | 1401 MiB | 3174 s |
+
+  全走行で offload 0 回、worker の clip リトライ 0 件、出力フレーム数は入力と一致。
+  scale 4 / tiles 2 の壁時計は scale 2 / tiles 1 の 4.38 倍で、Linux の 4.35 倍と一致する。
+  **scale 4 側(inline 15148 MiB、offline 14910 MiB)は常駐 1.9 GB 込みの値**なので、
+  常駐が 2.5 GB あるマシンでは天井まで 500 MiB を切る。scale 4 を 16 GB で回すなら
+  常駐アプリの管理が前提になる。
+- オフラインの bundle 実サイズは見積りどおり(480p / 10661 フレーム):
+  scale 2 は見積り 7.0 GiB に対し実測 8.1 GiB、scale 4 は見積り 28.1 GiB に対し
+  実測 30 GiB(1024px 出力 29 GiB + 256px dump 1000 MB)。どちらも
+  「見積り + dump 分」の範囲に収まる。Phase 2 の `UnicodeEncodeError` は発生しない。
 - 実測ピーク(scale 4 / tiny-long / bf16 / sage / 85 フレーム、reserved 値):
   - **256px 入力(jasna の実ワークロード): ~13.0 GB** — Phase 2 は GPU を単独占有
     するので、オフラインは 16 GB Windows で動く。
