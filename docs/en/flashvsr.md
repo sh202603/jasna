@@ -1,22 +1,26 @@
-# FlashVSR offline secondary restoration (`+modi`)
+# FlashVSR secondary restoration (`+modi`)
 
-`--secondary-restoration flashvsr` upscales each restored 256px mosaic crop to
-1024px (4x) with [FlashVSR](https://github.com/OpenImagingLab/FlashVSR)
+`--secondary-restoration flashvsr` / `flashvsr-inline` upscale each restored
+256px mosaic crop with [FlashVSR](https://github.com/OpenImagingLab/FlashVSR)
 (one-step streaming diffusion VSR; jasna uses the
 [`lihaoyun6/FlashVSR_plus`](https://github.com/lihaoyun6/FlashVSR_plus) fork) to
 recover texture realism the primary BasicVSR++ model leaves blurry on large
-mosaic regions, close-ups, and 4K sources.
+mosaic regions, close-ups, and 4K sources. The crop is processed at 1024px (4x,
+the model's native factor) or, with `--flashvsr-scale 2`, at 512px; either way
+the blend shrinks it back onto the frame, so the output resolution never
+changes. The output crops are always color-corrected against the primary
+restoration they came from (see [Color correction](#color-correction)).
 
-FlashVSR has two modes:
+FlashVSR has two modes. Both are supported; pick by setup:
 
-- **`--secondary-restoration flashvsr` (offline 3-phase)** — three processes via
-  intermediate files. Works on **12 GB-class GPUs** and with an unpatched FlashVSR
-  checkout, and supports staged resume. Most of this document describes this mode.
-- **`--secondary-restoration flashvsr-inline` (inline, single pass)** — runs
-  FlashVSR inside the normal streaming pipeline with **no intermediate files, no
-  disk gate, and no double encode**. Requires a **16 GB card and a FlashVSR
-  checkout with the tiny-long patch**. **Deprecated: scheduled for removal in a
-  future release; prefer the offline mode.** See "Inline mode" at the end.
+| | `flashvsr-inline` (single pass) | `flashvsr` (offline 3-phase) |
+|---|---|---|
+| Fits | the `basicvsrpp` primary on a 16 GB card: one pass, **no intermediate files, no disk gate, no double encode** | the SeedVR2 primary (the maximum-quality stack), 12 GB-class GPUs, long sources that need staged resume |
+| FlashVSR pipeline | tiny-long (VRAM independent of clip length; **requires the tiny-long patch**) | tiny (no patch needed) |
+| With `--restoration-model-name seedvr2` | rejected at startup (two resident workers exceed 16 GB) | allowed |
+
+Most of this document describes the offline mode; inline is covered in
+"Inline mode" at the end.
 
 Why offline 3-phase exists: FlashVSR's tiny mode peaks at **12–16 GB VRAM on its
 own**, so it cannot co-reside with jasna's primary pipeline on a 16 GB card.
@@ -34,8 +38,8 @@ next starts, so peak VRAM is never live at the same time:
 | Phase | Env | ~VRAM | Work |
 |-------|-----|-------|------|
 | 1 (dump) | jasna | ~9 GB | decode + detect + BasicVSR++ primary restoration; serialize every clip's 256px crops + masks + geometry to a **bundle** on disk. blend/encode is throwaway. |
-| 2 (FlashVSR 4x) | FlashVSR | 12–16 GB | upscale each clip's 256px crops to 1024px, write them back into the bundle. |
-| 3 (reblend) | jasna | light | re-decode the source, re-assemble the restore results from the bundle, blend the 1024px crops back in, and encode the final output. |
+| 2 (FlashVSR) | FlashVSR | 12–16 GB | upscale each clip's 256px crops to 1024px (512px at `--flashvsr-scale 2`), color-correct them, write them back into the bundle. |
+| 3 (reblend) | jasna | light | re-decode the source, re-assemble the restore results from the bundle, blend the upscaled crops back in, and encode the final output. |
 
 Phase 1 and Phase 3 run as `jasna --flashvsr-phase {dump,reblend}` subprocesses
 (dispatched in `jasna/__main__.py` before the multiprocessing guard, mirroring
@@ -48,8 +52,8 @@ persistent when you pass `--flashvsr-bundle-dir`, so a run that fails partway ca
 be resumed from the phase that failed (completed clips are skipped).
 
 The geometry the blend needs (`scale_offsets`) is derived from the restored
-frame's actual size at blend time, so FlashVSR's 4x output re-blends with **zero
-metadata rewrite**.
+frame's actual size at blend time, so FlashVSR's output re-blends with **zero
+metadata rewrite** at either scale.
 
 ## Requirements
 
@@ -68,11 +72,16 @@ These are the exact steps verified on an RTX 5080 (sm120, 16 GB), Linux, CUDA
 git clone https://github.com/lihaoyun6/FlashVSR_plus
 cd FlashVSR_plus
 
-# 2. Create a uv-managed *standalone* Python venv. This is mandatory. FlashVSR's
-#    Triton Sparse_SageAttention kernel is JIT-compiled at runtime and needs the
-#    Python dev headers (Python.h); a system or conda Python does not ship them and
-#    the JIT dies with a "fatal error: Python.h" — uv's managed Python includes them.
-uv venv --python 3.13 --python-preference only-managed
+# 2. Create the venv from a Python that ships the dev headers (Python.h). This is
+#    mandatory: FlashVSR's Triton Sparse_SageAttention kernel is JIT-compiled at
+#    runtime against them, and a header-less system or conda Python dies with
+#    "fatal error: Python.h" (or, worse, tiny-long silently returns 0 frames).
+#    Either a uv-managed standalone Python or a system Python with its -dev
+#    package (e.g. python3.13-dev) works. CAUTION: if uv itself runs inside a
+#    snap-confined app (e.g. snap VSCode), its managed Pythons land under a snap
+#    revision path and the venv dies on the next snap refresh; prefer an explicit
+#    stable interpreter path then:
+uv venv --python 3.13 --python-preference only-managed     # or: uv venv --python /usr/bin/python3.13
 
 # 3. Install FlashVSR's dependencies into that venv from the CUDA wheel index that
 #    matches your CUDA (jasna is verified on cu130; use .../whl/cu128 for CUDA 12.8).
@@ -122,6 +131,7 @@ jasna --input in.mp4 --output out.mkv \
 | `--flashvsr-model-dir` | `<repo>/models/FlashVSR-v1.1` | FlashVSR weights directory. |
 | `--flashvsr-version` | `11` | Model version (`10` or `11`). |
 | `--flashvsr-dtype` | `bf16` | Compute dtype (`fp16` / `bf16`). |
+| `--flashvsr-scale` | `4` | Processing scale for both modes: `4` = model-native 1024px, `2` = 512px (faster, lower VRAM). See [Processing scale](#processing-scale---flashvsr-scale). |
 | `--flashvsr-max-clip-frames` | `32` | Caps Phase 1 `--max-clip-size` so each clip fits FlashVSR tiny-mode VRAM. |
 | `--flashvsr-unload-dit` / `--no-flashvsr-unload-dit` | on | Offload the FlashVSR DiT before VAE decode (saves VRAM). |
 | `--flashvsr-tiled-vae` / `--no-flashvsr-tiled-vae` | on | Tile the FlashVSR VAE decode (saves VRAM). |
@@ -129,7 +139,70 @@ jasna --input in.mp4 --output out.mkv \
 | `--flashvsr-bundle-dir` | temp | Persist the intermediate bundle here (enables stage resume). |
 | `--flashvsr-keep-bundle` | off | Keep the bundle after completion (implied by `--flashvsr-bundle-dir`). |
 
-FlashVSR is fixed at 4x; there is no `--flashvsr-scale`.
+Color correction has no flag: it is always on (below).
+
+### Processing scale (`--flashvsr-scale`)
+
+FlashVSR is a 4x model: a 256px crop is bicubic-pre-upscaled by the scale and
+the DiT then restores it at that size, so `4` processes at the model-native
+1024px. `--flashvsr-scale 2` processes at 512px instead. Because jasna's blend
+derives the crop geometry from the restored frame's actual size, both scales
+re-blend onto the frame with no other change and the output video resolution is
+the same either way.
+
+Scale 2 is an opt-in trade: the model is 4x-trained, so it runs off its training
+factor, but it is much cheaper. Measured on the lada-ex implementation this
+worker is kept identical with (RTX 5080 16 GB, 480p, `--tensorrt`): scale 2 at
+tiles 1 ran about **5x faster** than scale 4 at tiles 2 (96 s vs 449 s end to
+end) with the whole-GPU peak about **4 GB lower** (11.3–11.5 GB vs
+14.8–15.1 GB), and it passed the same gates (flow-warping error ratio 1.128 vs
+the ≤1.2 gate; visual A/B judged clean). The default stays at 4 (the
+model-native factor the original quality gates were run at).
+
+jasna's own measurements (RTX 5080 16 GB, Linux, `small-01.mp4` 480p / 4930
+frames with mosaic throughout, output frame count = input in every run; wall
+clock is the whole command, VRAM is the whole-GPU `nvidia-smi` peak):
+
+| Mode | Scale / tiles | Wall clock | FlashVSR time | Peak VRAM | Notes |
+|---|---|---|---|---|---|
+| primary only | — | 26 s | — | 3.8 GB | reference (clip 32 + fp8-recon) |
+| inline | 4 / 2 | 853 s | 841 s | 13.4 GB | |
+| inline | 2 / 1 | 175 s | 163 s | 9.9 GB | **4.9x faster, 3.5 GB lower** than 4 / 2 |
+| inline, 1080p (`test-flashvsr-fhd-02`, 4203 f) | 2 / 1 | 283 s | 274 s | 10.7 GB | no offloads, no allocator warnings |
+| offline | 4 | 920 s | Phase 2 864 s | 13.1 GB | bundle 16 GB (gate estimate 14.8 GiB) |
+| offline | 2 | 410 s | Phase 2 361 s | 7.8 GB | bundle 4.3 GB (gate estimate 3.7 GiB) |
+
+jasna's absolute times are about half of lada-ex's for the same worker, and
+that is the clip regime, not the worker: both jasna modes cap FlashVSR clips at
+32 frames (with the 8-frame temporal overlap and the 8n+5 padding FlashVSR
+needs, the worker sees ~1.3 DiT frames per source frame, 175 clips here) and
+pay tiny-long's per-call warm-up every clip, whereas lada-ex feeds 180-frame
+clips. An A/B against the pre-port worker on the same clips gave the same
+FlashVSR time (162 s vs 163 s at scale 2), so the port itself costs nothing;
+the always-on color correction adds ~7 % of FlashVSR time.
+
+### Color correction
+
+FlashVSR's generated crops can drift in tone from the primary restoration they
+were built from; after the blend that reads as a color mismatch between the
+restored region and its surroundings. Both modes therefore always correct each
+output crop against the **bicubic-upscaled input crop** (the primary output),
+using a wavelet reconstruction: the output keeps FlashVSR's high frequencies
+(texture) on the input's low frequencies (local tone). It is applied once per
+clip on the whole crop (never per strip), before quantization, by the same
+function in both modes.
+
+Measured as the median per-channel |Δmean| inside the pixels the secondary
+changed (8-bit, vs the primary-only output of the same clip regime): on
+lada-ex, no correction 5.28 → AdaIN 0.98 → **wavelet 0.34** (0.32 at scale 2);
+on jasna at scale 2 (480p `small-01`), inline 1.76 → 0.43 → **0.24** and offline
+1.61 → **0.24** (the two modes land on the same value, as expected from sharing
+the function). Upstream FlashVSR_plus has its own `color_fix`, but jasna does
+not use it: its call is wrapped in a bare `except: pass`, so a failure is
+indistinguishable from "off".
+
+There is no CLI flag. For A/B verification only, the environment variable
+`JASNA_FLASHVSR_COLOR_FIX=adain|wavelet|none` overrides the method in both modes.
 
 ### Why the clip-length cap
 
@@ -139,13 +212,17 @@ at 65 frames on a 16 GB card, so jasna caps the primary clip length
 (`--flashvsr-max-clip-frames`, default 32) to keep every clip within that budget.
 This is why FlashVSR-mode clips are shorter than a normal run's; the crossfade at
 clip seams handles the extra boundaries. Raising the cap risks OOM in Phase 2.
+The cap is the same at `--flashvsr-scale 2`, where tiny's latents are a quarter
+the size (Phase 2 peaked at 7.8 GB vs 13.1 GB at scale 4 on the 480p clip);
+relaxing it there is a possible follow-up, not something the current build does.
 
 ## Disk space
 
-The bundle is dominated by Phase 2's **uncompressed 1024px output**: every
-restored crop-frame is 1024×1024×3 ≈ **3 MiB**, whereas the whole 256px primary
+The bundle is dominated by Phase 2's **uncompressed upscaled output**: every
+restored crop-frame is 1024×1024×3 ≈ **3 MiB** at the default scale 4 (a quarter
+of that, 0.75 MiB, at `--flashvsr-scale 2`), whereas the whole 256px primary
 dump for a clip is only ~3 MiB. So bundle size tracks the number of mosaic
-crop-frames and grows with video length:
+crop-frames and grows with video length (figures below are for scale 4):
 
 - Rule of thumb: **~4 MB per mosaic-containing source frame** — roughly **~8 GB
   per minute** of 30 fps footage that is mosaiced throughout (proportionally less
@@ -166,9 +243,9 @@ Phase 3 begins, so they all coexist on disk at once.
 
 jasna guards this automatically: before Phase 1 it warns if the bundle dir is on
 tmpfs and prints free space vs a worst-case estimate; and after Phase 1 — once the
-real clip count is known — it computes the exact 1024px output size and **aborts
-before the expensive Phase 2** if it won't fit (keeping the bundle so you can point
-`--flashvsr-bundle-dir` at a bigger disk and resume).
+real clip count is known — it computes the exact output size for the selected
+scale and **aborts before the expensive Phase 2** if it won't fit (keeping the
+bundle so you can point `--flashvsr-bundle-dir` at a bigger disk and resume).
 
 ## Limitations
 
@@ -187,14 +264,12 @@ before the expensive Phase 2** if it won't fit (keeping the bundle so you can po
 
 ## Inline mode (`--secondary-restoration flashvsr-inline`)
 
-> **Deprecated**: inline mode is scheduled for removal in a future release.
-> Prefer the offline 3-phase mode; combined with the SeedVR2 primary restorer
-> it also covers the maximum-quality use case.
-
 Uses the same FlashVSR checkout / weights / venv and the same `--flashvsr-*`
-flags (`repo` / `python` / `model-dir` / `version` / `dtype`) as the offline
-path, but creates **no intermediate files** and runs FlashVSR as a secondary
-restorer inside jasna's normal streaming pipeline.
+flags (`repo` / `python` / `model-dir` / `version` / `dtype` / `scale`) as the
+offline path, but creates **no intermediate files** and runs FlashVSR as a
+secondary restorer inside jasna's normal streaming pipeline. It is the mode for
+the `basicvsrpp` primary on a 16 GB card; it cannot be combined with the SeedVR2
+primary (two resident workers exceed 16 GB; use the offline mode for that stack).
 
 ```bash
 jasna --input in.mp4 --output out.mkv \
@@ -208,10 +283,10 @@ jasna --input in.mp4 --output out.mkv \
 | | `flashvsr` (offline 3-phase) | `flashvsr-inline` |
 |---|---|---|
 | Path | 3 processes: dump → FlashVSR → reblend | single streaming pass |
-| Intermediate files | 256px + 1024px bundle (tens of GB) | **none** |
+| Intermediate files | 256px + upscaled bundle (tens of GB) | **none** |
 | Encodes | 2 (throwaway + final) | 1 |
 | FlashVSR mode | tiny (O(T), ~12–16 GB) | **tiny-long (O(1), ~11.9 GB)** |
-| VRAM | phases non-concurrent, so effectively tiny alone | **co-resident** with primary (~14.8 GB measured on a 16 GB card) |
+| VRAM | phases non-concurrent, so effectively tiny alone | **co-resident** with primary (scale 4: ~14.8 GB measured on a 16 GB card; scale 2: ~10 GB) |
 | FlashVSR checkout | no patch needed | **requires the tiny-long multi-chunk fix** |
 | Staged resume | yes (persistent bundle) | no (single pass) |
 | Progress / cancel / GUI | 3-phase flow | same as any secondary |
@@ -248,7 +323,8 @@ stays).
 - Synchronous. FlashVSR (~15 crop-fps) is the rate limiter, so mosaic-heavy stretches
   run at that speed (mosaic-free frames stay fast on the primary alone). Because
   FlashVSR dominates wall-clock, lowering `--batch-size` costs almost nothing.
-- VRAM, on a **16 GB card with a desktop resident**: ~14.8 GB combined at 480p, but
+- VRAM, on a **16 GB card with a desktop resident**, at the default scale 4:
+  ~14.8 GB combined at 480p, but
   **1080p+ runs right at the physical ceiling** (measured ~15.8 GB peak). It stays up
   because the worker's `expandable_segments` allocator and jasna's `vram_offloader`
   (which spills queued frames to system RAM) absorb the pressure — expect
@@ -256,7 +332,10 @@ stays).
   crash) and heavy offloading at 1080p. The first remedy when the ceiling is close is
   **`--flashvsr-tiles`** (next section); `--batch-size 2` (or `1`) and disabling MPS
   (frees ~490 MB) also help. Use the offline `flashvsr` mode for GPUs with less VRAM
-  or an unpatched checkout.
+  or an unpatched checkout. **`--flashvsr-scale 2` changes the picture**: untiled,
+  it peaks at 9.9 GB at 480p and 10.7 GB at 1080p on Linux (zero offloads, zero
+  allocator warnings), so it needs neither tiling nor the ceiling tricks; see
+  [Processing scale](#processing-scale---flashvsr-scale) for the full table.
 - **On Windows, `expandable_segments` is unavailable and the worker's reserved VRAM
   balloons to ~13 GB**, so untiled inline runs pinned to the physical ceiling (it
   completes, but with almost no headroom). At 1080p, use **`--flashvsr-tiles 2`**.
@@ -282,6 +361,13 @@ Fewer strips are both faster and better (less overlap compute, wider spatial
 context per strip), so pick the **smallest count that fits your VRAM**: `2` if it
 fits, `3` when still pinned at the ceiling or OOMing, `4` as the last step.
 
+The table is for scale 4, where the strip height snaps to a 32-multiple (so the
+4x-upscaled strip is the 128-multiple the DiT needs). At `--flashvsr-scale 2`
+the snap is 64, so the strips round up larger (tiles `2` = 2 × 256w×192h with a
+128 px overlap, `3` = 3 × 128h, `4` = 4 × 128h) and the overlap compute grows;
+scale 2 rarely needs tiling in the first place, since its untiled peak already
+sits well below the ceiling.
+
 Quality: strip boundaries are feather-blended; hardware verification (Windows /
 RTX 5080, same-frame comparison against tiles 1) found no banding, no steps, and
 no per-strip color shift — differences stay within the diffusion model's
@@ -293,11 +379,15 @@ harmless in practice since the blend feathers crop borders).
 
 - Synchronous `SecondaryRestorer`:
   `jasna/restorer/flashvsr_inline_secondary_restorer.py` (spawns a resident FlashVSR
-  venv worker, length-prefixed RGB wire, `close()` to shut down).
+  venv worker, length-prefixed uint8 BGR wire with the RGB flip on this side,
+  `close()` to shut down).
 - Worker (runs under the FlashVSR venv, no jasna import):
   `jasna/restorer/flashvsr_inline_worker.py` (tiny-long pipe, lossless tensor capture
   by replacing `imageio.get_writer`, next_8n5 padding to absorb small clips and return
-  exactly T frames; the strip split and feather blend also live here).
+  exactly T frames; the strip split, feather blend and the color correction also
+  live here). The file is kept **byte-identical with lada-ex's
+  `flashvsr_worker.py`** (same policy as the SeedVR2 worker), which is why the wire
+  is lada-native BGR; a FlashVSR_plus breakage is fixed once and diff-copied.
 - CLI wiring: `jasna/main.py`. Tests: `tests/test_flashvsr_inline.py`.
 
 ## Windows notes
@@ -357,7 +447,7 @@ line: **on a 16 GB card, use offline (`flashvsr`), or inline with `--flashvsr-ti
 - CLI wiring / early dispatch: `jasna/main.py`.
 - Tests: `tests/test_flashvsr_offline.py`, `tests/test_main.py`.
 
-Reused jasna assets: `BlendBuffer` / `crop_buffer.scale_offsets` (the 1024px
-crops re-blend unchanged), `RestorationPipeline.build_secondary_result` (the
+Reused jasna assets: `BlendBuffer` / `crop_buffer.scale_offsets` (the upscaled
+crops re-blend unchanged at either scale), `RestorationPipeline.build_secondary_result` (the
 `[keep_start:keep_end]` slice), `pipeline_items` (the serialization units), and
 `media/backend.make_video_{reader,encoder}` for Phase 3 decode/encode.
