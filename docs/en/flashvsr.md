@@ -323,17 +323,18 @@ stays).
   run at that speed (mosaic-free frames stay fast on the primary alone). Because
   FlashVSR dominates wall-clock, lowering `--batch-size` costs almost nothing.
 - VRAM, on a **16 GB card with a desktop resident**, at the default scale 4:
-  ~14.8 GB combined at 480p, but
-  **1080p+ runs right at the physical ceiling** (measured ~15.8 GB peak). It stays up
-  because the worker's `expandable_segments` allocator and jasna's `vram_offloader`
-  (which spills queued frames to system RAM) absorb the pressure — expect
-  `expandable_segments: memory mapping failed with OOM` **warnings** (benign; not a
-  crash) and heavy offloading at 1080p. The first remedy when the ceiling is close is
-  **`--flashvsr-tiles`** (next section); `--batch-size 2` (or `1`) and disabling MPS
-  (frees ~490 MB) also help. Use the offline `flashvsr` mode for GPUs with less VRAM
-  or an unpatched checkout. **`--flashvsr-scale 2` changes the picture**: untiled,
-  it peaks at 9.9 GB at 480p and 10.7 GB at 1080p on Linux (zero offloads, zero
-  allocator warnings), so it needs neither tiling nor the ceiling tricks; see
+  **do not run untiled on 16 GB**. Both 480p and 1080p sit at the physical
+  ceiling (measured ~15.8 GB) with `expandable_segments: memory mapping failed
+  with OOM` warnings and offloading, and the worker can genuinely OOM mid-clip
+  (32 of 57 clips at 1080p / clip 90). The worker retries that clip once and
+  stops if it fails again (earlier builds filled the rest of a failed clip by
+  repeating its last frame, which showed up as ghosting). Use
+  **`--flashvsr-tiles 2`** (next section; 13.7 GB at 480p, 14.7 GB at 1080p,
+  zero offloads). Use the offline `flashvsr` mode for GPUs with less VRAM or
+  an unpatched checkout. **`--flashvsr-scale 2` changes the picture**: untiled,
+  it peaks at 10.1 GB at 480p and 11.3 GB at 1080p on Linux (clip 90; zero
+  offloads, zero allocator warnings), so it needs neither tiling nor the ceiling
+  tricks; see
   [Processing scale](#processing-scale---flashvsr-scale) for the full table.
 - **On Windows, `expandable_segments` is unavailable and the worker's reserved VRAM
   balloons to ~13 GB**, so untiled inline runs pinned to the physical ceiling (it

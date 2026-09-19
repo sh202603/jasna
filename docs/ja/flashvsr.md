@@ -298,17 +298,16 @@ git apply /path/to/jasna/patches/flashvsr_plus_tinylong_multichunk_fix.patch
 - 同期実行。FlashVSR(~15 crop-fps)が律速なので、モザイクが多い区間はその速度に
   律速される(モザイクの無いフレームは一次のみで高速)。FlashVSR が壁時計を支配する
   ため、`--batch-size` を下げても速度低下はほぼ無い。
-- VRAM(**16 GB カード + デスクトップ常駐**時、既定の scale 4): 480p で combined
-  ~14.8 GB。ただし **1080p 以上は物理天井際**まで上がる(実測 ~15.8 GB ピーク)。worker の
-  `expandable_segments` と jasna の `vram_offloader`(キューフレームを system RAM へ
-  退避)が圧を吸収して落ちない(1080p では
-  `expandable_segments: memory mapping failed with OOM` の**警告**(無害。クラッシュ
-  ではない)と大量の offload が出る)。天井が近いときの第一の対策は
-  **`--flashvsr-tiles`**(次節)。補助として `--batch-size 2`(または `1`)や
-  MPS 停止(~490 MB 増)もある。VRAM が少ない環境や未パッチ checkout では
-  オフライン(`flashvsr`)を使う。**`--flashvsr-scale 2` では様相が変わる**: 分割なしで
-  Linux の 480p 9.9 GB、1080p 10.7 GB(offload 0、アロケータ警告 0)で、タイリングも
-  天井対策も要らない。全表は「[処理倍率](#処理倍率--flashvsr-scale)」。
+- VRAM(**16 GB カード + デスクトップ常駐**時、既定の scale 4): **tiles 無しは
+  16 GB では使わない**。480p でも 1080p でも物理天井に張り付き(実測 ~15.8 GB)、
+  `expandable_segments: memory mapping failed with OOM` の警告と offload が出た上で、
+  clip の途中で worker が実際に OOM することがある(1080p / clip 90 で 57 clip 中
+  32 回)。worker はその clip を 1 回リトライし、再失敗なら停止する(以前は失敗した
+  clip の残りを最後のフレームの複製で埋めていたため、残像として見えていた)。
+  **`--flashvsr-tiles 2`** を使う(次節。480p 13.7 GB、1080p 14.7 GB、offload 0)。
+  VRAM が少ない環境や未パッチ checkout ではオフライン(`flashvsr`)を使う。**`--flashvsr-scale 2` では様相が変わる**: 分割なしで
+  Linux の 480p 10.1 GB、1080p 11.3 GB(clip 90。offload 0、アロケータ警告 0)で、
+  タイリングも天井対策も要らない。全表は「[処理倍率](#処理倍率--flashvsr-scale)」。
 - **Windows では `expandable_segments` が使えず worker の reserved が ~13 GB に膨らむ**
   ため、tiles 無しの inline は物理天井に張り付く(完走はするが余裕がほぼ無い)。
   1080p では **`--flashvsr-tiles 2` を推奨**。実測は

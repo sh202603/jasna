@@ -297,6 +297,39 @@ def _wavelet_reconstruct(content, style, levels=5):
     return c_high + s_low
 
 
+def _pipe_checked(pipe, captured, expected, device, make_lq, **pipe_kwargs):
+    """Run ``pipe(LQ_video=make_lq(), ...)`` and verify it produced the clip.
+
+    tiny-long swallows exceptions inside its chunk loop (it prints the traceback
+    and returns False), so a mid-clip failure such as an OOM at the VRAM ceiling
+    shows up only as too few captured frames. Left unchecked, the frame
+    alignment below would fill the missing tail by repeating the last good
+    frame: a frozen crop blended over moving video, seen as ghosting (1080p,
+    scale 4, tiles 1, 90-frame clips on a 16 GB card). A successful run yields
+    exactly ``expected`` (= 8n+5 padded) frames. OOM there is transient, so
+    retry once after releasing the cache, then fail the clip loudly.
+    ``make_lq`` rebuilds the (single-use) LQ generator for the retry.
+    """
+    import torch
+
+    got = 0
+    for attempt in (1, 2):
+        captured.clear()
+        ok = pipe(LQ_video=make_lq(), **pipe_kwargs)
+        got = len(captured)
+        if ok is not False and got >= expected:
+            return
+        if attempt == 1:
+            print(f"[flashvsr-worker] pipeline failed mid-clip ({got}/{expected} frames); "
+                  "retrying once", file=sys.stderr)
+            if str(device).startswith("cuda"):
+                torch.cuda.empty_cache()
+    raise RuntimeError(
+        f"FlashVSR pipeline failed mid-clip ({got}/{expected} frames after a retry); "
+        "see the traceback above (out of VRAM? raise --flashvsr-tiles)"
+    )
+
+
 def _color_fix_frames(out_float, lq_frames, method, device):
     """Correct ``out_float`` (n, oh, ow, 3) float32 RGB 0..255 against the input.
 
@@ -432,22 +465,20 @@ def main() -> None:
                 for (x1, y1, x2, y2) in tile_coords:
                     input_tile = frames[:, y1:y2, x1:x2, :]
                     tth, ttw, F = run.get_input_params(input_tile, scale=scale)
-                    LQ_tile = run.input_tensor_generator(input_tile, device, scale=scale, dtype=dtype)
                     # _fake_get_writer clears `captured` at each pipe() start, so
                     # after this call `captured` holds only this strip's frames.
-                    pipe(
+                    _pipe_checked(
+                        pipe, captured, int(frames.shape[0]), device,
+                        lambda: run.input_tensor_generator(input_tile, device, scale=scale, dtype=dtype),
                         prompt="", negative_prompt="", cfg_scale=1.0, num_inference_steps=1, seed=0,
-                        tiled=False, LQ_video=LQ_tile, num_frames=F, height=tth, width=ttw,
+                        tiled=False, num_frames=F, height=tth, width=ttw,
                         is_full_block=False, if_buffer=True,
                         topk_ratio=2 * 768 * 1280 / (tth * ttw), kv_ratio=3, local_range=11,
                         color_fix=False, unload_dit=False, fps=30, output_path=devnull_out,
                         tiled_dit=True,
                     )
-                    if len(captured) == 0:
-                        raise RuntimeError(f"tiled strip produced 0 frames for {n}-frame clip")
                     # Snapshot now: the next strip's pipe() will clear `captured`.
                     tile_frames_list.append(np.ascontiguousarray(np.stack(captured, axis=0)))
-                    del LQ_tile
                     if str(device).startswith("cuda"):
                         torch.cuda.empty_cache()  # release each strip's peak before the next
                 stitched = _stitch_tiles(
@@ -461,31 +492,21 @@ def main() -> None:
                 out_arr = np.ascontiguousarray(
                     np.clip(out_float, 0, 255).round().astype(np.uint8)
                 )
-                if out_arr.shape[0] < n:  # defensive pad, mirrors the single-shot path
-                    pad = np.repeat(out_arr[-1:], n - out_arr.shape[0], axis=0)
-                    out_arr = np.ascontiguousarray(np.concatenate([out_arr, pad], axis=0))
             else:
                 th, tw, F = run.get_input_params(frames, scale=scale)
-                LQ = run.input_tensor_generator(frames, device, scale=scale, dtype=dtype)
-
-                captured.clear()
-                pipe(
+                _pipe_checked(
+                    pipe, captured, int(frames.shape[0]), device,
+                    lambda: run.input_tensor_generator(frames, device, scale=scale, dtype=dtype),
                     prompt="", negative_prompt="", cfg_scale=1.0, num_inference_steps=1, seed=0,
-                    tiled=False, LQ_video=LQ, num_frames=F, height=th, width=tw,
+                    tiled=False, num_frames=F, height=th, width=tw,
                     is_full_block=False, if_buffer=True,
                     topk_ratio=2 * 768 * 1280 / (th * tw), kv_ratio=3, local_range=11,
                     color_fix=False, unload_dit=False, fps=30, output_path=devnull_out,
                     tiled_dit=True,
                 )
-                # captured: list of (1024,1024,3) uint8 HWC RGB, length >= n for
-                # tiny-long. Align to exactly n frames (trim; defensively pad by
-                # repeating the last).
-                if len(captured) == 0:
-                    raise RuntimeError(f"tiny-long produced 0 frames for {n}-frame clip")
-                out = captured[:n]
-                while len(out) < n:
-                    out.append(out[-1])
-                out_arr = np.ascontiguousarray(np.stack(out, axis=0))  # (n, 256*scale, 256*scale, 3) uint8
+                # captured: list of (1024,1024,3) uint8 HWC RGB, exactly the padded
+                # count on success (checked above). Trim to n.
+                out_arr = np.ascontiguousarray(np.stack(captured[:n], axis=0))  # (n, 256*scale, 256*scale, 3) uint8
                 if color_fix_method != "none":
                     out_float = _color_fix_frames(
                         out_arr.astype(np.float32), frames, color_fix_method, device)
