@@ -77,9 +77,10 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 | `--tvai-workers` | `2` | Parallel TVAI ffmpeg workers. |
 | `--tvai-denoise` | off | Apply TVAI Denoise before enhancement. |
 | `--flashvsr-repo` | — | *(+modi)* Path to your `FlashVSR_plus` checkout. Required for both FlashVSR modes. |
-| `--flashvsr-python` | `<repo>/.venv/bin/python` | *(+modi)* Python of the FlashVSR venv (uv-managed standalone build). |
+| `--flashvsr-python` | `<repo>/.venv/bin/python` | *(+modi)* Python of the FlashVSR venv (its base Python must ship the dev headers). |
 | `--flashvsr-model-dir` | `<repo>/models/FlashVSR-v1.1` | *(+modi)* FlashVSR weights directory. |
 | `--flashvsr-version` / `--flashvsr-dtype` | `11` / `bf16` | *(+modi)* Model version and compute dtype. |
+| `--flashvsr-scale` | `4` | *(+modi)* Processing scale for both modes: `4` = model-native 1024px, `2` = 512px (faster, lower VRAM). Output resolution is unchanged. |
 | `--flashvsr-tiles` | `1` | *(+modi)* Horizontal DiT strips for the inline mode (VRAM lever). |
 | `--flashvsr-max-clip-frames`, `--flashvsr-unload-dit`, `--flashvsr-tiled-vae`, `--flashvsr-bundle-dir`, `--flashvsr-keep-bundle` | see `--help` | *(+modi)* Offline-mode memory/disk knobs. See [flashvsr.md](flashvsr.md). |
 

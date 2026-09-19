@@ -611,8 +611,8 @@ def _validate_flashvsr_args(args: "argparse.Namespace") -> tuple[Path, Path, Pat
     if not fv_python.exists():
         raise FileNotFoundError(
             f"FlashVSR Python not found: {fv_python}. Pass --flashvsr-python. "
-            "It must be a uv-managed standalone Python venv (system Python lacks the "
-            "dev headers Triton JIT needs)."
+            "Its base Python must ship the dev headers the Triton JIT needs (a "
+            "uv-managed standalone Python, or a system Python with its -dev package)."
         )
 
     model_arg = str(args.flashvsr_model_dir).strip()
@@ -934,8 +934,9 @@ def add_flashvsr_arguments(group: "argparse._ArgumentGroup") -> None:
         type=str,
         default="",
         help="Python for the FlashVSR env (default: <repo>/.venv/bin/python; on Windows "
-             "<repo>/.venv/Scripts/python.exe). MUST be a uv-managed standalone Python venv; "
-             "system Python lacks the dev headers Triton JIT needs.",
+             "<repo>/.venv/Scripts/python.exe). Its base Python MUST ship the dev headers "
+             "the Triton JIT needs: a uv-managed standalone Python, or a system Python "
+             "with its -dev package.",
     )
     group.add_argument(
         "--flashvsr-model-dir",

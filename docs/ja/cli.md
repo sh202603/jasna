@@ -77,9 +77,10 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 | `--tvai-workers` | `2` | 並列で動かす TVAI ffmpeg ワーカー数。 |
 | `--tvai-denoise` | オフ | TVAI の高画質化処理の前にノイズ除去を適用します。 |
 | `--flashvsr-repo` | — | *(+modi)* `FlashVSR_plus` checkout のパス。FlashVSR 両モードで必須。 |
-| `--flashvsr-python` | `<repo>/.venv/bin/python` | *(+modi)* FlashVSR venv の Python（uv-managed standalone ビルド）。 |
+| `--flashvsr-python` | `<repo>/.venv/bin/python` | *(+modi)* FlashVSR venv の Python（基底 Python が開発ヘッダを持つこと）。 |
 | `--flashvsr-model-dir` | `<repo>/models/FlashVSR-v1.1` | *(+modi)* FlashVSR 重みのディレクトリ。 |
 | `--flashvsr-version` / `--flashvsr-dtype` | `11` / `bf16` | *(+modi)* モデルバージョンと計算 dtype。 |
+| `--flashvsr-scale` | `4` | *(+modi)* 両モード共通の処理倍率。`4` = モデルネイティブの 1024px、`2` = 512px（高速・低 VRAM）。出力解像度は変わりません。 |
 | `--flashvsr-tiles` | `1` | *(+modi)* inline モードの DiT 水平ストリップ数（VRAM 調整用）。 |
 | `--flashvsr-max-clip-frames`、`--flashvsr-unload-dit`、`--flashvsr-tiled-vae`、`--flashvsr-bundle-dir`、`--flashvsr-keep-bundle` | `--help` 参照 | *(+modi)* オフラインモードのメモリ/ディスク調整。詳細: [flashvsr.md](flashvsr.md)。 |
 

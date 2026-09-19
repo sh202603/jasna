@@ -1,22 +1,24 @@
-# FlashVSR オフライン二次復元(`+modi`)
+# FlashVSR 二次復元(`+modi`)
 
-`--secondary-restoration flashvsr` は、一次復元された 256px のモザイククロップを
-[FlashVSR](https://github.com/OpenImagingLab/FlashVSR)(one-step streaming
-diffusion VSR。jasna は
+`--secondary-restoration flashvsr` / `flashvsr-inline` は、一次復元された 256px の
+モザイククロップを [FlashVSR](https://github.com/OpenImagingLab/FlashVSR)
+(one-step streaming diffusion VSR。jasna は
 [`lihaoyun6/FlashVSR_plus`](https://github.com/lihaoyun6/FlashVSR_plus) fork を使用)
-で 1024px(4x)へ拡大し、一次の BasicVSR++ では大きなモザイク領域・接写・4K
-素材でぼやけがちなテクスチャの写実性を補う。
+で拡大し、一次の BasicVSR++ では大きなモザイク領域・接写・4K 素材でぼやけがちな
+テクスチャの写実性を補う。処理解像度はモデルネイティブの 1024px(4x)か、
+`--flashvsr-scale 2` で 512px。どちらでもブレンドがクロップを元の領域へ縮小合成する
+ため、出力動画の解像度は変わらない。出力クロップは常に、元になった一次復元結果を
+参照して色補正される(「[色補正](#色補正)」)。
 
-FlashVSR には 2 つのモードがある:
+FlashVSR には 2 つのモードがあり、どちらもサポートされる。構成で選ぶ:
 
-- **`--secondary-restoration flashvsr`(オフライン 3 段)** — 中間ファイルを介する 3
-  プロセス構成。**12 GB 級の GPU** でも動き、パッチ不要の FlashVSR checkout で使える。
-  段階再開が可能。以下は主にこのモードの説明。
-- **`--secondary-restoration flashvsr-inline`(inline、単一パス)** — 通常のストリー
-  ミングパイプラインに FlashVSR を挟む。**中間ファイル・ディスクゲート・二重 encode
-  が無い**。**16 GB カード + tiny-long パッチ当ての FlashVSR checkout が前提**。**非推奨
-  (今後のリリースで廃止予定)。オフラインモードを推奨**。詳細は
-  末尾の「inline モード」を参照。
+| | `flashvsr-inline`(単一パス) | `flashvsr`(オフライン 3 段) |
+|---|---|---|
+| 向く構成 | `basicvsrpp` 一次 + 16 GB カード。単一パスで**中間ファイル・ディスクゲート・二重 encode が無い** | SeedVR2 一次との併用(最高品質構成)、12 GB 級 GPU、段階再開が要る長尺 |
+| FlashVSR パイプライン | tiny-long(VRAM がクリップ長に依存しない。**tiny-long パッチ必須**) | tiny(パッチ不要) |
+| `--restoration-model-name seedvr2` との併用 | 起動時エラー(常駐 worker 2 つで 16 GB 超過) | 可 |
+
+以下は主にオフラインモードの説明で、inline は末尾の「inline モード」で扱う。
 
 オフライン 3 段が存在する理由: FlashVSR の tiny モードは**単体で 12–16 GB VRAM** を
 消費するため、jasna の一次パイプラインと 16 GB カード上で同時常駐できない。ピーク
@@ -33,8 +35,8 @@ FlashVSR の **tiny-long**(定メモリ ~11.9 GB、パッチ要)を使い、一�
 | 段 | 環境 | ~VRAM | 内容 |
 |----|------|-------|------|
 | 1 (dump) | jasna | ~9 GB | decode + detect + BasicVSR++ 一次復元。各 clip の 256px クロップ + マスク + 幾何をディスク上の **bundle** へ直列化。blend/encode は捨てる。 |
-| 2 (FlashVSR 4x) | FlashVSR | 12–16 GB | 各 clip の 256px クロップを 1024px に拡大し bundle へ書き戻す。 |
-| 3 (reblend) | jasna | 軽い | source を再デコードし、bundle から復元結果を再構成、1024px クロップを再 blend して最終出力を encode。 |
+| 2 (FlashVSR) | FlashVSR | 12–16 GB | 各 clip の 256px クロップを 1024px(`--flashvsr-scale 2` なら 512px)に拡大し、色補正して bundle へ書き戻す。 |
+| 3 (reblend) | jasna | 軽い | source を再デコードし、bundle から復元結果を再構成、拡大クロップを再 blend して最終出力を encode。 |
 
 Phase 1 / Phase 3 は `jasna --flashvsr-phase {dump,reblend}` のサブプロセスとして
 走る(`jasna/__main__.py` で multiprocessing ガードより前に分岐。`--compile-engines`
@@ -47,7 +49,7 @@ Phase 1 / Phase 3 は `jasna --flashvsr-phase {dump,reblend}` のサブプロセ
 clip はスキップ)。
 
 blend に必要な幾何(`scale_offsets`)は blend 時に復元フレームの実寸から導出される
-ので、FlashVSR の 4x 出力は**メタデータ改変ゼロ**で再 blend できる。
+ので、FlashVSR の出力はどちらの scale でも**メタデータ改変ゼロ**で再 blend できる。
 
 ## 必要なもの
 
@@ -66,11 +68,15 @@ RTX 5080(sm120, 16 GB)/ Linux / CUDA 13.0 で検証済みの再現手順。torch
 git clone https://github.com/lihaoyun6/FlashVSR_plus
 cd FlashVSR_plus
 
-# 2. uv-managed の *standalone* Python venv を作る。これは必須。FlashVSR の Triton
-#    Sparse_SageAttention カーネルは実行時 JIT され Python 開発ヘッダ(Python.h)を
-#    要するが、system / conda の Python には同梱されず JIT が
-#    「fatal error: Python.h」で落ちる。uv の managed Python はヘッダを含む。
-uv venv --python 3.13 --python-preference only-managed
+# 2. Python 開発ヘッダ(Python.h)を持つ Python で venv を作る。これは必須。FlashVSR の
+#    Triton Sparse_SageAttention カーネルは実行時にヘッダを使って JIT され、ヘッダの
+#    無い system / conda の Python では「fatal error: Python.h」で落ちる(さらに悪いと
+#    tiny-long が黙って 0 フレームを返す)。uv-managed の standalone Python か、-dev
+#    パッケージ(python3.13-dev 等)を入れた system Python のどちらかを使う。
+#    注意: uv 自体が snap 閉じ込めのアプリ(snap 版 VSCode 等)の中で動いていると、
+#    managed Python は snap リビジョンのパス配下に置かれ、次の snap refresh で venv が
+#    壊れる。その場合は安定パスのインタプリタを明示する:
+uv venv --python 3.13 --python-preference only-managed     # または: uv venv --python /usr/bin/python3.13
 
 # 3. CUDA に合う wheel index で FlashVSR の依存を venv に入れる
 #    (jasna は cu130 で検証。CUDA 12.8 なら .../whl/cu128)。
@@ -120,6 +126,7 @@ jasna --input in.mp4 --output out.mkv \
 | `--flashvsr-model-dir` | `<repo>/models/FlashVSR-v1.1` | FlashVSR 重みディレクトリ。 |
 | `--flashvsr-version` | `11` | モデル版(`10` / `11`)。 |
 | `--flashvsr-dtype` | `bf16` | 計算 dtype(`fp16` / `bf16`)。 |
+| `--flashvsr-scale` | `4` | 両モード共通の処理倍率。`4` = モデルネイティブの 1024px、`2` = 512px(高速・低 VRAM)。詳細は「[処理倍率](#処理倍率--flashvsr-scale)」。 |
 | `--flashvsr-max-clip-frames` | `32` | Phase 1 の `--max-clip-size` を上限化し、各 clip を FlashVSR tiny の VRAM に収める。 |
 | `--flashvsr-unload-dit` / `--no-flashvsr-unload-dit` | on | VAE decode 前に DiT をオフロード(VRAM 節約)。 |
 | `--flashvsr-tiled-vae` / `--no-flashvsr-tiled-vae` | on | FlashVSR の VAE decode をタイル化(VRAM 節約)。 |
@@ -127,7 +134,63 @@ jasna --input in.mp4 --output out.mkv \
 | `--flashvsr-bundle-dir` | temp | 中間 bundle をここに永続化(段階再開が可能に)。 |
 | `--flashvsr-keep-bundle` | off | 完了後も bundle を残す(`--flashvsr-bundle-dir` 指定時は暗黙的に有効)。 |
 
-FlashVSR は 4x 固定。`--flashvsr-scale` は無い。
+色補正にフラグは無い(常時適用。後述)。
+
+### 処理倍率(`--flashvsr-scale`)
+
+FlashVSR は 4x モデルで、256px クロップを倍率ぶん bicubic で前拡大してから DiT が
+そのサイズで復元する。`4` はモデルネイティブの 1024px 処理、`--flashvsr-scale 2` は
+512px 処理になる。jasna のブレンドは復元フレームの実寸からクロップ幾何を導くので、
+どちらの倍率でも他に変更なくフレームへ再合成され、出力動画の解像度は同じである。
+
+scale 2 はオプトインのトレードオフである。モデルは 4x で学習されているため学習倍率
+から外れるが、処理は大幅に軽い。この worker と逐語同一の lada-ex 実装での実測
+(RTX 5080 16 GB、480p、`--tensorrt`)では、scale 2 + tiles 1 は scale 4 + tiles 2 に
+対して e2e で**約 5 倍速**(壁時計 96 秒 vs 449 秒)、GPU 全体ピークは**約 4 GB 低い**
+(11.3〜11.5 GB vs 14.8〜15.1 GB)。品質ゲートも同じものを通過した(flow-warping
+error 比 1.128、ゲート ≤1.2。目視 A/B も合格)。既定は 4 のまま(初版の品質
+ゲートを通したモデルネイティブの倍率)。
+
+jasna 自身の実測(RTX 5080 16 GB / Linux、`small-01.mp4` 480p / 4930 フレーム・全編
+モザイク。全走行で出力フレーム数 = 入力。壁時計はコマンド全体、VRAM は `nvidia-smi` の
+GPU 全体ピーク):
+
+| モード | scale / tiles | 壁時計 | FlashVSR 時間 | VRAM ピーク | 備考 |
+|---|---|---|---|---|---|
+| 一次のみ | — | 26 秒 | — | 3.8 GB | 参照(clip 32 + fp8-recon) |
+| inline | 4 / 2 | 853 秒 | 841 秒 | 13.4 GB | |
+| inline | 2 / 1 | 175 秒 | 163 秒 | 9.9 GB | 4 / 2 比で **4.9 倍速、3.5 GB 低い** |
+| inline、1080p(`test-flashvsr-fhd-02`、4203 f) | 2 / 1 | 283 秒 | 274 秒 | 10.7 GB | offload 0、アロケータ警告 0 |
+| offline | 4 | 920 秒 | Phase 2 864 秒 | 13.1 GB | bundle 16 GB(ゲート見積り 14.8 GiB) |
+| offline | 2 | 410 秒 | Phase 2 361 秒 | 7.8 GB | bundle 4.3 GB(ゲート見積り 3.7 GiB) |
+
+同じ worker なのに jasna の壁時計が lada-ex の約 2 倍かかるのは clip の切り方の差で、
+worker の差ではない。jasna は両モードとも FlashVSR へ渡す clip を 32 フレームに
+上限化しており(temporal overlap 8 と FlashVSR が要求する 8n+5 パディングで、worker は
+ソース 1 フレームあたり約 1.3 DiT フレームを処理する。本素材で 175 clip)、clip ごとに
+tiny-long の呼び出し初期化を払う。lada-ex は 180 フレームの clip を渡す。移植前の
+worker との同一 clip での A/B は FlashVSR 時間が一致した(scale 2 で 162 秒 vs
+163 秒)ので、移植自体のコストはゼロで、常時適用の色補正が FlashVSR 時間の約 7% を
+足す。
+
+### 色補正
+
+FlashVSR が生成したクロップは、元になった一次復元結果から色味がずれることがあり、
+ブレンド後に復元領域と周囲の色調差として見える。そのため両モードとも、各出力
+クロップを常に**入力クロップ(一次出力)の bicubic 拡大**を参照に補正する。方式は
+wavelet 再構成で、FlashVSR 出力の高周波(テクスチャ)を入力の低周波(局所的な
+色調)の上に載せる。適用は clip ごとにクロップ全体へ 1 回(短冊ごとには行わない)、
+量子化の前で、両モードが同じ関数を使う。
+
+実測は、二次が変更した画素内のチャネル毎 median |Δmean|(8bit、同じ clip 構成の
+一次のみ出力に対して)。lada-ex: 補正なし 5.28 → AdaIN 0.98 → **wavelet 0.34**
+(scale 2 では 0.32)。jasna の scale 2(480p `small-01`): inline 1.76 → 0.43 →
+**0.24**、offline 1.61 → **0.24**(関数を共有する両モードが同じ値に落ちる)。
+上流の FlashVSR_plus にも `color_fix` はあるが jasna は使わない。呼び出しが裸の
+`except: pass` で包まれており、失敗しても「未適用」と区別が付かないためである。
+
+CLI フラグは無い。A/B 検証専用に、環境変数
+`JASNA_FLASHVSR_COLOR_FIX=adain|wavelet|none` で両モードの方式を上書きできる。
 
 ### clip 長を上限化する理由
 
@@ -137,12 +200,16 @@ Phase 2 は FlashVSR の **tiny** モードを使う。tiny は全 latent フレ
 (`--flashvsr-max-clip-frames`、既定 32)、各 clip をその予算内に収める。これが
 FlashVSR モードで clip が通常より短くなる理由で、増える継ぎ目は clip 境界の crossfade
 が吸収する。上限を上げると Phase 2 で OOM の恐れがある。
+上限は `--flashvsr-scale 2` でも同じ 32 である。scale 2 では tiny の latent が 1/4 に
+なり(480p 素材で Phase 2 のピークは scale 4 の 13.1 GB に対し 7.8 GB)、緩和の余地は
+あるが、現状のビルドでは行っていない(今後の検討事項)。
 
 ## ディスク容量
 
-bundle の容量は Phase 2 の**非圧縮 1024px 出力**が支配する。復元クロップ 1 枚が
-1024×1024×3 ≈ **3 MiB** で、256px 一次 dump は 1 clip 丸ごとで ~3 MiB。つまり
-bundle 容量はモザイク・クロップ枚数に比例し、動画が長いほど増える:
+bundle の容量は Phase 2 の**非圧縮の拡大出力**が支配する。復元クロップ 1 枚が既定の
+scale 4 で 1024×1024×3 ≈ **3 MiB**(`--flashvsr-scale 2` ではその 1/4 の 0.75 MiB)
+で、256px 一次 dump は 1 clip 丸ごとで ~3 MiB。つまり bundle 容量はモザイク・クロップ
+枚数に比例し、動画が長いほど増える(以下の数値は scale 4):
 
 - 目安: **モザイクを含む 1 ソースフレームあたり ~4 MB** ≒ 全編モザイクの 30fps 動画で
   **1 分あたり ~8 GB**(モザイクが一部の時間帯だけなら比例して少ない)。
@@ -160,8 +227,8 @@ bundle 容量はモザイク・クロップ枚数に比例し、動画が長い�
 > ——目安は *モザイク分数 × 8 GB*。段階再開も可能になる。
 
 jasna は自動でこれを見張る: Phase 1 前に bundle dir が tmpfs なら警告し、空き容量と
-最悪ケース見積りを表示。さらに Phase 1 後(実 clip 数が判明後)に 1024px 出力の正確な
-サイズを計算し、**入り切らなければ高コストな Phase 2 を始める前に中断する**(bundle は
+最悪ケース見積りを表示。さらに Phase 1 後(実 clip 数が判明後)に選択した scale での
+出力の正確なサイズを計算し、**入り切らなければ高コストな Phase 2 を始める前に中断する**(bundle は
 保持されるので `--flashvsr-bundle-dir` を大きいディスクに向けて再開できる)。
 
 ## 制約
@@ -179,13 +246,12 @@ jasna は自動でこれを見張る: Phase 1 前に bundle dir が tmpfs なら
 
 ## inline モード(`--secondary-restoration flashvsr-inline`)
 
-> **非推奨**: inline モードは今後のリリースで廃止予定。オフライン 3 段モードを
-> 推奨する。SeedVR2 一次復元と組み合わせれば、最高品質構成もオフライン側で賄える。
-
 オフライン 3 段と同じ FlashVSR checkout / 重み / venv・同じ `--flashvsr-*` フラグ
-(`repo` / `python` / `model-dir` / `version` / `dtype`)を使うが、**中間ファイルを
-一切作らず**、jasna の通常のストリーミングパイプラインの中で FlashVSR を二次復元として
-走らせる。
+(`repo` / `python` / `model-dir` / `version` / `dtype` / `scale`)を使うが、**中間
+ファイルを一切作らず**、jasna の通常のストリーミングパイプラインの中で FlashVSR を
+二次復元として走らせる。`basicvsrpp` 一次 + 16 GB カード向けのモードで、SeedVR2 一次
+とは併用できない(常駐 worker 2 つで 16 GB を超える。その構成はオフラインモードで
+組む)。
 
 ```bash
 jasna --input in.mp4 --output out.mkv \
@@ -199,10 +265,10 @@ jasna --input in.mp4 --output out.mkv \
 | | `flashvsr`(オフライン 3 段) | `flashvsr-inline` |
 |---|---|---|
 | パス | dump → FlashVSR → reblend の 3 プロセス | 単一ストリーミングパス |
-| 中間ファイル | 256px + 1024px bundle(数十 GB 級) | **無し** |
+| 中間ファイル | 256px + 拡大クロップの bundle(数十 GB 級) | **無し** |
 | encode 回数 | 2(捨て + 最終) | 1 |
 | FlashVSR モード | tiny(O(T)、~12–16 GB) | **tiny-long(O(1)、~11.9 GB)** |
-| 必要 VRAM | 各段が非同時なので実質 tiny 単体分 | primary と**同時常駐**(実測 ~14.8 GB @16 GB カード) |
+| 必要 VRAM | 各段が非同時なので実質 tiny 単体分 | primary と**同時常駐**(scale 4: 実測 ~14.8 GB @16 GB カード。scale 2: ~10 GB) |
 | FlashVSR checkout | パッチ不要 | **tiny-long マルチチャンク修正のパッチ必須** |
 | 段階再開 | 可(bundle 永続化) | 不可(単一パス) |
 | 進捗 / キャンセル / GUI | 3 段フロー | 通常 secondary と同じ |
@@ -236,15 +302,17 @@ git apply /path/to/jasna/patches/flashvsr_plus_tinylong_multichunk_fix.patch
 - 同期実行。FlashVSR(~15 crop-fps)が律速なので、モザイクが多い区間はその速度に
   律速される(モザイクの無いフレームは一次のみで高速)。FlashVSR が壁時計を支配する
   ため、`--batch-size` を下げても速度低下はほぼ無い。
-- VRAM(**16 GB カード + デスクトップ常駐**時): 480p で combined ~14.8 GB。ただし
-  **1080p 以上は物理天井際**まで上がる(実測 ~15.8 GB ピーク)。worker の
+- VRAM(**16 GB カード + デスクトップ常駐**時、既定の scale 4): 480p で combined
+  ~14.8 GB。ただし **1080p 以上は物理天井際**まで上がる(実測 ~15.8 GB ピーク)。worker の
   `expandable_segments` と jasna の `vram_offloader`(キューフレームを system RAM へ
   退避)が圧を吸収して落ちない(1080p では
   `expandable_segments: memory mapping failed with OOM` の**警告**(無害。クラッシュ
   ではない)と大量の offload が出る)。天井が近いときの第一の対策は
   **`--flashvsr-tiles`**(次節)。補助として `--batch-size 2`(または `1`)や
   MPS 停止(~490 MB 増)もある。VRAM が少ない環境や未パッチ checkout では
-  オフライン(`flashvsr`)を使う。
+  オフライン(`flashvsr`)を使う。**`--flashvsr-scale 2` では様相が変わる**: 分割なしで
+  Linux の 480p 9.9 GB、1080p 10.7 GB(offload 0、アロケータ警告 0)で、タイリングも
+  天井対策も要らない。全表は「[処理倍率](#処理倍率--flashvsr-scale)」。
 - **Windows では `expandable_segments` が使えず worker の reserved が ~13 GB に膨らむ**
   ため、tiles 無しの inline は物理天井に張り付く(完走はするが余裕がほぼ無い)。
   1080p では **`--flashvsr-tiles 2` を推奨**。実測は
@@ -268,6 +336,12 @@ inline 専用の VRAM 対策。各 256px クロップを幅そのままに高さ
 VRAM が許す**最小の枚数**を選ぶ。2 で収まれば 2、天井に張り付く/OOM するなら 3、
 それでも足りなければ 4。
 
+上表は scale 4 のもので、短冊高は 32 の倍数に丸められる(4 倍に拡大した短冊が DiT の
+要求する 128 の倍数になる)。`--flashvsr-scale 2` では丸め粒度が 64 になるため短冊は
+やや大きめに丸まり(tiles `2` = 256w×192h × 2 枚、重複 128px。`3` = 128h × 3 枚、
+`4` = 128h × 4 枚)、重複計算の比率が上がる。ただし scale 2 は分割なしのピークが
+天井から十分離れるため、タイリングが要る場面はまず無い。
+
 品質への影響: 短冊境界は羽根合成され、実機確認(Windows / RTX 5080、tiles 1 との
 同一フレーム比較)ではバンディング・段差・短冊間の色調ずれは検出されなかった。差分は
 拡散モデルの確率的なテクスチャ揺らぎの範囲にとどまる。なお合成の都合上、出力の最外
@@ -277,12 +351,14 @@ VRAM が許す**最小の枚数**を選ぶ。2 で収まれば 2、天井に張�
 ### 実装
 
 - 同期 `SecondaryRestorer`: `jasna/restorer/flashvsr_inline_secondary_restorer.py`
-  (FlashVSR venv worker を resident spawn、length-prefixed の RGB wire、
-  `close()` で終了)。
+  (FlashVSR venv worker を resident spawn、length-prefixed の uint8 BGR wire で
+  RGB 反転はこちら側、`close()` で終了)。
 - worker(FlashVSR venv 実行、jasna 非依存): `jasna/restorer/flashvsr_inline_worker.py`
   (tiny-long pipe、`imageio.get_writer` を差し替えてロスレスにテンソル捕獲、
   small clip は next_8n5 パディングで吸収し厳密に T 枚返す。strip の分割と
-  羽根合成もここ)。
+  羽根合成、色補正もここ)。このファイルは lada-ex の `flashvsr_worker.py` と
+  **バイト単位で同一に保つ**(SeedVR2 worker と同じ方針)。wire が lada ネイティブの
+  BGR なのはそのためで、FlashVSR_plus 側の互換破壊は片方で直して diff コピーする。
 - CLI 配線: `jasna/main.py`。テスト: `tests/test_flashvsr_inline.py`。
 
 ## Windows での注意事項
@@ -340,7 +416,7 @@ VRAM が許す**最小の枚数**を選ぶ。2 で収まれば 2、天井に張�
 - CLI 配線 / 早期分岐: `jasna/main.py`。
 - テスト: `tests/test_flashvsr_offline.py`、`tests/test_main.py`。
 
-再利用した jasna 資産: `BlendBuffer` / `crop_buffer.scale_offsets`(1024px クロップは
-無改変で再 blend)、`RestorationPipeline.build_secondary_result`
+再利用した jasna 資産: `BlendBuffer` / `crop_buffer.scale_offsets`(拡大クロップは
+どちらの scale でも無改変で再 blend)、`RestorationPipeline.build_secondary_result`
 (`[keep_start:keep_end]` スライス)、`pipeline_items`(直列化単位)、Phase 3 の
 decode/encode に `media/backend.make_video_{reader,encoder}`。

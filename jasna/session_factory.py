@@ -82,9 +82,9 @@ def _build_secondary_restorer(config: SessionConfig, device: "torch.device"):
         fv_py = Path(py_arg).expanduser() if py_arg else default_flashvsr_python(fv_repo)
         if not fv_py.exists():
             raise FileNotFoundError(
-                f"FlashVSR Python not found: {fv_py}. Pass --flashvsr-python. It must be a "
-                "uv-managed standalone Python venv (system Python lacks the dev headers Triton "
-                "JIT needs)."
+                f"FlashVSR Python not found: {fv_py}. Pass --flashvsr-python. Its base "
+                "Python must ship the dev headers the Triton JIT needs (a uv-managed "
+                "standalone Python, or a system Python with its -dev package)."
             )
         md_arg = str(config.flashvsr_model_dir).strip()
         fv_model = Path(md_arg).expanduser() if md_arg else fv_repo / "models" / "FlashVSR-v1.1"

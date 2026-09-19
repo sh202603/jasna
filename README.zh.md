@@ -96,7 +96,7 @@ jasna --input in.mp4 --output out.mp4 --restoration-model-name seedvr2 --seedvr2
 jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvsr-repo ~/FlashVSR_plus
 ```
 
-FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存。它以**峰值 VRAM 在时间上互不重叠的三个子进程**运行:(1) 一级修复 → 将裁剪块序列化到磁盘 *bundle*，(2) 在其专用 venv 中执行 FlashVSR 4x，(3) 重新混合并编码最终输出。你需自备 `FlashVSR_plus` 检出、其 v1.1 权重以及一个 **uv 托管的独立 Python venv**（系统 Python 无法 JIT 编译 FlashVSR 的 Triton 注意力内核）。仅文件输出；不兼容 `--stream` / `--frame-gen`。单趟版本 `--secondary-restoration flashvsr-inline` 在流水线内运行 FlashVSR，**无中间文件**（需 16GB 显卡以及打了 tiny-long 多块修复补丁的检出）。inline 版已**弃用**，将在后续版本中移除；请改用离线模式。详情: [docs/en/flashvsr.md](docs/en/flashvsr.md)。
+FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存。它以**峰值 VRAM 在时间上互不重叠的三个子进程**运行:(1) 一级修复 → 将裁剪块序列化到磁盘 *bundle*，(2) 在其专用 venv 中执行 FlashVSR，(3) 重新混合并编码最终输出。你需自备 `FlashVSR_plus` 检出、其 v1.1 权重以及一个基础 Python 带开发头文件的 venv（FlashVSR 的 Triton 注意力内核在运行时 JIT 编译）。仅文件输出；不兼容 `--stream` / `--frame-gen`。单趟版本 `--secondary-restoration flashvsr-inline` 在流水线内运行 FlashVSR，**无中间文件**（需 16GB 显卡以及打了 tiny-long 多块修复补丁的检出）；inline 面向 `basicvsrpp` 一级修复，与 SeedVR2 一级修复组合时使用离线模式。两种模式均可在 1024px（4x）或通过 `--flashvsr-scale 2` 在 512px 下处理（约快 5 倍、VRAM 少几 GB、输出分辨率不变），并始终以一级修复输出为参考对修复块做颜色校正。详情: [docs/en/flashvsr.md](docs/en/flashvsr.md)。
 
 ### TensorRT-RTX 风味（可选，加速引擎编译）
 
