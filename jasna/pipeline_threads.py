@@ -782,6 +782,12 @@ def run_restoration_pass(
     while any(thread.is_alive() for thread in threads):
         if poll is not None and poll():
             cancel_event.set()
+        # A stage that dies leaves its producer blocked on a full queue, so a
+        # plain wait would hang the pass. Cancel on the first error instead; the
+        # drain below unblocks every stage and the error is returned.
+        if error_holder and not cancel_event.is_set():
+            log.error("[pipeline] a stage failed; cancelling the pass")
+            cancel_event.set()
         if cancel_event.wait(0.05):
             break
 

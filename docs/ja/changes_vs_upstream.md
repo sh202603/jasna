@@ -183,6 +183,10 @@ upstream v0.8.0 の PyAV エンコード経路は、RGB→YUV 変換結果のテ
 
 modi の **A/B モデル比較**(§11)でも seedvr2 を選択できる。外部 checkout(`$JASNA_SEEDVR2_REPO`、既定 `~/seedvr2_videoupscaler`)と LoRA が存在すると、チェックポイント選択に `seedvr2` 疑似項目が加わる(値は LoRA パス。side 設定がモデル名と repo を運ぶ)。EMA 重み検査・TRT バッジ・エンジンコンパイルボタンは BasicVSR++ 専用のためその側ではスキップまたは非表示になり、セッションスロットのキャッシュキーにモデル名が入るため側の切替でセッションが再構築される。VR 動画では seedvr2 側を 5 言語のメッセージ付きで拒否する。CPU テストは `test_ab_compare_worker.py`、`test_ab_compare_window.py`、`test_checkpoint_info.py`、`test_video_session.py` でカバー。
 
+## 15. バグ修正: stage の例外で pipeline が失敗せずハングする
+
+stage スレッドが死ぬと（例: worker エラーで secondary が例外）、その生産側が満杯の `FrameQueue.put` で永久に待ち（cancel の経路が無い）、`Pipeline.run()` が返らなかった（進捗 100% のまま encode-stall 監視が 30 秒ごとに診断を出し続ける）。`_run_pass` は join 中に `error_holder` を監視し、最初のエラーで cancel を立て、フレームキューを abort（`FrameQueue.abort()` が待機中の `put` を解放して item を捨てる）、metadata キューを排出して全 stage を巻き戻し、元の例外を再送出する。`test_run_secondary_error_does_not_hang_with_blocked_producer` で担保（旧コードでは実際にハング）。§9 v2.1 (2) で worker の clip 途中失敗が本物のエラーになったことで顕在化した。
+
 ---
 
 ## 付録: リベース履歴
