@@ -9,7 +9,8 @@ overlaps in time:
         serialize each clip's ``PrimaryRestoreResult`` (256px crops + masks +
         geometry) to a persistent *bundle* on disk. blend/encode is throwaway.
     Phase 2 (FlashVSR env, 12-16 GB) -- upscale every clip's 256px crops to
-        1024px with FlashVSR and write them back into the bundle.
+        256*scale px (``--flashvsr-scale``, 4 = 1024px) with FlashVSR, color-
+        correct them, and write them back into the bundle.
     Phase 3 (jasna env, light) -- re-decode the source, re-assemble
         ``SecondaryRestoreResult`` from the bundle + FlashVSR crops, and
         blend + encode the final output.
@@ -71,7 +72,7 @@ DEFAULT_MAX_CLIP_FRAMES = 32
 # <bundle-dir>/
 #   manifest.json                     written by Phase 1 after primary completes
 #   clip_<track>_<start>.npz          written by Phase 1 (256px primary crops)
-#   clip_<track>_<start>_fvsr.npz     written by Phase 2 (1024px FlashVSR crops)
+#   clip_<track>_<start>_fvsr.npz     written by Phase 2 ((256*scale)px FlashVSR crops)
 #
 # The clip npz holds `primary_u8` (T,3,256,256 uint8 RGB CHW), `masks_packed`
 # (np.packbits of a (T,Hm,Wm) bool array), `mask_shape` (T,Hm,Wm), and `geom`
@@ -147,7 +148,7 @@ def write_primary_clip(bundle_dir: Path, pr: "PrimaryRestoreResult") -> str:
     geom = _geom_from_primary(pr)
 
     # Compressed: the 256px dump is the bulk of the persistent bundle and Phase 1
-    # is not perf-critical (the 1024px Phase 2 output stays uncompressed for the
+    # is not perf-critical (the upscaled Phase 2 output stays uncompressed for the
     # GPU loop's sake). ~1-2 GiB/video at 256px.
     np.savez_compressed(
         clip_npz_path(bundle_dir, key),
@@ -279,8 +280,9 @@ def _assemble_secondary_result(
     Mirrors ``RestorationPipeline.build_secondary_result``: the geometry is sliced
     to the keep window ``[ks:ke]`` and the restored frames (already sliced to the
     same window by the caller) become ``restored_frames`` with
-    ``clip_keep_offset=ks``. ``scale_offsets`` derives pad/resize from the 1024px
-    frames at blend time, so the 4x crops need no geometry rewrite.
+    ``clip_keep_offset=ks``. ``scale_offsets`` derives pad/resize from the restored
+    frames' actual size at blend time, so the upscaled crops (1024px at
+    ``--flashvsr-scale 4``, 512px at 2) need no geometry rewrite.
     """
     from jasna.pipeline_items import SecondaryRestoreResult
 
@@ -366,7 +368,7 @@ def _load_clip_sr(
         return None
 
     with np.load(fvsr_npz_path(bundle_dir, key), allow_pickle=False) as data:
-        restored_u8 = data["restored_u8"]  # (T,3,1024,1024) uint8 RGB CHW
+        restored_u8 = data["restored_u8"]  # (T,3,S,S) uint8 RGB CHW, S = 256*scale
     # The blend indexes restored_frames[local_i] and masks[local_i] by the same
     # index, so a Phase-2 frame-count mismatch would silently corrupt (or crash)
     # the blend. Realign to exactly frame_count (Phase 2 already aligns to T; this
@@ -396,7 +398,7 @@ def _load_clip_sr(
 def _run_phase_reblend(cfg: dict[str, Any]) -> None:
     """Phase 3 entry (in the ``--flashvsr-phase reblend`` subprocess).
 
-    Re-decodes the source in decode order, blends the FlashVSR 1024px crops back
+    Re-decodes the source in decode order, blends the FlashVSR upscaled crops back
     in via ``BlendBuffer``, and encodes the final output.
     """
     import torch
@@ -652,15 +654,30 @@ def _validate_flashvsr_args(args: "argparse.Namespace") -> tuple[Path, Path, Pat
 # ---------------------------------------------------------------------------
 # Disk-space safeguards
 #
-# The bundle is dominated by Phase 2's uncompressed 1024px crops (~3 MiB/frame).
+# The bundle is dominated by Phase 2's uncompressed upscaled crops (~3 MiB/frame
+# at --flashvsr-scale 4, a quarter of that at 2).
 # The default bundle lands under the system temp dir, which on Linux is often
 # tmpfs (RAM-backed) and small — a large bundle there fills /tmp / exhausts RAM.
 # ---------------------------------------------------------------------------
 
 _GIB = 1024 ** 3
-_FVSR_BYTES_PER_FRAME = 3 * 1024 * 1024  # 1024x1024x3 uint8 (uncompressed)
-# ~1024px fvsr (~3 MiB/frame x ~1.5 overlap) + tiny 256px dump, per mosaic frame.
-_BYTES_PER_MOSAIC_FRAME_UPPER = int(4.6 * 1024 * 1024)
+_MIB = 1024 ** 2
+
+
+def _fvsr_bytes_per_frame(scale: int) -> int:
+    """One uncompressed (256*scale)^2 x3 uint8 Phase 2 frame: 3 MiB at 4x, 0.75 MiB at 2x."""
+    return 3 * (256 * int(scale)) ** 2
+
+
+def _bytes_per_mosaic_frame_upper(scale: int) -> int:
+    """Per mosaic frame upper bound: fvsr output x ~1.5 clip overlap + the tiny
+    256px dump (~0.1 MiB). 4.6 MiB at 4x."""
+    return int(1.5 * _fvsr_bytes_per_frame(scale) + 0.1 * _MIB)
+
+
+# The scale-4 values (kept as module constants: referenced by tests).
+_FVSR_BYTES_PER_FRAME = _fvsr_bytes_per_frame(4)
+_BYTES_PER_MOSAIC_FRAME_UPPER = _bytes_per_mosaic_frame_upper(4)
 
 
 def _fstype(path: Path) -> str | None:
@@ -682,7 +699,7 @@ def _fstype(path: Path) -> str | None:
         return None
 
 
-def _preflight_bundle_disk(bundle_dir: Path, input_path: Path) -> None:
+def _preflight_bundle_disk(bundle_dir: Path, input_path: Path, scale: int = 4) -> None:
     """Warn (before Phase 1) if the bundle lands on a RAM-backed / tight filesystem.
 
     Mosaic coverage is unknown here, so this only reports free space + a
@@ -696,7 +713,7 @@ def _preflight_bundle_disk(bundle_dir: Path, input_path: Path) -> None:
         total_frames = int(get_video_meta_data(str(input_path)).num_frames)
     except Exception:
         total_frames = 0
-    upper = total_frames * _BYTES_PER_MOSAIC_FRAME_UPPER
+    upper = total_frames * _bytes_per_mosaic_frame_upper(scale)
 
     logger.info(
         "[flashvsr] bundle fs=%s free=%.1f GiB; worst-case (all-mosaic) estimate=%.1f GiB",
@@ -716,24 +733,25 @@ def _preflight_bundle_disk(bundle_dir: Path, input_path: Path) -> None:
         )
 
 
-def _gate_phase2_disk(bundle_dir: Path) -> None:
+def _gate_phase2_disk(bundle_dir: Path, scale: int = 4) -> None:
     """After Phase 1, before the expensive Phase 2: refuse to start if the exact
-    remaining 1024px output won't fit. The bundle is kept, so the user can free
-    space / move it to a bigger disk and resume."""
+    remaining (256*scale)px output won't fit. The bundle is kept, so the user
+    can free space / move it to a bigger disk and resume."""
     manifest = read_manifest(bundle_dir)
     needed = sum(
-        int(e["frame_count"]) * _FVSR_BYTES_PER_FRAME
+        int(e["frame_count"]) * _fvsr_bytes_per_frame(scale)
         for e in manifest["clips"]
         if not fvsr_npz_path(bundle_dir, e["key"]).exists()
     )
     free = shutil.disk_usage(str(bundle_dir)).free
     logger.info(
-        "[flashvsr] Phase 2 needs ~%.1f GiB of 1024px output; %.1f GiB free at %s",
-        needed / _GIB, free / _GIB, bundle_dir,
+        "[flashvsr] Phase 2 needs ~%.1f GiB of %dpx output; %.1f GiB free at %s",
+        needed / _GIB, 256 * int(scale), free / _GIB, bundle_dir,
     )
     if needed * 1.03 > free:  # 3% headroom for npz/filesystem overhead
         raise RuntimeError(
-            f"Not enough disk for FlashVSR Phase 2: need ~{needed / _GIB:.0f} GiB of 1024px output "
+            f"Not enough disk for FlashVSR Phase 2: need ~{needed / _GIB:.0f} GiB of "
+            f"{256 * int(scale)}px output "
             f"but only {free / _GIB:.0f} GiB is free at {bundle_dir}. Re-run with "
             f"--flashvsr-bundle-dir <path on a bigger disk> (the current bundle is kept, so "
             f"completed clips are reused on resume)."
@@ -762,13 +780,14 @@ def run_flashvsr_offline(args: "argparse.Namespace") -> None:
         cleanup_bundle = not keep_bundle
 
     max_clip_frames = int(getattr(args, "flashvsr_max_clip_frames", DEFAULT_MAX_CLIP_FRAMES))
+    scale = int(getattr(args, "flashvsr_scale", 4))
     logger.info("[flashvsr] bundle dir: %s (keep=%s)", bundle_dir, keep_bundle or not cleanup_bundle)
 
     success = False
     try:
-        _preflight_bundle_disk(bundle_dir, input_path)
+        _preflight_bundle_disk(bundle_dir, input_path, scale)
         _phase1_dump(args, bundle_dir, input_path, max_clip_frames)
-        _gate_phase2_disk(bundle_dir)  # exact 1024px estimate now that clips are known
+        _gate_phase2_disk(bundle_dir, scale)  # exact output estimate now that clips are known
         _phase2_upscale(args, bundle_dir, repo, fv_python, model_dir)
         _phase3_reblend(args, bundle_dir, input_path, output_path)
         success = True
@@ -839,6 +858,18 @@ def _phase2_upscale(
         cmd.append("--unload-dit")
     if bool(getattr(args, "flashvsr_tiled_vae", True)):
         cmd.append("--tiled-vae")
+    # Color correction is always on (driver default: wavelet).
+    # JASNA_FLASHVSR_COLOR_FIX is a verification-only override (adain|wavelet|
+    # none) for A/B runs — deliberately an env var, not a CLI flag; same
+    # contract as the inline restorer.
+    color_fix = os.environ.get("JASNA_FLASHVSR_COLOR_FIX")
+    if color_fix:
+        if color_fix not in ("adain", "wavelet", "none"):
+            raise ValueError(
+                "[flashvsr] JASNA_FLASHVSR_COLOR_FIX must be adain|wavelet|none, "
+                f"got {color_fix!r}"
+            )
+        cmd += ["--color-fix-method", color_fix]
     # The FlashVSR venv must import its own repo, not inherit jasna's PYTHONPATH.
     env = dict(os.environ)
     env.pop("PYTHONPATH", None)
@@ -847,7 +878,7 @@ def _phase2_upscale(
         # a pipe (GUI runs, output redirection) Windows defaults the child's text
         # layer to cp932 and the print raises UnicodeEncodeError before inference.
         env["PYTHONUTF8"] = "1"
-    _run_checked(cmd, "Phase 2 (FlashVSR 4x)", env=env)
+    _run_checked(cmd, f"Phase 2 (FlashVSR {int(getattr(args, 'flashvsr_scale', 4))}x)", env=env)
 
 
 def _phase3_reblend(

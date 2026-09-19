@@ -2,8 +2,10 @@
 """FlashVSR offline Phase 2 driver — runs under the FlashVSR virtualenv.
 
 Reads a jasna flashvsr *bundle* (produced by Phase 1), upscales every clip's
-256px primary crops to 1024px with FlashVSR (tiny mode, 4x), and writes the
-results back into the bundle for Phase 3 to re-blend.
+256px primary crops to 256*scale px with FlashVSR (tiny mode; ``--scale`` 4 =
+the model-native 1024px, 2 = 512px), color-corrects them against the
+bicubic-upscaled input, and writes the results back into the bundle for
+Phase 3 to re-blend.
 
 This script is intentionally free of any ``jasna`` import: it is executed by the
 FlashVSR env's uv-managed standalone Python (``--flashvsr-python``), not jasna's
@@ -15,11 +17,17 @@ Invocation (by the orchestrator in ``jasna.restorer.flashvsr_offline``):
     <flashvsr-python> flashvsr_phase2_driver.py \
         --bundle-dir <dir> --repo <FlashVSR_plus> --model-dir <weights> \
         --version 11 --dtype bf16 --device cuda:0 --scale 4 \
-        --unload-dit --tiled-vae
+        --unload-dit --tiled-vae [--color-fix-method wavelet]
 
 Bundle contract (numpy/JSON, see ``flashvsr_offline.py``):
   in : manifest.json, clip_<track>_<start>.npz  (field ``primary_u8`` = (T,3,256,256) uint8 RGB CHW)
-  out: clip_<track>_<start>_fvsr.npz            (field ``restored_u8`` = (T,3,1024,1024) uint8 RGB CHW)
+  out: clip_<track>_<start>_fvsr.npz            (field ``restored_u8`` = (T,3,S,S) uint8 RGB CHW, S = 256*scale)
+
+Color correction is always on (wavelet by default) and reuses the inline
+worker's ``_color_fix_frames`` (loaded by path from the sibling script, whose
+top level is stdlib-only), so both FlashVSR modes correct identically;
+upstream's ``pipe(color_fix=True)`` is not used because it swallows failures
+in a bare ``except: pass``. ``none`` exists for A/B baselines only.
 
 Idempotent: clips whose ``*_fvsr.npz`` already exists are skipped (stage resume).
 
@@ -41,6 +49,25 @@ from pathlib import Path
 import numpy as np
 
 
+def _load_sibling_module(name: str):
+    """Load ``<this dir>/<name>.py`` by path (no sys.path edit, no package).
+
+    The inline worker lives next to this script, also in the frozen build where
+    both are copied as real files to <dist>/jasna/restorer/. Its top level is
+    stdlib-only, so loading it under the FlashVSR venv is safe.
+    """
+    import importlib.util
+
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name + ".py")
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_color_fix_frames = _load_sibling_module("flashvsr_inline_worker")._color_fix_frames
+
+
 def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="FlashVSR offline Phase 2 (256px -> 1024px, 4x)")
     ap.add_argument("--bundle-dir", required=True)
@@ -49,12 +76,21 @@ def _parse_args() -> argparse.Namespace:
     ap.add_argument("--version", default="11", choices=["10", "11"])
     ap.add_argument("--dtype", default="bf16", choices=["fp16", "bf16"])
     ap.add_argument("--device", default="cuda:0")
-    ap.add_argument("--scale", type=int, default=4)
+    ap.add_argument("--scale", type=int, default=4, choices=[2, 4],
+                    help="Processing upscale factor: crops are bicubic-pre-upscaled by this "
+                         "and processed at 256*scale px (4 = model-native 1024px, 2 = 512px).")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--attention", default="sage", choices=["sage", "block"])
     ap.add_argument("--unload-dit", action="store_true")
     ap.add_argument("--tiled-vae", action="store_true")
-    ap.add_argument("--color-fix", action="store_true")
+    ap.add_argument(
+        "--color-fix-method",
+        default="wavelet",
+        choices=["adain", "wavelet", "none"],
+        help="Color correction of the output crops against the bicubic-upscaled input "
+             "(always on in production; 'none' exists only for A/B baselines and is "
+             "reachable via the JASNA_FLASHVSR_COLOR_FIX env override, not the jasna CLI).",
+    )
     return ap.parse_args()
 
 
@@ -79,14 +115,15 @@ def _import_flashvsr(repo: str, version: str, attention: str):
 
 
 def _upscale_clip(run, pipe, torch, primary_u8: np.ndarray, device, dtype, scale: int, *,
-                  seed: int, tiled_vae: bool, unload_dit: bool, color_fix: bool) -> np.ndarray:
-    """Upscale one clip's (T,3,256,256) uint8 crops to (T,3,1024,1024) uint8.
+                  seed: int, tiled_vae: bool, unload_dit: bool, color_fix_method: str) -> np.ndarray:
+    """Upscale one clip's (T,3,256,256) uint8 crops to (T,3,S,S) uint8, S = 256*scale.
 
     Mirrors run.py's ``main`` preprocessing: build (T,H,W,C) [0,1], replicate the
     last frame up to the nearest 8n+5 (min 21), then ``prepare_input_tensor``
-    (adds the +4 warmup, normalizes to [-1,1], upscales bicubic 4x). The DiT runs
-    one DMD step; ``tensor2video`` denorms back to [0,1] and the output is trimmed
-    to exactly T real frames.
+    (adds the +4 warmup, normalizes to [-1,1], upscales bicubic by ``scale``). The
+    DiT runs one DMD step; ``tensor2video`` denorms back to [0,1], the output is
+    trimmed to exactly T real frames and color-corrected against the input
+    (whole clip, before quantization — same function and reference as inline).
     """
     t_real = int(primary_u8.shape[0])
     # (T,3,256,256) uint8 CHW  ->  (T,256,256,3) float[0,1] RGB
@@ -111,13 +148,17 @@ def _upscale_clip(run, pipe, torch, primary_u8: np.ndarray, device, dtype, scale
         tiled=tiled_vae, LQ_video=LQ, num_frames=F, height=th, width=tw,
         is_full_block=False, if_buffer=True,
         topk_ratio=2 * 768 * 1280 / (th * tw), kv_ratio=3, local_range=11,
-        color_fix=color_fix, unload_dit=unload_dit, fps=30, output_path=os.devnull,
+        color_fix=False, unload_dit=unload_dit, fps=30, output_path=os.devnull,
         tiled_dit=True,
     )
-    out = run.tensor2video(video).to("cpu")[:t_real]  # (T,1024,1024,3) [0,1]
-    restored = (out.float() * 255.0).round().clamp(0, 255).to(torch.uint8)
-    restored = restored.permute(0, 3, 1, 2).contiguous().numpy()  # (T,3,1024,1024) CHW
-    return restored
+    out = run.tensor2video(video)[:t_real]  # (T,S,S,3) [0,1] RGB, on device
+    # float32 0..255 on the host: the shared color fix works on that layout (one
+    # frame at a time on the device, a few MB next to the resident DiT).
+    out_float = (out.float() * 255.0).to("cpu").numpy().astype(np.float32)
+    if color_fix_method != "none":
+        out_float = _color_fix_frames(out_float, frames[:t_real], color_fix_method, device)
+    restored = np.clip(out_float, 0, 255).round().astype(np.uint8)
+    return np.ascontiguousarray(restored.transpose(0, 3, 1, 2))  # (T,3,S,S) CHW
 
 
 def main() -> None:
@@ -139,7 +180,8 @@ def main() -> None:
 
     manifest = json.loads((bundle_dir / "manifest.json").read_text())
     clips = manifest["clips"]
-    print(f"[flashvsr-phase2] {len(clips)} clips to upscale (version={args.version}, mode=tiny)", flush=True)
+    print(f"[flashvsr-phase2] {len(clips)} clips to upscale (version={args.version}, mode=tiny, "
+          f"scale={args.scale}, color_fix={args.color_fix_method})", flush=True)
 
     pipe = run.init_pipeline(args.version, "tiny", device, dtype)
 
@@ -157,7 +199,7 @@ def main() -> None:
         restored = _upscale_clip(
             run, pipe, torch, primary_u8, device, dtype, args.scale,
             seed=args.seed, tiled_vae=args.tiled_vae, unload_dit=args.unload_dit,
-            color_fix=args.color_fix,
+            color_fix_method=args.color_fix_method,
         )
         # atomic-ish write: temp then rename. The temp name MUST end in .npz or
         # np.savez appends .npz to it (writing a different file than os.replace
