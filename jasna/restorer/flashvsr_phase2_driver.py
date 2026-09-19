@@ -33,7 +33,7 @@ Idempotent: clips whose ``*_fvsr.npz`` already exists are skipped (stage resume)
 
 Only *tiny* mode is used, so Phase 2 returns lossless tensors (tiny-long would
 write a lossy mp4). jasna caps Phase 1's clip length (``--flashvsr-max-clip-frames``,
-default 32) so every clip fits tiny-mode VRAM. FlashVSR's 8n+5 / +4-warmup frame
+default 90) so every clip fits tiny-mode VRAM. FlashVSR's 8n+5 / +4-warmup frame
 padding is applied to the input and stripped from the output so exactly T frames
 are written (the blend contract silently corrupts on a frame-count mismatch).
 """
