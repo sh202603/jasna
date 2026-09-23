@@ -3,7 +3,7 @@
 `--secondary-restoration flashvsr` / `flashvsr-inline` upscale each restored
 256px mosaic crop with [FlashVSR](https://github.com/OpenImagingLab/FlashVSR)
 (one-step streaming diffusion VSR; jasna uses the
-[`lihaoyun6/FlashVSR_plus`](https://github.com/lihaoyun6/FlashVSR_plus) fork) to
+[`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus) fork) to
 recover texture realism the primary BasicVSR++ model leaves blurry on large
 mosaic regions, close-ups, and 4K sources. The crop is processed at 1024px (4x,
 the model's native factor) or, with `--flashvsr-scale 2`, at 512px; either way
@@ -16,7 +16,7 @@ FlashVSR has two modes. Both are supported; pick by setup:
 | | `flashvsr-inline` (single pass) | `flashvsr` (offline 3-phase) |
 |---|---|---|
 | Fits | the `basicvsrpp` primary on a 16 GB card: one pass, **no intermediate files, no disk gate, no double encode** | the SeedVR2 primary (the maximum-quality stack), 12 GB-class GPUs, long sources that need staged resume |
-| FlashVSR pipeline | tiny-long (VRAM independent of clip length; **requires the tiny-long patch**) | tiny (no patch needed) |
+| FlashVSR pipeline | tiny-long (VRAM independent of clip length; the recommended fork works as-is, an upstream checkout **requires the tiny-long patch**) | tiny (no patch needed) |
 | With `--restoration-model-name seedvr2` | rejected at startup (two resident workers exceed 16 GB) | allowed |
 
 Most of this document describes the offline mode; inline is covered in
@@ -25,8 +25,8 @@ Most of this document describes the offline mode; inline is covered in
 Why offline 3-phase exists: FlashVSR's tiny mode peaks at **12–16 GB VRAM on its
 own**, so it cannot co-reside with jasna's primary pipeline on a 16 GB card.
 Splitting the work across processes whose peak VRAM never overlaps in time is what
-makes it fit. Inline mode instead uses FlashVSR's **tiny-long** (constant ~11.9 GB,
-requires the patch), co-residing with the primary (~1.6 GB under fp8-recon) to run
+makes it fit. Inline mode instead uses FlashVSR's **tiny-long** (constant ~11.9 GB),
+co-residing with the primary (~1.6 GB under fp8-recon) to run
 as a single pass.
 
 ## How it works — offline 3-phase
@@ -57,54 +57,93 @@ metadata rewrite** at either scale.
 
 ## Requirements
 
-FlashVSR is **not** bundled. You provide a checkout of the
-[`lihaoyun6/FlashVSR_plus`](https://github.com/lihaoyun6/FlashVSR_plus) fork with
-its weights and its own virtualenv, then point jasna at it with `--flashvsr-repo`.
+FlashVSR is **not** bundled. You provide a FlashVSR checkout with its weights and
+its own virtualenv, then point jasna at it with `--flashvsr-repo`.
+
+Use the fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus)
+(default branch `modi`). It is upstream
+[`lihaoyun6/FlashVSR_plus`](https://github.com/lihaoyun6/FlashVSR_plus) plus the
+following, and it is what jasna is verified against:
+
+- It includes the tiny-long multi-chunk fix that inline needs (no patch).
+- It has the `--flashvsr-accel` speed-up (see [Acceleration](#acceleration---flashvsr-accel)).
+- A single `uv sync` installs the dependencies at the versions pinned in `uv.lock`.
+
+An upstream checkout still works, but without acceleration, and inline needs a
+patch (see [Using an upstream checkout](#using-an-upstream-checkout)).
 
 ### Setting up the FlashVSR checkout (one-time)
 
-These are the exact steps verified on an RTX 5080 (sm120, 16 GB), Linux, CUDA
-13.0 — they produce torch 2.13.0+cu130 / triton 3.7.1:
+`uv.lock` pins the dependencies, so you get torch 2.13.0+cu130 / triton 3.7.1
+(triton-windows on Windows) / nvidia-cudnn-frontend 1.29.0:
 
 ```bash
-# 1. Clone the fork jasna targets. This also brings models/posi_prompt.pth,
+# 1. Clone the fork (default branch modi). This also brings models/posi_prompt.pth,
 #    which is tracked in the repo (not downloaded).
-git clone https://github.com/lihaoyun6/FlashVSR_plus
+git clone https://github.com/sh202603/FlashVSR_plus
 cd FlashVSR_plus
 
-# 2. Create the venv from a Python that ships the dev headers (Python.h). This is
-#    mandatory: FlashVSR's Triton Sparse_SageAttention kernel is JIT-compiled at
-#    runtime against them, and a header-less system or conda Python dies with
-#    "fatal error: Python.h" (or, worse, tiny-long silently returns 0 frames).
-#    Either a uv-managed standalone Python or a system Python with its -dev
-#    package (e.g. python3.13-dev) works. CAUTION: if uv itself runs inside a
-#    snap-confined app (e.g. snap VSCode), its managed Pythons land under a snap
-#    revision path and the venv dies on the next snap refresh; prefer an explicit
-#    stable interpreter path then:
-uv venv --python 3.13 --python-preference only-managed     # or: uv venv --python /usr/bin/python3.13
+# 2. Create .venv and install the dependencies in one command. torch / torchvision
+#    come from the PyTorch cu130 index, as configured in pyproject.toml.
+#    The Python must ship the dev headers (Python.h). This is mandatory: FlashVSR's
+#    Triton Sparse_SageAttention kernel is JIT-compiled at runtime against them, and
+#    a header-less system or conda Python dies with "fatal error: Python.h" (or,
+#    worse, tiny-long silently returns 0 frames). The fork does not pin a Python
+#    (requires-python >=3.10, no .python-version), so ask for a uv-managed
+#    standalone Python explicitly; a system Python with its -dev package (e.g.
+#    python3.13-dev) also works. CAUTION: if uv itself runs inside a snap-confined
+#    app (e.g. snap VSCode), its managed Pythons land under a snap revision path and
+#    the venv dies on the next snap refresh; prefer an explicit stable interpreter
+#    path then:
+uv sync --python 3.13 --python-preference only-managed     # or: uv sync --python /usr/bin/python3.13
 
-# 3. Install FlashVSR's dependencies into that venv from the CUDA wheel index that
-#    matches your CUDA (jasna is verified on cu130; use .../whl/cu128 for CUDA 12.8).
-uv pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu130
-
-# 4. Weights (~6.5 GB) live under models/FlashVSR-v1.1/. The FIRST run auto-downloads
+# 3. Weights (~6.5 GB) live under models/FlashVSR-v1.1/. The FIRST run auto-downloads
 #    them from HuggingFace, so this step is optional — pre-fetch it if you would
-#    rather not download during jasna's Phase 2:
+#    rather not download during a jasna run:
 .venv/bin/huggingface-cli download JunhaoZhuang/FlashVSR-v1.1 --local-dir models/FlashVSR-v1.1
 
-# 5. (Recommended) smoke-test the FlashVSR env on its own before wiring jasna in.
-#    This exercises the exact tiny / sage / bf16 4x path jasna's Phase 2 uses and
-#    triggers the weight download if you skipped step 4:
-.venv/bin/python run.py -i ./inputs/example0.mp4 -s 4 -v 11 -m tiny -d cuda:0 -t bf16 -a sage ./_smoke
+# 4. (Recommended) smoke-test the FlashVSR env on its own before wiring jasna in.
+#    This runs the tiny-long / sage / bf16 path inline uses, at scale 2, and checks
+#    acceleration with --accel. It triggers the weight download if you skipped
+#    step 3. run.py does not create its output folder, so create it first:
+mkdir -p _smoke
+.venv/bin/python run.py -i ./inputs/example0.mp4 -s 2 -v 11 -m tiny-long -d cuda:0 -t bf16 -a sage --accel ./_smoke
 ```
 
 Notes:
+- If step 4 logs `[FlashVSR] accel: enabled fp8_conv_lq, fp8_dit, fused_dit.`,
+  acceleration works on this machine. On RTX 30 series and older GPUs it logs
+  `... disabled: needs an FP8-capable GPU ...` and runs the standard path (expected).
 - The `sageattention` pip package is **not** required — the fork vendors the
   `sparse_sage` kernel that `-a sage` uses; its optional `sageattention` import is
   guarded.
 - After this, `<repo>/models/FlashVSR-v1.1/` holds `diffusion_pytorch_model_streaming_dmd.safetensors`,
   `Wan2.1_VAE.pth`, `LQ_proj_in.ckpt`, `TCDecoder.ckpt`, and `<repo>/models/posi_prompt.pth`
   sits alongside — that is exactly what `--flashvsr-repo` expects.
+- On Windows the venv Python is `.venv\Scripts\python.exe` (adjust the
+  `.venv/bin/...` paths in steps 3 and 4). More in [Windows notes](#windows-notes).
+- When updating an existing checkout, run `uv sync` again after `git pull`
+  (dependencies such as `nvidia-cudnn-frontend`, used by acceleration, were added).
+
+### Using an upstream checkout
+
+To use upstream [`lihaoyun6/FlashVSR_plus`](https://github.com/lihaoyun6/FlashVSR_plus),
+replace steps 1 and 2 with the following (there is no `uv.lock`, so versions are not
+pinned):
+
+```bash
+git clone https://github.com/lihaoyun6/FlashVSR_plus
+cd FlashVSR_plus
+uv venv --python 3.13 --python-preference only-managed
+uv pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu130   # .../whl/cu128 for CUDA 12.8
+```
+
+Such a checkout differs from the fork in two ways:
+
+- Inline (`flashvsr-inline`) needs the tiny-long patch (see
+  [Prerequisite: the tiny-long fix](#prerequisite-the-tiny-long-fix)). Offline
+  (`flashvsr`) works without it.
+- `--flashvsr-accel` is unavailable. jasna warns and runs at standard speed.
 
 ### Pointing jasna at it
 
@@ -132,6 +171,7 @@ jasna --input in.mp4 --output out.mkv \
 | `--flashvsr-version` | `11` | Model version (`10` or `11`). |
 | `--flashvsr-dtype` | `bf16` | Compute dtype (`fp16` / `bf16`). |
 | `--flashvsr-scale` | `4` | Processing scale for both modes: `4` = model-native 1024px, `2` = 512px (faster, lower VRAM). See [Processing scale](#processing-scale---flashvsr-scale). |
+| `--flashvsr-accel` / `--no-flashvsr-accel` | off | Both modes: use the fork's acceleration (FP8 and fused kernels). Needs an RTX 40 series or newer GPU; anything else falls back to the standard path automatically. See [Acceleration](#acceleration---flashvsr-accel). |
 | `--flashvsr-max-clip-frames` | `90` | Offline only: cap on Phase 1 `--max-clip-size` (tiny-mode VRAM). Inline uses `--max-clip-size` as-is. |
 | `--flashvsr-unload-dit` / `--no-flashvsr-unload-dit` | on | Offload the FlashVSR DiT before VAE decode (saves VRAM). |
 | `--flashvsr-tiled-vae` / `--no-flashvsr-tiled-vae` | on | Tile the FlashVSR VAE decode (saves VRAM). |
@@ -180,6 +220,90 @@ count was 1.8x and the call count 3x; the worker itself is unchanged (the A/B
 against the pre-port worker matched, and the color correction costs +6–7 %).
 Lifting the cap adds only the primary's queue frames in VRAM (+0.1–0.3 GB at
 480p, +0.7 GB at 1080p).
+
+### Acceleration (`--flashvsr-accel`)
+
+`--flashvsr-accel` turns on the fork's acceleration (the same as the fork's
+`--accel`) in both modes. In the fork's measurements (RTX 5060 Ti 16 GB,
+tiny-long, 90 frames) FlashVSR ran 1.37x faster at scale 2 and 1.41x faster at
+scale 4, and FlashVSR's own peak allocation dropped by about 1.4 GiB. It is off by
+default.
+
+It replaces three parts, each checked at startup:
+
+| Part | What changes |
+|---|---|
+| `fp8_conv_lq` | LQ projector convolutions in FP8 (cuDNN graph API) |
+| `fp8_dit` | DiT linears and FFN in FP8 |
+| `fused_dit` | DiT RMSNorm + RoPE and AdaLN as fused Triton kernels |
+
+FP8 for the VAE decoder (TCDecoder) is not included. The TCDecoder produces the
+output pixels directly, and FP8's coarse mantissa turns smooth gradients such as
+skin into steps, which show up as banding.
+
+**Requirements:** an RTX 40 series or newer GPU (sm89+), `--flashvsr-version 11`
+and `--flashvsr-dtype bf16` (both defaults), and the fork's checkout. The FP8
+convolutions need cuDNN 9.17 or newer, which the fork's torch (cu130) bundles.
+
+**Automatic fallback:** a part that can't run is dropped by the startup checks
+(GPU, dtype, libraries, a trial build, a warmup) and the standard path runs
+instead. If every part is dropped, the output is bit-identical to a run without
+`--flashvsr-accel`. If a part fails during the run, it is switched back to the
+standard path for the rest of the run and the clip is redone once (by the worker
+inline, by the Phase 2 driver offline). Out-of-VRAM (OOM) errors do not drop a part.
+
+**How to check it:** the inline worker's stdout is discarded, so the worker sends
+its startup decisions to jasna, which logs them. With `--log-level info`:
+
+```text
+[flashvsr-inline] [FlashVSR] accel: enabled fp8_conv_lq, fp8_dit, fused_dit.
+[flashvsr-inline] worker ready (acceleration: fp8_conv_lq, fp8_dit, fused_dit)
+```
+
+A dropped part is logged as a warning with the reason (`... disabled: <reason>;
+using the standard path.`), and so is a part switched off during the run. Both
+show at `--log-level warning` or more verbose (not at the default `error`).
+Offline, the fork's log appears as-is in Phase 2's output.
+
+**Output:** it differs slightly from the standard path (FP8 rounding, amplified by
+the sparse attention). In the fork's checks the flow-warping error stayed within
+1.07x of the standard path (quality gate: 1.2 or less), and a visual A/B found it
+equivalent.
+
+**Measured in jasna:** Windows 11 / RTX 5060 Ti 16 GB, 1080p (`test7-short.mp4`,
+6242 frames), inline scale 2 / tiles 1. The two runs were measured back to back;
+the whole-GPU peaks include the desktop's ~3.2 GB:
+
+| | Wall clock | Whole-GPU peak |
+|---|---|---|
+| without `--flashvsr-accel` | 577 s | 12191 MiB |
+| with `--flashvsr-accel` | **463 s (1.25x faster)** | **11311 MiB (−880 MiB)** |
+
+Both produced 6242 frames with zero offloads and zero worker retries, and a
+visual A/B of the two played side by side found no quality difference.
+
+Scale 4 / tiles 1 (same 1080p source, with acceleration) was measured too. It
+completed (1555 s, 6242 frames, zero OOMs, retries and offloads), 1.62x faster than
+tiles 2 without acceleration (2519 s). But the whole-GPU peak was 15874 MiB, only
+437 MiB below the ceiling, and that was with a light desktop (1.36 GB resident); a
+desktop above 2 GB would not fit. So on 16 GB cards, keep `--flashvsr-tiles 2` for
+scale 4 even with acceleration. The
+wall-clock gain is smaller than the fork's per-clip 1.37x. Part of it is that the
+primary pipeline and decode/encode time don't change (without acceleration,
+FlashVSR is about 90% of the wall clock), but that alone would give about 1.32x,
+so sharing the GPU with the primary likely costs some as well.
+
+Notes:
+- The per-part variables (`FLASHVSR_FP8_CONV` / `FLASHVSR_FP8_DIT` /
+  `FLASHVSR_FUSED_DIT`) are passed through to the worker. To drop one part for an
+  A/B check, pass it per command: `FLASHVSR_FP8_DIT=0 jasna ...`.
+  `--no-flashvsr-accel` (the default) removes `FLASHVSR_ACCEL`, so a
+  `FLASHVSR_ACCEL=1` left in the shell does not turn acceleration on.
+- When resuming offline from a bundle, completed clips are reused. Resuming with a
+  different acceleration setting mixes accelerated and standard clips (clips are
+  independent, so there are no seams); start a new bundle if you want them uniform.
+- With an upstream checkout jasna warns that acceleration is unavailable and runs
+  at standard speed.
 
 ### Color correction
 
@@ -297,21 +421,22 @@ jasna --input in.mp4 --output out.mkv \
 | Encodes | 2 (throwaway + final) | 1 |
 | FlashVSR mode | tiny (O(T), ~12–16 GB) | **tiny-long (O(1), ~11.9 GB)** |
 | VRAM | phases non-concurrent, so effectively tiny alone | **co-resident** with primary (scale 4: ~13.7 GB at tiles 2, untiled hits the 16 GB ceiling; scale 2: ~10–11 GB) |
-| FlashVSR checkout | no patch needed | **requires the tiny-long multi-chunk fix** |
+| FlashVSR checkout | no patch needed | the recommended fork works as-is; an upstream checkout **requires the tiny-long multi-chunk fix** |
 | Staged resume | yes (persistent bundle) | no (single pass) |
 | Progress / cancel / GUI | 3-phase flow | same as any secondary |
 
-### Prerequisite: the tiny-long patch
+### Prerequisite: the tiny-long fix
 
-Inline uses **tiny-long** for constant (O(1)) VRAM. FlashVSR_plus's tiny-long has a
-known bug that crashes on the second chunk (`8192 vs 4096` error), so a **patched
-checkout is required**. jasna checks the checkout at startup and stops with an
-explicit error (pointing you to the offline `flashvsr` mode, which uses tiny and
-needs no patch) if it is unpatched.
+Inline uses **tiny-long** for constant (O(1)) VRAM. Upstream FlashVSR_plus's
+tiny-long has a known bug that crashes on the second chunk (`8192 vs 4096` error),
+so a **checkout with the fix is required**. The recommended fork
+([`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus)) includes it,
+so there is nothing to do. jasna checks the checkout at startup and, if the fix is
+missing, stops with an explicit error pointing you to the fork, the patch, and the
+offline `flashvsr` mode (which uses tiny and needs no patch).
 
-The patch ships at
-[`patches/flashvsr_plus_tinylong_multichunk_fix.patch`](../../patches/flashvsr_plus_tinylong_multichunk_fix.patch).
-Apply it to the FlashVSR_plus checkout:
+For an upstream checkout, apply the bundled patch
+[`patches/flashvsr_plus_tinylong_multichunk_fix.patch`](../../patches/flashvsr_plus_tinylong_multichunk_fix.patch):
 
 ```bash
 cd ~/FlashVSR_plus
@@ -341,7 +466,7 @@ stays).
   repeating its last frame, which showed up as ghosting). Use
   **`--flashvsr-tiles 2`** (next section; 13.7 GB at 480p, 14.7 GB at 1080p,
   zero offloads). Use the offline `flashvsr` mode for GPUs with less VRAM or
-  an unpatched checkout. **`--flashvsr-scale 2` changes the picture**: untiled,
+  an unpatched upstream checkout. **`--flashvsr-scale 2` changes the picture**: untiled,
   it peaks at 10.1 GB at 480p and 11.3 GB at 1080p on Linux (clip 90; zero
   offloads, zero allocator warnings), so it needs neither tiling nor the ceiling
   tricks; see
@@ -396,8 +521,8 @@ harmless in practice since the blend feathers crop borders).
 - Worker (runs under the FlashVSR venv, no jasna import):
   `jasna/restorer/flashvsr_inline_worker.py` (tiny-long pipe, lossless tensor capture
   by replacing `imageio.get_writer`, next_8n5 padding to absorb small clips and return
-  exactly T frames; the strip split, feather blend and the color correction also
-  live here). The file is kept **byte-identical with lada-ex's
+  exactly T frames; the strip split, feather blend, the color correction and the
+  relay of the acceleration decisions also live here). The file is kept **byte-identical with lada-ex's
   `flashvsr_worker.py`** (same policy as the SeedVR2 worker), which is why the wire
   is lada-native BGR; a FlashVSR_plus breakage is fixed once and diff-copied.
 - CLI wiring: `jasna/main.py`. Tests: `tests/test_flashvsr_inline.py`.
@@ -476,10 +601,10 @@ completes, but with almost no headroom.
     itself, so offline works on 16 GB Windows.
   - **384px input (the bundled example0 smoke): ~15.1 GB** — razor-thin against the
     effective free VRAM; a browser or IDE holding a few hundred MB tips it into OOM.
-    **A smoke-test OOM does not imply jasna's real workload OOMs.**
+    **A smoke-test OOM does not imply jasna's real workload OOMs.** This is why the
+    setup's step-4 smoke test runs at scale 2.
 - **An 85-frame smoke with `-m tiny` (O(T) memory) is expected to OOM on 16 GB
-  Windows.** Smoke-test with `-m tiny-long` instead (substitute it in the step-5
-  setup command).
+  Windows.** Smoke-test with `-m tiny-long`, as setup step 4 does.
 - The venv Python lives at `<repo>/.venv/Scripts/python.exe` (the
   `--flashvsr-python` default resolves there on Windows).
 - When stdout goes to a pipe (redirection / some GUI launches), FlashVSR's
