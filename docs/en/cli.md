@@ -83,6 +83,7 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 | `--flashvsr-scale` | `4` | *(+modi)* Processing scale for both modes: `4` = model-native 1024px, `2` = 512px (faster, lower VRAM). Output resolution is unchanged. |
 | `--flashvsr-tiles` | `1` | *(+modi)* Horizontal DiT strips for the inline mode (VRAM lever). |
 | `--flashvsr-accel` | off | *(+modi)* Both modes: use the fork's acceleration (FP8 and fused kernels, about 1.4x faster). Needs an RTX 40 series or newer GPU; anything else falls back to the standard path automatically. See [flashvsr.md](flashvsr.md#acceleration---flashvsr-accel). |
+| `--flashvsr-lora` | none | *(+modi)* Inline only: apply the Lada LoRA for FlashVSR (`lada_flashvsr_secondary_lora_v1.pt`; a bare file name is looked up in `model_weights`). Tones down FlashVSR's over-sharpening; combines with `--flashvsr-accel`. The offline mode rejects it. See [flashvsr.md](flashvsr.md#lora---flashvsr-lora). |
 | `--flashvsr-max-clip-frames`, `--flashvsr-unload-dit`, `--flashvsr-tiled-vae`, `--flashvsr-bundle-dir`, `--flashvsr-keep-bundle` | see `--help` | *(+modi)* Offline-mode memory/disk knobs. See [flashvsr.md](flashvsr.md). |
 
 ## SD 1.5 image restoration

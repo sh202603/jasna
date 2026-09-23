@@ -83,6 +83,7 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 | `--flashvsr-scale` | `4` | *(+modi)* 両モード共通の処理倍率。`4` = モデルネイティブの 1024px、`2` = 512px（高速・低 VRAM）。出力解像度は変わりません。 |
 | `--flashvsr-tiles` | `1` | *(+modi)* inline モードの DiT 水平ストリップ数（VRAM 調整用）。 |
 | `--flashvsr-accel` | off | *(+modi)* 両モード共通。fork の高速化（FP8 と融合カーネル、約 1.4 倍速）を使う。RTX 40 系以降が必要で、それ以外は自動で標準の処理に戻る。詳細: [flashvsr.md](flashvsr.md#高速化--flashvsr-accel)。 |
+| `--flashvsr-lora` | なし | *(+modi)* inline 専用。FlashVSR 用の Lada LoRA（`lada_flashvsr_secondary_lora_v1.pt`。パスを含まないファイル名は `model_weights` から探す）を使い、FlashVSR の過鮮鋭を抑える。`--flashvsr-accel` と併用できる。オフラインでは使えない。詳細: [flashvsr.md](flashvsr.md#lora--flashvsr-lora)。 |
 | `--flashvsr-max-clip-frames`、`--flashvsr-unload-dit`、`--flashvsr-tiled-vae`、`--flashvsr-bundle-dir`、`--flashvsr-keep-bundle` | `--help` 参照 | *(+modi)* オフラインモードのメモリ/ディスク調整。詳細: [flashvsr.md](flashvsr.md)。 |
 
 ## SD 1.5 画像復元
