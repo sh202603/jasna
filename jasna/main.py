@@ -98,6 +98,7 @@ def _session_config_from_args(
         flashvsr_tiles=int(getattr(args, "flashvsr_tiles", 1)),
         flashvsr_scale=int(getattr(args, "flashvsr_scale", 4)),
         flashvsr_accel=bool(getattr(args, "flashvsr_accel", False)),
+        flashvsr_lora=str(getattr(args, "flashvsr_lora", "") or ""),
         flashvsr_log_level=str(getattr(args, "log_level", "error")),
         restoration_model_name=str(args.restoration_model_name),
         seedvr2_repo=str(getattr(args, "seedvr2_repo", "") or ""),
@@ -1167,6 +1168,12 @@ def main() -> None:
     # FlashVSR runs as an offline 3-phase pass (each phase its own subprocess so
     # their peak VRAM never overlaps). Dispatch here, before the heavy torch /
     # pipeline imports — the orchestrator only spawns subprocesses.
+    if str(getattr(args, "flashvsr_lora", "") or "").strip() \
+            and str(args.secondary_restoration).lower() != "flashvsr-inline":
+        # Checked before the offline dispatch below: its phases re-run jasna with
+        # the same argv, where a later check would surface as a phase failure.
+        raise ValueError("--flashvsr-lora is supported with --secondary-restoration flashvsr-inline only")
+
     if str(args.secondary_restoration).lower() == "flashvsr":
         from jasna.restorer.flashvsr_offline import run_flashvsr_offline
         run_flashvsr_offline(args)
