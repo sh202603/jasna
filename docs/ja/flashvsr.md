@@ -3,7 +3,7 @@
 `--secondary-restoration flashvsr` / `flashvsr-inline` は、一次復元された 256px の
 モザイククロップを [FlashVSR](https://github.com/OpenImagingLab/FlashVSR)
 (one-step streaming diffusion VSR。jasna は
-[`lihaoyun6/FlashVSR_plus`](https://github.com/lihaoyun6/FlashVSR_plus) fork を使用)
+[`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus) fork を使用)
 で拡大し、一次の BasicVSR++ では大きなモザイク領域・接写・4K 素材でぼやけがちな
 テクスチャの写実性を補う。処理解像度はモデルネイティブの 1024px(4x)か、
 `--flashvsr-scale 2` で 512px。どちらでもブレンドがクロップを元の領域へ縮小合成する
@@ -15,7 +15,7 @@ FlashVSR には 2 つのモードがあり、どちらもサポートされる�
 | | `flashvsr-inline`(単一パス) | `flashvsr`(オフライン 3 段) |
 |---|---|---|
 | 向く構成 | `basicvsrpp` 一次 + 16 GB カード。単一パスで**中間ファイル・ディスクゲート・二重 encode が無い** | SeedVR2 一次との併用(最高品質構成)、12 GB 級 GPU、段階再開が要る長尺 |
-| FlashVSR パイプライン | tiny-long(VRAM がクリップ長に依存しない。**tiny-long パッチ必須**) | tiny(パッチ不要) |
+| FlashVSR パイプライン | tiny-long(VRAM がクリップ長に依存しない。推奨 fork はそのまま使える。上流の checkout は**パッチ必須**) | tiny(パッチ不要) |
 | `--restoration-model-name seedvr2` との併用 | 起動時エラー(常駐 worker 2 つで 16 GB 超過) | 可 |
 
 以下は主にオフラインモードの説明で、inline は末尾の「inline モード」で扱う。
@@ -23,7 +23,7 @@ FlashVSR には 2 つのモードがあり、どちらもサポートされる�
 オフライン 3 段が存在する理由: FlashVSR の tiny モードは**単体で 12–16 GB VRAM** を
 消費するため、jasna の一次パイプラインと 16 GB カード上で同時常駐できない。ピーク
 VRAM が時間的に重ならないよう処理をプロセス分割することで初めて収まる。inline モードは
-FlashVSR の **tiny-long**(定メモリ ~11.9 GB、パッチ要)を使い、一次(fp8-recon で
+FlashVSR の **tiny-long**(定メモリ ~11.9 GB)を使い、一次(fp8-recon で
 ~1.6 GB)と同時常駐させることで単一パスを実現する。
 
 ## 仕組み — オフライン 3 段
@@ -54,52 +54,88 @@ blend に必要な幾何(`scale_offsets`)は blend 時に復元フレームの�
 ## 必要なもの
 
 FlashVSR は**同梱していない**。
-[`lihaoyun6/FlashVSR_plus`](https://github.com/lihaoyun6/FlashVSR_plus) fork の
-checkout・重み・専用仮想環境を利用者が用意し、`--flashvsr-repo` で jasna に渡す。
+FlashVSR の checkout・重み・専用仮想環境を利用者が用意し、`--flashvsr-repo` で jasna に渡す。
+
+checkout には fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus)
+(既定ブランチ `modi`)を使う。上流の
+[`lihaoyun6/FlashVSR_plus`](https://github.com/lihaoyun6/FlashVSR_plus) に次の変更を
+加えたもので、jasna はこの fork で検証している:
+
+- inline が使う tiny-long のマルチチャンク修正を含む(パッチ不要)。
+- `--flashvsr-accel` の高速化(「[高速化](#高速化--flashvsr-accel)」)を持つ。
+- `uv sync` 1 コマンドで、`uv.lock` に固定した版の依存が入る。
+
+上流の checkout も使えるが、高速化は使えず、inline にはパッチが要る
+(「[上流の checkout を使う場合](#上流の-checkout-を使う場合)」)。
 
 ### FlashVSR checkout のセットアップ(一度だけ)
 
-RTX 5080(sm120, 16 GB)/ Linux / CUDA 13.0 で検証済みの再現手順。torch
-2.13.0+cu130 / triton 3.7.1 になる:
+依存は `uv.lock` で固定されており、torch 2.13.0+cu130 / triton 3.7.1(Windows は
+triton-windows)/ nvidia-cudnn-frontend 1.29.0 になる:
 
 ```bash
-# 1. jasna が対象とする fork を clone。models/posi_prompt.pth もこれで入る
+# 1. fork を clone(既定ブランチ modi)。models/posi_prompt.pth もこれで入る
 #    (repo に git-track されており、ダウンロードではない)。
-git clone https://github.com/lihaoyun6/FlashVSR_plus
+git clone https://github.com/sh202603/FlashVSR_plus
 cd FlashVSR_plus
 
-# 2. Python 開発ヘッダ(Python.h)を持つ Python で venv を作る。これは必須。FlashVSR の
-#    Triton Sparse_SageAttention カーネルは実行時にヘッダを使って JIT され、ヘッダの
-#    無い system / conda の Python では「fatal error: Python.h」で落ちる(さらに悪いと
-#    tiny-long が黙って 0 フレームを返す)。uv-managed の standalone Python か、-dev
-#    パッケージ(python3.13-dev 等)を入れた system Python のどちらかを使う。
+# 2. .venv の作成と依存の導入を 1 コマンドで行う。torch / torchvision は
+#    pyproject.toml の設定で PyTorch の cu130 index から入る。
+#    Python は開発ヘッダ(Python.h)を持つものが必須。FlashVSR の Triton
+#    Sparse_SageAttention カーネルは実行時にヘッダを使って JIT され、ヘッダの無い
+#    system / conda の Python では「fatal error: Python.h」で落ちる(さらに悪いと
+#    tiny-long が黙って 0 フレームを返す)。fork は Python の版を固定していない
+#    (requires-python >=3.10、.python-version なし)ので、uv-managed の standalone
+#    Python を明示する。-dev パッケージ(python3.13-dev 等)を入れた system Python でもよい。
 #    注意: uv 自体が snap 閉じ込めのアプリ(snap 版 VSCode 等)の中で動いていると、
 #    managed Python は snap リビジョンのパス配下に置かれ、次の snap refresh で venv が
 #    壊れる。その場合は安定パスのインタプリタを明示する:
-uv venv --python 3.13 --python-preference only-managed     # または: uv venv --python /usr/bin/python3.13
+uv sync --python 3.13 --python-preference only-managed     # または: uv sync --python /usr/bin/python3.13
 
-# 3. CUDA に合う wheel index で FlashVSR の依存を venv に入れる
-#    (jasna は cu130 で検証。CUDA 12.8 なら .../whl/cu128)。
-uv pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu130
-
-# 4. 重み(~6.5 GB)は models/FlashVSR-v1.1/ に置かれる。初回実行時に HuggingFace から
-#    自動ダウンロードされるので本手順は任意。jasna の Phase 2 中にダウンロードしたく
+# 3. 重み(~6.5 GB)は models/FlashVSR-v1.1/ に置かれる。初回実行時に HuggingFace から
+#    自動ダウンロードされるので本手順は任意。jasna の処理中にダウンロードしたく
 #    なければ先に取得しておく:
 .venv/bin/huggingface-cli download JunhaoZhuang/FlashVSR-v1.1 --local-dir models/FlashVSR-v1.1
 
-# 5. (推奨)jasna に組み込む前に FlashVSR 環境単体でスモークテスト。jasna の Phase 2
-#    が使う tiny / sage / bf16 の 4x パスそのものを叩き、手順4を省いた場合は重み
-#    ダウンロードも走る:
-.venv/bin/python run.py -i ./inputs/example0.mp4 -s 4 -v 11 -m tiny -d cuda:0 -t bf16 -a sage ./_smoke
+# 4. (推奨)jasna に組み込む前に FlashVSR 環境単体でスモークテスト。inline が使う
+#    tiny-long / sage / bf16 を scale 2 で叩き、--accel で高速化の判定も確かめる。
+#    手順3を省いた場合は重みのダウンロードも走る。run.py は出力先を作らないので先に作る:
+mkdir -p _smoke
+.venv/bin/python run.py -i ./inputs/example0.mp4 -s 2 -v 11 -m tiny-long -d cuda:0 -t bf16 -a sage --accel ./_smoke
 ```
 
 補足:
+- 手順4の起動ログに `[FlashVSR] accel: enabled fp8_conv_lq, fp8_dit, fused_dit.` が
+  出れば高速化が使える。RTX 30 系以前の GPU では `... disabled: needs an FP8-capable GPU ...`
+  と出て標準の処理で動く(異常ではない)。
 - `sageattention` pip パッケージは**不要**。`-a sage` が使うのは fork が同梱する
   `sparse_sage` カーネルで、`sageattention` の import は guard 済み。
 - 完了後 `<repo>/models/FlashVSR-v1.1/` に
   `diffusion_pytorch_model_streaming_dmd.safetensors`・`Wan2.1_VAE.pth`・
   `LQ_proj_in.ckpt`・`TCDecoder.ckpt`、隣に `<repo>/models/posi_prompt.pth` が揃う
   ——これが `--flashvsr-repo` の期待する構成。
+- Windows では venv の Python が `.venv\Scripts\python.exe` になる(手順3・4の
+  `.venv/bin/...` を読み替える)。そのほかの注意は「[Windows での注意事項](#windows-での注意事項)」。
+- 既存の checkout を更新するときは `git pull` の後に `uv sync` をやり直す
+  (高速化が使う `nvidia-cudnn-frontend` などの依存が追加されている)。
+
+### 上流の checkout を使う場合
+
+上流の [`lihaoyun6/FlashVSR_plus`](https://github.com/lihaoyun6/FlashVSR_plus) を使う場合は、
+手順1・2を次に読み替える(`uv.lock` が無いので版は固定されない):
+
+```bash
+git clone https://github.com/lihaoyun6/FlashVSR_plus
+cd FlashVSR_plus
+uv venv --python 3.13 --python-preference only-managed
+uv pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu130   # CUDA 12.8 なら .../whl/cu128
+```
+
+この checkout では次の 2 点が fork と異なる。
+
+- inline(`flashvsr-inline`)には tiny-long のパッチが要る(「[前提: tiny-long の修正](#前提-tiny-long-の修正)」)。
+  オフライン(`flashvsr`)はパッチなしで動く。
+- `--flashvsr-accel` は使えない。指定すると警告を出し、標準の速度で動く。
 
 ### jasna から指定するもの
 
@@ -127,6 +163,7 @@ jasna --input in.mp4 --output out.mkv \
 | `--flashvsr-version` | `11` | モデル版(`10` / `11`)。 |
 | `--flashvsr-dtype` | `bf16` | 計算 dtype(`fp16` / `bf16`)。 |
 | `--flashvsr-scale` | `4` | 両モード共通の処理倍率。`4` = モデルネイティブの 1024px、`2` = 512px(高速・低 VRAM)。詳細は「[処理倍率](#処理倍率--flashvsr-scale)」。 |
+| `--flashvsr-accel` / `--no-flashvsr-accel` | off | 両モード共通: fork の高速化(FP8 と融合カーネル)を使う。RTX 40 系以降が必要で、それ以外は自動で標準の処理に戻る。詳細は「[高速化](#高速化--flashvsr-accel)」。 |
 | `--flashvsr-max-clip-frames` | `90` | オフライン専用: Phase 1 の `--max-clip-size` の上限(tiny モードの VRAM 対策)。inline は `--max-clip-size` をそのまま使う。 |
 | `--flashvsr-unload-dit` / `--no-flashvsr-unload-dit` | on | VAE decode 前に DiT をオフロード(VRAM 節約)。 |
 | `--flashvsr-tiled-vae` / `--no-flashvsr-tiled-vae` | on | FlashVSR の VAE decode をタイル化(VRAM 節約)。 |
@@ -170,6 +207,80 @@ clip 32 は 1 clip で 16 フレームしか前進せず、DiT フレーム数�
 3 倍になるためで、worker の差ではない(移植前 worker との A/B は一致。色補正の
 コストは +6〜7%)。上限撤廃による VRAM 増は一次側のキュー分のみ(480p +0.1〜0.3 GB、
 1080p +0.7 GB)。
+
+### 高速化(`--flashvsr-accel`)
+
+`--flashvsr-accel` を付けると、fork の高速化(fork の `--accel` と同じもの)を両モードで使う。
+fork の計測(RTX 5060 Ti 16 GB、tiny-long、90 フレーム)では、FlashVSR の処理が
+scale 2 で 1.37 倍、scale 4 で 1.41 倍速くなり、FlashVSR 単体のピーク確保量が約 1.4 GiB 減った。
+既定は無効。
+
+置き換えるのは次の 3 つで、それぞれ起動時に使えるかを判定する:
+
+| 部品 | 内容 |
+|---|---|
+| `fp8_conv_lq` | LQ projector の畳み込みを FP8 で計算(cuDNN graph API) |
+| `fp8_dit` | DiT の Linear と FFN を FP8 で計算 |
+| `fused_dit` | DiT の RMSNorm + RoPE と AdaLN を Triton の融合カーネルで計算 |
+
+VAE デコーダ(TCDecoder)の FP8 化は含まない。TCDecoder は出力の画素を直接作る段で、
+FP8 の粗い仮数が肌などのなめらかな階調を段にし、縞として見えるためである。
+
+**要件**: RTX 40 系以降の GPU(sm89 以上)、`--flashvsr-version 11` と
+`--flashvsr-dtype bf16`(どちらも既定)、fork の checkout。FP8 畳み込みは cuDNN 9.17 以上を
+要するが、fork の torch(cu130)に同梱の cuDNN で満たす。
+
+**自動フォールバック**: 要件を満たさない部品は、起動時の判定(GPU、dtype、ライブラリ、
+試しのビルド、warmup)で外れ、標準の処理で動く。全部品が外れた実行の出力は、
+`--flashvsr-accel` なしの実行とビット単位で一致する。実行中に部品が失敗した場合は、
+その部品を以後標準の処理に戻し、その clip を 1 回やり直す(inline は worker、
+オフラインは Phase 2 driver がやり直す)。VRAM 不足(OOM)では部品を外さない。
+
+**確認のしかた**: inline の worker は標準出力を捨てるので、起動時の判定結果を jasna に返し、
+jasna がログに出す。`--log-level info` で次のように表示される:
+
+```text
+[flashvsr-inline] [FlashVSR] accel: enabled fp8_conv_lq, fp8_dit, fused_dit.
+[flashvsr-inline] worker ready (acceleration: fp8_conv_lq, fp8_dit, fused_dit)
+```
+
+外れた部品は、理由付きの警告(`... disabled: <理由>; using the standard path.`)になる。
+実行中に外れた部品も警告になる。どちらも `--log-level warning` 以上の詳しさで表示される
+(既定の `error` では出ない)。オフラインは Phase 2 の出力に fork のログがそのまま出る。
+
+**出力**: 標準の処理と少し異なる(FP8 の丸めによる微差を、sparse attention が増幅する)。
+fork の検証では、flow-warping error の比が標準の 1.07 倍以内(品質ゲートは 1.2 以下)で、
+目視 A/B でも標準と同等だった。
+
+**jasna での実測**: Windows 11 / RTX 5060 Ti 16 GB、1080p(`test7-short.mp4`、6242 フレーム)、
+inline scale 2 / tiles 1。2 回を続けて計測し、GPU 全体のピークはデスクトップ常駐(約 3.2 GB)込みの値:
+
+| | 壁時計 | GPU 全体ピーク |
+|---|---|---|
+| `--flashvsr-accel` なし | 577 s | 12191 MiB |
+| `--flashvsr-accel` あり | **463 s(1.25 倍速)** | **11311 MiB(−880 MiB)** |
+
+どちらも出力は 6242 フレームで、offload と worker のリトライは 0 回だった。
+2 本を並べて再生した目視 A/B でも、画質の差は見られなかった。
+
+scale 4 / tiles 1(同じ 1080p 素材、高速化あり)も測った。完走し(1555 s、出力 6242 フレーム、
+OOM・リトライ・offload はいずれも 0)、tiles 2 の高速化なし(2519 s)より 1.62 倍速かった。
+ただし GPU 全体のピークは 15874 MiB で、天井まで 437 MiB しかない。しかもこれはデスクトップ常駐が
+1.36 GB と少ない状態での値で、常駐が 2 GB を超えると足りなくなる。そのため、16 GB カードで scale 4 を
+使うときは、高速化ありでも `--flashvsr-tiles 2` を推奨する。
+壁時計の短縮は fork の 1 clip 単位の計測(1.37 倍)より小さい。一因は、一次のパイプラインと
+デコード・エンコードの時間が変わらないことである(高速化なしで FlashVSR 時間は壁時計の約 9 割)。
+ただしこれだけでは 1.32 倍程度までしか下がらないので、GPU を一次と分け合うことの影響もあると考えられる。
+
+補足:
+- 部品ごとの環境変数(`FLASHVSR_FP8_CONV` / `FLASHVSR_FP8_DIT` / `FLASHVSR_FUSED_DIT`)は
+  worker にそのまま渡る。A/B 検証で 1 部品だけ外すときは `FLASHVSR_FP8_DIT=0 jasna ...` の
+  ようにコマンド単位で渡す。`--no-flashvsr-accel`(既定)は `FLASHVSR_ACCEL` を取り除くので、
+  シェルに `FLASHVSR_ACCEL=1` が残っていても高速化は有効にならない。
+- オフラインで bundle から再開する場合、完了済みの clip はそのまま使われる。高速化の設定を
+  変えて再開すると、clip ごとに高速化の有無が混ざる(clip は互いに独立なので継ぎ目は
+  出ない)。揃えたい場合は新しい bundle で実行し直す。
+- 上流の checkout で指定すると、高速化が無い旨の警告を出して標準の速度で動く。
 
 ### 色補正
 
@@ -275,20 +386,21 @@ jasna --input in.mp4 --output out.mkv \
 | encode 回数 | 2(捨て + 最終) | 1 |
 | FlashVSR モード | tiny(O(T)、~12–16 GB) | **tiny-long(O(1)、~11.9 GB)** |
 | 必要 VRAM | 各段が非同時なので実質 tiny 単体分 | primary と**同時常駐**(scale 4: tiles 2 で ~13.7 GB、tiles 無しは 16 GB の天井。scale 2: ~10〜11 GB) |
-| FlashVSR checkout | パッチ不要 | **tiny-long マルチチャンク修正のパッチ必須** |
+| FlashVSR checkout | パッチ不要 | 推奨 fork はそのまま使える。上流の checkout は **tiny-long マルチチャンク修正のパッチ必須** |
 | 段階再開 | 可(bundle 永続化) | 不可(単一パス) |
 | 進捗 / キャンセル / GUI | 3 段フロー | 通常 secondary と同じ |
 
-### 前提: tiny-long パッチ
+### 前提: tiny-long の修正
 
-inline は VRAM 定常(O(1))の **tiny-long** を使う。FlashVSR_plus の tiny-long は
-第 2 チャンクで壊れる既知バグ(`8192 vs 4096` エラー)があり、**修正パッチを当てた
-checkout が必須**。jasna は起動時に checkout を検査し、未パッチなら明示エラーで停止して
-`flashvsr`(オフライン、tiny、パッチ不要)を案内する。
+inline は VRAM 定常(O(1))の **tiny-long** を使う。上流の FlashVSR_plus の tiny-long は
+第 2 チャンクで壊れる既知バグ(`8192 vs 4096` エラー)があり、**修正を含む checkout が
+必須**。推奨の fork([`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus))は
+修正を含むので、何もしなくてよい。jasna は起動時に checkout を検査し、修正が無ければ
+明示エラーで停止して、fork・パッチ・`flashvsr`(オフライン、tiny、パッチ不要)を案内する。
 
-パッチ本体は
+上流の checkout を使う場合は、同梱のパッチ
 [`patches/flashvsr_plus_tinylong_multichunk_fix.patch`](../../patches/flashvsr_plus_tinylong_multichunk_fix.patch)
-に同梱。FlashVSR_plus checkout で当てる:
+を当てる:
 
 ```bash
 cd ~/FlashVSR_plus
@@ -314,7 +426,7 @@ git apply /path/to/jasna/patches/flashvsr_plus_tinylong_multichunk_fix.patch
   32 回)。worker はその clip を 1 回リトライし、再失敗なら停止する(以前は失敗した
   clip の残りを最後のフレームの複製で埋めていたため、残像として見えていた)。
   **`--flashvsr-tiles 2`** を使う(次節。480p 13.7 GB、1080p 14.7 GB、offload 0)。
-  VRAM が少ない環境や未パッチ checkout ではオフライン(`flashvsr`)を使う。**`--flashvsr-scale 2` では様相が変わる**: 分割なしで
+  VRAM が少ない環境や、パッチを当てていない上流の checkout ではオフライン(`flashvsr`)を使う。**`--flashvsr-scale 2` では様相が変わる**: 分割なしで
   Linux の 480p 10.1 GB、1080p 11.3 GB(clip 90。offload 0、アロケータ警告 0)で、
   タイリングも天井対策も要らない。全表は「[処理倍率](#処理倍率--flashvsr-scale)」。
 - **Windows で `expandable_segments` が使えない影響は scale 4 でのみ出る**。scale 4 は
@@ -361,7 +473,7 @@ VRAM が許す**最小の枚数**を選ぶ。2 で収まれば 2、天井に張�
 - worker(FlashVSR venv 実行、jasna 非依存): `jasna/restorer/flashvsr_inline_worker.py`
   (tiny-long pipe、`imageio.get_writer` を差し替えてロスレスにテンソル捕獲、
   small clip は next_8n5 パディングで吸収し厳密に T 枚返す。strip の分割と
-  羽根合成、色補正もここ)。このファイルは lada-ex の `flashvsr_worker.py` と
+  羽根合成、色補正、高速化の判定結果の中継もここ)。このファイルは lada-ex の `flashvsr_worker.py` と
   **バイト単位で同一に保つ**(SeedVR2 worker と同じ方針)。wire が lada ネイティブの
   BGR なのはそのためで、FlashVSR_plus 側の互換破壊は片方で直して diff コピーする。
 - CLI 配線: `jasna/main.py`。テスト: `tests/test_flashvsr_inline.py`。
@@ -437,9 +549,9 @@ inline + `--flashvsr-tiles 2` にする。scale 4 の tiles 無し inline は完
     するので、オフラインは 16 GB Windows で動く。
   - **384px 入力(同梱 example0 での smoke): ~15.1 GB** — 空きと紙一重。ブラウザや
     IDE が数百 MB 使っているだけで OOM する。**smoke の OOM ≠ jasna 実負荷の OOM**。
+    セットアップ手順 4 の smoke が scale 2 なのはこのため。
 - **`-m tiny`(O(T))での 85 フレーム smoke は 16 GB Windows では OOM して正常**。
-  smoke は `-m tiny-long` で行う(セットアップ手順 5 のコマンドの `-m tiny` を
-  読み替える)。
+  smoke は手順 4 のとおり `-m tiny-long` で行う。
 - venv の Python は `<repo>/.venv/Scripts/python.exe`(`--flashvsr-python` の既定も
   Windows ではこのパスに解決される)。
 - stdout がパイプに向く(リダイレクト / 一部の GUI 起動)と、FlashVSR の起動バナー

@@ -233,7 +233,7 @@ When **running from source**, `model_weights/rife.pth` is picked up automaticall
 
 ### 6.2 Optional: FlashVSR secondary restoration (experimental)
 
-FlashVSR (`--secondary-restoration flashvsr` / `flashvsr-inline`) needs a separate repository checkout with its own venv, and the inline mode additionally needs a bundled patch applied to that checkout. Setup instructions: [flashvsr.md](flashvsr.md).
+FlashVSR (`--secondary-restoration flashvsr` / `flashvsr-inline`) needs a separate repository checkout with its own venv. Use the fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus) (it includes the tiny-long fix inline needs and the `--flashvsr-accel` speed-up, and `uv sync` installs its dependencies). Setup instructions: [flashvsr.md](flashvsr.md).
 
 ---
 
