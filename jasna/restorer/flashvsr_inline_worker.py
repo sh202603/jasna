@@ -43,7 +43,17 @@ Wire protocol (parent = lada venv, child = this):
                     (active acceleration parts; the fork's acceleration log
                     lines, e.g. why a part was skipped. Both empty without it)
   child  -> parent (on per-clip failure): ``{"seq","error":"..."}\\n`` then
-                    stays alive for the next clip.
+                    stays alive for the next clip. Exception: with ``--lora``, if
+                    the fork's FP8 DiT part (``fp8_dit``) is switched off at
+                    runtime, the fork restores the stock DiT linears and with them
+                    drops the LoRA adapters; the clip is then answered with
+                    ``{"seq","error","accel_demoted":[...],"respawn":true}`` and
+                    the worker exits, so the parent can restart it with the
+                    demoted parts disabled (LoRA re-applied) and redo the clip.
+
+LoRA (``--lora``, optional): a Lada LoRA file (format ``lada_flashvsr_lora_v1``)
+is applied to the DiT as low-rank adapters right after the pipeline is built
+(and warmed up) and before the ready handshake; see ``inject_lora_into_dit``.
 
 fd handling: the *real* stdout fd is dup'd to a private protocol fd, then fd 1
 is repointed to /dev/null (or stderr if --verbose) so the FlashVSR banner /
@@ -87,6 +97,14 @@ def _parse_args() -> argparse.Namespace:
         help="Color correction of the output crops against the bicubic-upscaled input "
              "(always on in production; 'none' exists only for A/B baselines and is "
              "reachable via the LADA_FLASHVSR_COLOR_FIX env override, not the lada CLI).",
+    )
+    ap.add_argument(
+        "--lora",
+        default=None,
+        help="Optional Lada LoRA weight file (format 'lada_flashvsr_lora_v1') applied to the DiT "
+             "attention/FFN linears as low-rank adapters (y = base(x) + B(A(x)) * alpha/rank, "
+             "adapters in the model dtype). Not merged into the weights: the LoRA delta is far "
+             "below the bf16/fp8 weight resolution and would be rounded away. None = base FlashVSR.",
     )
     ap.add_argument("--verbose", action="store_true", help="send worker stdout to stderr, not /dev/null")
     return ap.parse_args()
@@ -406,6 +424,137 @@ def _color_fix_frames(out_float, lq_frames, method, device):
     return out_float
 
 
+LORA_FORMAT = "lada_flashvsr_lora_v1"
+
+
+def inject_lora_into_dit(dit, lora_file: dict, adapter_dtype=None) -> int:
+    """Wrap the DiT's LoRA target linears with low-rank adapters from a Lada FlashVSR LoRA file.
+
+    ``lora_file`` is the loaded checkpoint dict: ``{"format", "lora": {"<module>.lora_A": (r, in),
+    "<module>.lora_B": (out, r)}, "rank", "alpha"}``. Each target module ``m`` is replaced by a
+    wrapper computing ``m(x) + B(A(x)) * alpha / rank`` with A/B stored in ``adapter_dtype``
+    (default bf16, i.e. the production model dtype). Returns the number of adapted linears.
+
+    Two DiT layouts are handled:
+    - stock: ``blocks.N.self_attn.{q,k,v,o}`` and ``blocks.N.ffn.{0,2}`` are ``nn.Linear``;
+    - FlashVSR_plus ``--accel`` (FP8): the attention linears are ``FP8Linear`` modules (still
+      callable, so the same wrapper applies; shapes are read from the fp8 ``weight``) and
+      ``blocks.N.ffn`` is a fused ``FP8FFN(lin0, lin2)`` with no ``0``/``2`` children. For the
+      fused FFN the adapters are spliced into a re-implemented forward: the LoRA-0 term is added
+      to the bf16 output of ``lin0`` before the fused GELU+quantize step (which is reused), and
+      the LoRA-2 term is computed from a bf16 GELU of that same tensor, so the FP8 kernels stay
+      in place and only the rank-16 path is extra.
+
+    Why adapters and not a weight merge: the trained deltas are ~0.2x the bf16 ulp of the DiT
+    weights, so ``W += B@A`` loses ~20-45% of the delta to rounding (measured: 1.0/255 mean
+    pixel drift vs. the fp32-adapter reference, against 0.2/255 for bf16 adapters); on an fp8
+    base the merge would vanish entirely. Raises on a format/shape mismatch instead of silently
+    running the base model. Caveat: if the fork demotes ``fp8_dit`` at runtime, its fallback
+    restores the stock bf16 modules and the adapters are dropped with them; ``main`` detects
+    this and asks the parent for a respawn (see the wire protocol).
+    """
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+
+    fmt = lora_file.get("format")
+    if fmt != LORA_FORMAT:
+        raise RuntimeError(f"FlashVSR LoRA: unsupported format {fmt!r} (expected {LORA_FORMAT!r})")
+    sd = lora_file["lora"]
+    rank, alpha = int(lora_file["rank"]), float(lora_file["alpha"])
+    scaling = alpha / rank
+    names = sorted({k[: -len(".lora_A")] for k in sd if k.endswith(".lora_A")})
+    if not names:
+        raise RuntimeError("FlashVSR LoRA: no lora_A tensors in file")
+    dt = adapter_dtype or torch.bfloat16
+    dev = next(dit.parameters()).device
+
+    def _adapter(a, b):
+        return (nn.Parameter(a.to(device=dev, dtype=dt).contiguous(), requires_grad=False),
+                nn.Parameter(b.to(device=dev, dtype=dt).contiguous(), requires_grad=False))
+
+    def _lora(x, a, b):
+        return F.linear(F.linear(x.to(a.dtype), a), b) * scaling
+
+    class _LoRAWrapped(nn.Module):
+        """Generic: base module (nn.Linear or an FP8 linear) + adapter on its output."""
+
+        def __init__(self, base, a, b):
+            super().__init__()
+            self.base = base
+            self.lora_A, self.lora_B = _adapter(a, b)
+
+        def forward(self, x, *args, **kwargs):
+            y = self.base(x, *args, **kwargs)
+            return y + _lora(x, self.lora_A, self.lora_B).to(y.dtype)
+
+    class _LoRAFusedFFN(nn.Module):
+        """FlashVSR_plus FP8FFN(lin0, lin2) with both FFN adapters spliced in."""
+
+        def __init__(self, ffn, a0, b0, a2, b2):
+            super().__init__()
+            self.ffn = ffn
+            self.lora_A0, self.lora_B0 = _adapter(a0, b0)
+            self.lora_A2, self.lora_B2 = _adapter(a2, b2)
+            base_cls = next((c for c in type(ffn).__mro__ if c.__name__ == "FP8FFN"), None)
+            gq = getattr(sys.modules.get(base_cls.__module__), "fused_gelu_quant_fp8", None) if base_cls else None
+            if gq is None:
+                raise RuntimeError("FlashVSR LoRA: fused FFN found but fused_gelu_quant_fp8 is not importable from its module")
+            self._gelu_quant = gq
+
+        def forward(self, x):
+            shape = x.shape
+            x2 = x.reshape(-1, shape[-1])
+            h = self.ffn.lin0(x2)  # bf16 [M, hidden]: FP8 quantize + scaled_mm (+bias), guarded by the fork
+            h = h + _lora(x2, self.lora_A0, self.lora_B0).to(h.dtype)
+            g = F.gelu(h, approximate="tanh")  # only feeds the rank-16 LoRA-2 path
+            h8, hs = self._gelu_quant(h.contiguous())  # the fork's fused GELU+quantize, unchanged
+            out = self.ffn.lin2._mm(h8, hs)
+            out = out + _lora(g, self.lora_A2, self.lora_B2).to(out.dtype)
+            return out.reshape(*shape[:-1], out.shape[-1])
+
+    def _get(path):
+        try:
+            return dit.get_submodule(path)
+        except AttributeError:
+            return None
+
+    def _check_shape(name, w, a, b):
+        if w is not None and w.dim() == 2 and tuple(w.shape) != (b.shape[0], a.shape[1]):
+            raise RuntimeError(f"FlashVSR LoRA: shape mismatch at {name}: W{tuple(w.shape)} A{tuple(a.shape)} B{tuple(b.shape)}")
+
+    fused = {}  # ffn path -> {"0": (a, b), "2": (a, b)}
+    n = 0
+    for name in names:
+        if name + ".lora_B" not in sd:
+            raise RuntimeError(f"FlashVSR LoRA: missing lora_B for {name}")
+        a, b = sd[name + ".lora_A"], sd[name + ".lora_B"]
+        if a.shape[0] != rank or b.shape[1] != rank:
+            raise RuntimeError(f"FlashVSR LoRA: rank mismatch at {name}: A{tuple(a.shape)} B{tuple(b.shape)} rank {rank}")
+        mod = _get(name)
+        parent_path, leaf = name.rsplit(".", 1)
+        if mod is None:
+            parent = _get(parent_path)
+            if parent is not None and leaf in ("0", "2") and hasattr(parent, "lin0") and hasattr(parent, "lin2"):
+                fused.setdefault(parent_path, {})[leaf] = (a, b)
+                continue
+            raise RuntimeError(f"FlashVSR LoRA: target module not found in DiT: {name}")
+        _check_shape(name, getattr(mod, "weight", None), a, b)
+        setattr(dit.get_submodule(parent_path), leaf, _LoRAWrapped(mod, a, b))
+        n += 1
+    for path, pair in fused.items():
+        if set(pair) != {"0", "2"}:
+            raise RuntimeError(f"FlashVSR LoRA: fused FFN {path} needs both ffn.0 and ffn.2 adapters, got {sorted(pair)}")
+        ffn = dit.get_submodule(path)
+        (a0, b0), (a2, b2) = pair["0"], pair["2"]
+        _check_shape(path + ".0", getattr(ffn.lin0, "weight", None), a0, b0)
+        _check_shape(path + ".2", getattr(ffn.lin2, "weight", None), a2, b2)
+        parent_path, leaf = path.rsplit(".", 1)
+        setattr(dit.get_submodule(parent_path), leaf, _LoRAFusedFFN(ffn, a0, b0, a2, b2))
+        n += 2
+    return n
+
+
 def main() -> None:
     args = _parse_args()
 
@@ -473,6 +622,20 @@ def main() -> None:
     pipe, accel_parts, accel_log = _init_pipeline(
         run, args.version, "tiny-long", device, dtype,
         ((y2 - y1) * scale, 256 * scale), verbose=args.verbose)
+
+    lora_active = False
+    if args.lora:
+        # After the warmup (the accelerated parts are installed by now, so the
+        # adapters wrap the modules that will actually run) and before the
+        # handshake, so a bad file fails the startup (the parent reports it)
+        # instead of silently running the base model.
+        lora_file = torch.load(args.lora, map_location="cpu", weights_only=True)
+        n_lora = inject_lora_into_dit(pipe.dit, lora_file, adapter_dtype=dtype)
+        pipe.dit.eval()
+        lora_active = True
+        print(f"FlashVSR worker: applied LoRA {os.path.basename(args.lora)} "
+              f"(rank {lora_file.get('rank')}, step {lora_file.get('step')}) to {n_lora} DiT linear layers",
+              file=sys.stderr, flush=True)
 
     # Handshake: tell the parent we're ready to accept clips.
     ready = {"status": "ready", "accel": accel_parts, "accel_log": accel_log}
@@ -570,6 +733,16 @@ def main() -> None:
 
             resp = {"seq": seq, "n": n, "h": oh, "w": ow}
             demoted = _accel_demoted()
+            if lora_active and "fp8_dit" in demoted:
+                # The fork's fp8_dit fallback put the stock DiT linears back, so
+                # this clip (at least its tail) ran without the LoRA. Don't ship
+                # it: ask the parent to restart us with fp8_dit off, which
+                # re-applies the LoRA on the stock path, and exit.
+                err = {"seq": seq, "error": "FlashVSR fp8_dit acceleration failed at runtime and "
+                       "dropped the LoRA adapters; restart without it", "accel_demoted": demoted,
+                       "respawn": True}
+                proto.write((json.dumps(err) + "\n").encode("utf-8"))
+                break
             if demoted:
                 resp["accel_demoted"] = demoted
             proto.write((json.dumps(resp) + "\n").encode("utf-8"))
