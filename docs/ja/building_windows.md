@@ -307,7 +307,7 @@ python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurf
 
 ### 6.2 オプション: FlashVSR 二次復元（実験的）
 
-FlashVSR（`--secondary-restoration flashvsr` / `flashvsr-inline`）は別リポジトリのチェックアウトと専用 venv を必要とし、inline 用にはチェックアウトへの同梱パッチ適用も要る。Windows 対応済み（inline は v0.8.0+modi でも Windows の 16 GB カード + `--flashvsr-tiles 2` で再検証済み。v0.8.0 は inline 時に `--max-clip-size` を自動で 32 に抑えるため、v0.7.2 期より VRAM に余裕がある）。セットアップ手順は [flashvsr.md](flashvsr.md) を参照。
+FlashVSR（`--secondary-restoration flashvsr` / `flashvsr-inline`）は別リポジトリのチェックアウトと専用 venv を必要とする。チェックアウトには fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus) を使う（inline に要る tiny-long の修正と `--flashvsr-accel` の高速化を含み、`uv sync` で依存が揃う）。Windows 対応済み（inline は v0.8.0+modi でも Windows の 16 GB カード + `--flashvsr-tiles 2` で再検証済み。v0.8.0 は inline 時に `--max-clip-size` を自動で 32 に抑えるため、v0.7.2 期より VRAM に余裕がある）。セットアップ手順は [flashvsr.md](flashvsr.md) を参照。
 
 ---
 
