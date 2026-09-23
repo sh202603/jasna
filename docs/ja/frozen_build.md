@@ -106,7 +106,7 @@ dist_nuitka\jasna\
 - FP8 recon（`--fp8-recon`）は凍結ビルドでは未検証である。
   配布先マシンで triton がカーネルを JIT コンパイルできることに依存するためである。
 - FlashVSR は同梱されない。
-  `flashvsr` と `flashvsr-inline` のどちらも、ソース実行時と同じく、パッチ適用済みの FlashVSR チェックアウトと専用 venv が配布先マシンに別途必要である（`--flashvsr-repo`）。
+  `flashvsr` と `flashvsr-inline` のどちらも、ソース実行時と同じく、FlashVSR チェックアウト（fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus)、または tiny-long のパッチを当てた上流のもの）と専用 venv が配布先マシンに別途必要である（`--flashvsr-repo`）。
 - **SeedVR2 も同梱されない**:
   `--restoration-model-name seedvr2` は `ComfyUI-SeedVR2_VideoUpscaler` のチェックアウトと専用 venv（`--seedvr2-repo`）、および `model_weights\` への LoRA 配置が配布先マシンに別途必要である。バンドルに入るのは worker スクリプト（`jasna\restorer\seedvr2_lora_worker.py`）のみ。
   配布物に含まれるのは jasna 側のオーケストレーション（`jasna\restorer\` 配下の worker と driver のスクリプトを含む）だけである。
