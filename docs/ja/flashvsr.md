@@ -339,7 +339,8 @@ jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr-inline \
 - 残存モザイクの出方は変わらない。
 
 **コスト**: LoRA は worker の起動時に bf16 の低ランクアダプタとして適用する(約 5% 遅くなり、
-VRAM が 32 MB 増える)。モデルの重みには合成しない。学習した変化量が bf16 や FP8 の重みの
+VRAM が 32 MB 増える。いずれも lada-ex での計測値)。jasna の Windows 実測(下記)では、
+FlashVSR の処理時間が 1.05 倍、壁時計が 1.06 倍だった。モデルの重みには合成しない。学習した変化量が bf16 や FP8 の重みの
 分解能よりはるかに小さく、合成すると大半が丸めで消えるためである。
 
 **`--flashvsr-accel` との併用**: できる。アダプタは FP8 の Linear の横に置き、融合 FP8 FFN には
@@ -364,6 +365,23 @@ FlashVSR worker: applied LoRA lada_flashvsr_secondary_lora_v1.pt (rank 16, step 
 有無で処理した。どちらも 6242 フレームを同じエンコード設定(HEVC Main 10)で出力し、
 LoRA ありの出力は約 7% 小さかった(3.61 Mbps と 3.89 Mbps)。並べて再生すると、LoRA ありでは
 毛の過鮮鋭な見え方が抑えられ、上に書いた効果と一致した。
+
+**jasna での確認(Windows)**: Windows 11 / RTX 5060 Ti 16 GB、同じ 1080p の実素材を
+inline scale 2 / tiles 1 で処理した。3 回を続けて計測し、GPU 全体のピークはデスクトップ常駐
+(約 1.5 GB)込みの値:
+
+| | 壁時計 | GPU 全体ピーク | FlashVSR の処理時間 |
+|---|---|---|---|
+| `--flashvsr-accel` あり、LoRA なし | 466 s | 9602 MiB | 423 s |
+| `--flashvsr-accel` あり、LoRA あり | 495 s(1.06 倍) | 9445 MiB | 444 s(1.05 倍) |
+| `--flashvsr-accel` なし、LoRA あり | 590 s | 10596 MiB | 566 s |
+
+3 本とも出力は 6242 フレームで、offload、worker のリトライ、起こし直しは 0 回だった。
+LoRA ありの出力は約 6% 小さかった(3.81 Mbps と 4.07 Mbps)。目視 A/B では、LoRA ありで
+毛の過鮮鋭な見え方が抑えられ、高速化の有無で LoRA の効き方は変わらなかった。
+GPU 全体のピークは LoRA ありのほうが低かったが、これは計測のばらつきである。
+Windows では `expandable_segments` が使えず、worker が確保する量が走行ごとに変わるので、
+この方法では 32 MB 程度の差は測れない。
 
 ### 色補正
 
