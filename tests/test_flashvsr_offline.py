@@ -735,3 +735,60 @@ class TestPhase2DriverArgs:
         out = np.full((1, 16, 16, 3), 180.0, dtype=np.float32)
         fixed = drv._color_fix_frames(out, torch.full((1, 4, 4, 3), 0.25), "wavelet", "cpu")
         assert np.allclose(fixed, 63.75, atol=0.05)
+
+
+class TestFlashvsrAccel:
+    """--flashvsr-accel: flag default, the env switch for the Phase 2 driver,
+    and the driver's retry after a part demoted itself mid-clip."""
+
+    def test_flag_default_off(self):
+        import argparse
+        ap = argparse.ArgumentParser()
+        fo.add_flashvsr_arguments(ap.add_argument_group("fv"))
+        assert ap.parse_args([]).flashvsr_accel is False
+        assert ap.parse_args(["--flashvsr-accel"]).flashvsr_accel is True
+        assert ap.parse_args(["--no-flashvsr-accel"]).flashvsr_accel is False
+
+    def test_env_on_off(self, tmp_path, caplog):
+        (tmp_path / "vsrlib").mkdir()
+        (tmp_path / "vsrlib" / "accel.py").write_text("")
+        env = {"FLASHVSR_FUSED_DIT": "0"}
+        fo.apply_flashvsr_accel_env(env, True, tmp_path)
+        assert env == {"FLASHVSR_ACCEL": "1", "FLASHVSR_FUSED_DIT": "0"}
+        fo.apply_flashvsr_accel_env(env, False, tmp_path)
+        assert env == {"FLASHVSR_FUSED_DIT": "0"}
+        assert "FlashVSR_plus fork" not in caplog.text
+
+    def test_env_warns_without_fork(self, tmp_path, caplog):
+        env = {}
+        fo.apply_flashvsr_accel_env(env, True, tmp_path)
+        assert env["FLASHVSR_ACCEL"] == "1"
+        assert "needs the FlashVSR_plus fork" in caplog.text
+
+    def test_driver_retries_once_after_demotion(self, monkeypatch):
+        from jasna.restorer import flashvsr_phase2_driver as drv
+        demoted = []
+        calls = []
+
+        def fake_upscale(*a, **k):
+            calls.append(1)
+            if len(calls) == 1:
+                demoted.append("fp8_dit")  # the part switches itself off, then re-raises
+                raise RuntimeError("cuBLASLt")
+            return "ok"
+
+        monkeypatch.setattr(drv, "_upscale_clip", fake_upscale)
+        monkeypatch.setattr(drv._worker, "_accel_demoted", lambda: list(demoted))
+        assert drv._upscale_clip_checked(None, None, torch) == "ok"
+        assert len(calls) == 2
+
+    def test_driver_does_not_retry_plain_failures(self, monkeypatch):
+        from jasna.restorer import flashvsr_phase2_driver as drv
+
+        def fake_upscale(*a, **k):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(drv, "_upscale_clip", fake_upscale)
+        monkeypatch.setattr(drv._worker, "_accel_demoted", lambda: [])
+        with pytest.raises(RuntimeError, match="boom"):
+            drv._upscale_clip_checked(None, None, torch)

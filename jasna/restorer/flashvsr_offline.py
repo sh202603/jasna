@@ -574,6 +574,32 @@ def default_flashvsr_python(repo: Path) -> Path:
     return repo / ".venv" / "bin" / "python"
 
 
+FLASHVSR_FORK_URL = "https://github.com/sh202603/FlashVSR_plus"
+
+
+def apply_flashvsr_accel_env(env: dict, accel: bool, repo: Path) -> None:
+    """Set the FlashVSR_plus fork's acceleration switch in a worker/driver env.
+
+    The fork reads ``FLASHVSR_ACCEL=1`` (its ``--accel``) inside
+    ``run.init_pipeline``, which both of our FlashVSR processes call, and falls
+    back to the standard path per part on GPUs/checkouts that can't run it.
+    ``--no-flashvsr-accel`` removes the variable so a value left in the shell
+    can't override the flag; the per-part variables (``FLASHVSR_FP8_DIT=0``,
+    ...) are left alone as verification overrides. An upstream checkout has no
+    acceleration and would silently ignore the variable, so warn instead.
+    """
+    if not accel:
+        env.pop("FLASHVSR_ACCEL", None)
+        return
+    env["FLASHVSR_ACCEL"] = "1"
+    if not (repo / "vsrlib" / "accel.py").is_file():
+        logger.warning(
+            "[flashvsr] --flashvsr-accel needs the FlashVSR_plus fork (%s); the checkout at "
+            "%s has no acceleration, so FlashVSR runs at standard speed.",
+            FLASHVSR_FORK_URL, repo,
+        )
+
+
 def _validate_flashvsr_args(args: "argparse.Namespace") -> tuple[Path, Path, Path, Path]:
     """Validate the flashvsr-specific inputs; return resolved paths."""
     from jasna.media.image_io import is_image_path
@@ -877,6 +903,7 @@ def _phase2_upscale(
         # a pipe (GUI runs, output redirection) Windows defaults the child's text
         # layer to cp932 and the print raises UnicodeEncodeError before inference.
         env["PYTHONUTF8"] = "1"
+    apply_flashvsr_accel_env(env, bool(getattr(args, "flashvsr_accel", False)), repo)
     _run_checked(cmd, f"Phase 2 (FlashVSR {int(getattr(args, 'flashvsr_scale', 4))}x)", env=env)
 
 
@@ -926,7 +953,9 @@ def add_flashvsr_arguments(group: "argparse._ArgumentGroup") -> None:
         "--flashvsr-repo",
         type=str,
         default="",
-        help="Path to the FlashVSR_plus checkout (required for --secondary-restoration flashvsr).",
+        help="Path to the FlashVSR_plus checkout (required for --secondary-restoration flashvsr "
+             f"and flashvsr-inline). Use the fork {FLASHVSR_FORK_URL}: it includes the tiny-long "
+             "fix flashvsr-inline needs and the --flashvsr-accel speed-up.",
     )
     group.add_argument(
         "--flashvsr-python",
@@ -997,6 +1026,17 @@ def add_flashvsr_arguments(group: "argparse._ArgumentGroup") -> None:
              "clip (tiled-dit) to cut FlashVSR peak VRAM on 16GB GPUs. 1 disables "
              "(default). Use the largest that fits VRAM: 2 (~1.25x slower) first, then "
              "3 or 4 (~1.5x) if it still OOMs. The offline path ignores this.",
+    )
+    group.add_argument(
+        "--flashvsr-accel",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Both FlashVSR modes: speed FlashVSR up ~1.4x with FP8 convolutions/linears "
+             "and fused DiT kernels, and lower its peak VRAM ~1.4 GiB (default: %(default)s). "
+             "Needs the FlashVSR_plus fork, an RTX 40 series or newer GPU, "
+             "--flashvsr-version 11 and --flashvsr-dtype bf16; anything else falls back "
+             "to the standard path automatically. The output differs slightly from a "
+             "run without it.",
     )
     group.add_argument(
         "--flashvsr-bundle-dir",

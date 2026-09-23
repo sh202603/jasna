@@ -65,7 +65,8 @@ def _load_sibling_module(name: str):
     return module
 
 
-_color_fix_frames = _load_sibling_module("flashvsr_inline_worker")._color_fix_frames
+_worker = _load_sibling_module("flashvsr_inline_worker")
+_color_fix_frames = _worker._color_fix_frames
 
 
 def _parse_args() -> argparse.Namespace:
@@ -161,6 +162,29 @@ def _upscale_clip(run, pipe, torch, primary_u8: np.ndarray, device, dtype, scale
     return np.ascontiguousarray(restored.transpose(0, 3, 1, 2))  # (T,3,S,S) CHW
 
 
+def _upscale_clip_checked(run, pipe, torch, *args, **kwargs) -> np.ndarray:
+    """``_upscale_clip``, retried once when an acceleration part failed in it.
+
+    A failing part switches itself back to the standard path and re-raises;
+    unlike tiny-long, the tiny pipeline lets that exception out, so without the
+    retry Phase 2 would stop, and a resumed run would re-enable the part and
+    fail again. The pipeline resets its causal state at the top of every call,
+    so redoing the whole clip is correct.
+    """
+    before = _worker._accel_demoted()
+    try:
+        return _upscale_clip(run, pipe, torch, *args, **kwargs)
+    except torch.OutOfMemoryError:
+        raise
+    except Exception:
+        newly = sorted(set(_worker._accel_demoted()) - set(before))
+        if not newly:
+            raise
+        print(f"[flashvsr-phase2] acceleration part(s) {', '.join(newly)} failed and were "
+              "switched off; retrying the clip on the standard path", file=sys.stderr, flush=True)
+        return _upscale_clip(run, pipe, torch, *args, **kwargs)
+
+
 def main() -> None:
     args = _parse_args()
     bundle_dir = Path(args.bundle_dir)
@@ -183,7 +207,12 @@ def main() -> None:
     print(f"[flashvsr-phase2] {len(clips)} clips to upscale (version={args.version}, mode=tiny, "
           f"scale={args.scale}, color_fix={args.color_fix_method})", flush=True)
 
-    pipe = run.init_pipeline(args.version, "tiny", device, dtype)
+    # Acceleration (FLASHVSR_ACCEL, set by the orchestrator for --flashvsr-accel)
+    # is warmed up at the real clip size; verbose=True forwards the fork's
+    # startup output, acceleration decisions included, to our stderr.
+    pipe, _, _ = _worker._init_pipeline(
+        run, args.version, "tiny", device, dtype, (256 * args.scale, 256 * args.scale),
+        verbose=True)
 
     done = 0
     skipped = 0
@@ -196,7 +225,7 @@ def main() -> None:
         with np.load(bundle_dir / f"{key}.npz", allow_pickle=False) as data:
             primary_u8 = data["primary_u8"]  # (T,3,256,256) uint8 RGB CHW
 
-        restored = _upscale_clip(
+        restored = _upscale_clip_checked(
             run, pipe, torch, primary_u8, device, dtype, args.scale,
             seed=args.seed, tiled_vae=args.tiled_vae, unload_dit=args.unload_dit,
             color_fix_method=args.color_fix_method,

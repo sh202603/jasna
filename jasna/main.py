@@ -77,6 +77,7 @@ def _session_config_from_args(
         flashvsr_dtype=str(getattr(args, "flashvsr_dtype", "bf16")),
         flashvsr_tiles=int(getattr(args, "flashvsr_tiles", 1)),
         flashvsr_scale=int(getattr(args, "flashvsr_scale", 4)),
+        flashvsr_accel=bool(getattr(args, "flashvsr_accel", False)),
         flashvsr_log_level=str(getattr(args, "log_level", "error")),
         restoration_model_name=str(args.restoration_model_name),
         seedvr2_repo=str(getattr(args, "seedvr2_repo", "") or ""),
