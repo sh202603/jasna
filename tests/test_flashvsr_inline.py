@@ -95,6 +95,12 @@ _STUB_WORKER = textwrap.dedent(
         if MODE == "error":
             out.write((json.dumps({"seq": h.get("seq", 0), "error": "boom"}) + "\\n").encode()); out.flush()
             continue
+        if MODE == "lora_respawn" and os.environ.get("FLASHVSR_FP8_DIT") != "0":
+            # fp8_dit failed at runtime with a LoRA: withhold the clip and exit
+            out.write((json.dumps({"seq": h.get("seq", 0), "error": "fp8_dit dropped the LoRA",
+                                   "accel_demoted": ["fp8_dit"], "respawn": True}) + "\\n").encode())
+            out.flush()
+            break
         if MODE == "assert_red_wire":
             ok = all(int(crops[i, :, :, 2].min()) == 255 and int(crops[i, :, :, 0].max()) == 0
                      and int(crops[i, :, :, 1].max()) == 0 for i in range(n))
@@ -721,3 +727,76 @@ class TestWorkerAccelHelpers:
 
         monkeypatch.setitem(sys.modules, "vsrlib.accel", Accel)
         assert _accel_demoted() == ["fp8_dit", "fused_dit"]
+
+
+class TestLora:
+    """--flashvsr-lora: the file reaches the worker as --lora, and a worker that
+    lost its LoRA to an acceleration fallback is restarted with that part off
+    and the clip redone."""
+
+    def _spawn(self, stub_env, monkeypatch, lora):
+        cmds, envs = [], []
+        real_popen = subprocess.Popen
+
+        def spy(cmd, *a, **k):
+            cmds.append(list(cmd))
+            envs.append(dict(k["env"]))
+            return real_popen(cmd, *a, **k)
+
+        monkeypatch.setattr(subprocess, "Popen", spy)
+        r = FlashvsrInlineSecondaryRestorer(
+            repo=stub_env["repo"], model_dir=stub_env["model_dir"],
+            fv_python=Path(sys.executable), lora_path=lora, startup_timeout_s=30.0,
+        )
+        return r, cmds, envs
+
+    def test_lora_passed_to_worker(self, stub_env, monkeypatch, tmp_path):
+        lora = tmp_path / "lada_flashvsr_secondary_lora_v1.pt"
+        lora.write_bytes(b"x")
+        r, cmds, _ = self._spawn(stub_env, monkeypatch, lora)
+        r.close()
+        assert cmds[0][cmds[0].index("--lora") + 1] == str(lora)
+
+    def test_no_lora_by_default(self, stub_env, monkeypatch):
+        r, cmds, _ = self._spawn(stub_env, monkeypatch, None)
+        r.close()
+        assert "--lora" not in cmds[0]
+
+    def test_missing_lora_file_rejected(self, stub_env, tmp_path):
+        with pytest.raises(FileNotFoundError, match="LoRA weight file not found"):
+            FlashvsrInlineSecondaryRestorer(
+                repo=stub_env["repo"], model_dir=stub_env["model_dir"],
+                fv_python=Path(sys.executable), lora_path=tmp_path / "missing.pt",
+                startup_timeout_s=30.0,
+            )
+
+    def test_respawn_without_failed_part_and_redo(self, stub_env, monkeypatch, tmp_path, caplog):
+        lora = tmp_path / "l.pt"
+        lora.write_bytes(b"x")
+        monkeypatch.setenv("STUB_MODE", "lora_respawn")
+        monkeypatch.delenv("FLASHVSR_FP8_DIT", raising=False)
+        caplog.set_level(logging.WARNING)
+        r, cmds, envs = self._spawn(stub_env, monkeypatch, lora)
+        try:
+            out = r.restore(torch.zeros(3, 3, 256, 256), keep_start=0, keep_end=3)
+            assert len(out) == 3  # the clip was redone on the restarted worker
+            out = r.restore(torch.zeros(2, 3, 256, 256), keep_start=0, keep_end=2)
+            assert len(out) == 2
+        finally:
+            r.close()
+        assert len(envs) == 2  # exactly one restart
+        assert "FLASHVSR_FP8_DIT" not in envs[0] and envs[1]["FLASHVSR_FP8_DIT"] == "0"
+        assert "--lora" in cmds[1]
+        assert "keep the LoRA" in caplog.text and "fp8_dit" in caplog.text
+
+
+class TestRestoreDoesNotMutateInput:
+    def test_cpu_float_input_unchanged(self, stub_env):
+        r = _make_restorer(stub_env)
+        x = torch.full((3, 3, 256, 256), 0.25)
+        try:
+            r.restore(x, keep_start=0, keep_end=3)
+            r.restore(x, keep_start=0, keep_end=3)
+        finally:
+            r.close()
+        assert torch.equal(x, torch.full((3, 3, 256, 256), 0.25))

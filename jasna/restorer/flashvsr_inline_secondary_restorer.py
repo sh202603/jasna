@@ -48,6 +48,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# The FlashVSR_plus fork's per-part acceleration switches (its vsrlib/accel.py
+# _ENV). A part the worker reports as switched off at runtime is disabled
+# through its variable when the worker has to be restarted (see restore()).
+ACCEL_PART_ENV = {
+    "fp8_conv_tcd": "FLASHVSR_FP8_CONV_TCD",
+    "fp8_conv_lq": "FLASHVSR_FP8_CONV",
+    "fp8_dit": "FLASHVSR_FP8_DIT",
+    "fused_dit": "FLASHVSR_FUSED_DIT",
+}
+
 # Benign co-residence noise emitted by the worker's torch when expandable_segments
 # cannot memory-map under VRAM pressure (see FLASHVSR docs: harmless, not a crash).
 # Dropped from the worker's stderr only at --log-level error; genuine stderr
@@ -100,6 +110,7 @@ class FlashvsrInlineSecondaryRestorer:
         scale: int = 4,
         tiles: int = 1,
         accel: bool = False,
+        lora_path: Path | str | None = None,
         log_level: str = "error",
         startup_timeout_s: float = 300.0,
         verbose: bool = False,
@@ -121,6 +132,13 @@ class FlashvsrInlineSecondaryRestorer:
             "--scale", str(int(scale)),
             "--tiles", str(int(tiles)),
         ]
+        if lora_path:
+            lora = Path(lora_path).expanduser().resolve()  # the worker chdirs into the checkout
+            if not lora.is_file():
+                raise FileNotFoundError(f"[flashvsr-inline] LoRA weight file not found: {lora}")
+            # Applied by the worker as bf16 adapters before its ready handshake.
+            cmd += ["--lora", str(lora)]
+        self._lora = bool(lora_path)
         # Color correction is always on (worker default: wavelet).
         # JASNA_FLASHVSR_COLOR_FIX is a verification-only override
         # (adain|wavelet|none) for A/B runs — deliberately an env var, not a
@@ -172,9 +190,29 @@ class FlashvsrInlineSecondaryRestorer:
         # so those warnings show.
         self._quiet = str(log_level).lower() == "error"
         self._stderr_thread: threading.Thread | None = None
-        logger.info("[flashvsr-inline] spawning worker: %s", " ".join(cmd))
+        self._proc: subprocess.Popen | None = None
+        self._cmd = cmd
+        self._env = env
+        self._startup_timeout_s = startup_timeout_s
+        self._spawn()
+
+    # -- lifecycle -----------------------------------------------------------
+
+    def _spawn(self) -> None:
+        """Start the worker and block until its ready handshake.
+
+        Acceleration parts that failed earlier in this run are switched off
+        through the fork's per-part variables, so a restarted worker neither
+        re-enables them nor (with a LoRA) loses the adapters to their fallback.
+        """
+        env = dict(self._env)
+        for part in self._accel_demoted:
+            var = ACCEL_PART_ENV.get(part)
+            if var:
+                env[var] = "0"
+        logger.info("[flashvsr-inline] spawning worker: %s", " ".join(self._cmd))
         self._proc = subprocess.Popen(
-            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            self._cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE if self._quiet else None, env=env,
         )
         if self._quiet:
@@ -182,9 +220,7 @@ class FlashvsrInlineSecondaryRestorer:
                 target=self._pump_stderr, name="flashvsr-inline-stderr", daemon=True
             )
             self._stderr_thread.start()
-        self._await_ready(startup_timeout_s)
-
-    # -- lifecycle -----------------------------------------------------------
+        self._await_ready(self._startup_timeout_s)
 
     def _pump_stderr(self) -> None:
         """Forward the worker's stderr, dropping only the benign expandable_segments
@@ -321,7 +357,9 @@ class FlashvsrInlineSecondaryRestorer:
         # (T,C,256,256) float [0,1] RGB -> (T,256,256,3) uint8 BGR HWC,
         # C-contiguous (the wire is lada-native BGR).
         hwc = (
-            frames_256.detach().to("cpu", torch.float32).clamp_(0.0, 1.0)
+            # copy=True: a CPU float32 input would otherwise be returned as-is by
+            # .to() and the in-place ops below would rescale the caller's tensor.
+            frames_256.detach().to("cpu", torch.float32, copy=True).clamp_(0.0, 1.0)
             .mul_(255.0).round_().to(torch.uint8)
             .permute(0, 2, 3, 1).contiguous().numpy()
         )
@@ -329,19 +367,36 @@ class FlashvsrInlineSecondaryRestorer:
         h, w = int(hwc.shape[1]), int(hwc.shape[2])
 
         with self._lock:
-            if self._closed or self._proc.poll() is not None:
-                raise RuntimeError("[flashvsr-inline] worker process is not running")
             header = json.dumps({"seq": 0, "n": t, "h": h, "w": w}) + "\n"
-            self._proc.stdin.write(header.encode("utf-8"))
-            self._proc.stdin.write(hwc.tobytes())
-            self._proc.stdin.flush()
+            for attempt in (1, 2):
+                if self._closed or self._proc.poll() is not None:
+                    raise RuntimeError("[flashvsr-inline] worker process is not running")
+                self._proc.stdin.write(header.encode("utf-8"))
+                self._proc.stdin.write(hwc.tobytes())
+                self._proc.stdin.flush()
 
-            resp = self._read_header()
-            if resp is None:
-                raise RuntimeError("[flashvsr-inline] worker died (no response)")
+                resp = self._read_header()
+                if resp is None:
+                    raise RuntimeError("[flashvsr-inline] worker died (no response)")
+                self._report_demoted(resp.get("accel_demoted") or ())
+                if resp.get("respawn") and attempt == 1:
+                    # --flashvsr-lora + an acceleration part that failed at
+                    # runtime: the fork's fallback dropped the LoRA adapters, so
+                    # the worker withheld this clip and exited. Restart it with
+                    # the failed parts off (the LoRA is re-applied) and redo it.
+                    logger.warning(
+                        "[flashvsr-inline] restarting the FlashVSR worker without the failed "
+                        "acceleration part(s) to keep the LoRA; redoing this clip"
+                    )
+                    try:
+                        self._proc.wait(timeout=30)
+                    except subprocess.TimeoutExpired:
+                        self._kill()
+                    self._spawn()
+                    continue
+                break
             if "error" in resp:
                 raise RuntimeError(f"[flashvsr-inline] worker error: {resp['error']}")
-            self._report_demoted(resp.get("accel_demoted") or ())
             rn, rh, rw = int(resp["n"]), int(resp["h"]), int(resp["w"])
             data = self._read_exact(rn * rh * rw * 3)
 
