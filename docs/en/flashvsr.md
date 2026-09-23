@@ -392,6 +392,13 @@ The worker logs the LoRA at startup:
 FlashVSR worker: applied LoRA lada_flashvsr_secondary_lora_v1.pt (rank 16, step 1000) to 180 DiT linear layers
 ```
 
+**Verified in jasna (Linux):** Ubuntu 26.04 / RTX 5080 16 GB / driver 595.91.07,
+a real 1080p source (6242 frames), inline scale 2 with `--flashvsr-accel`, run with
+and without `--flashvsr-lora`. Both runs produced 6242 frames with the same encode
+settings (HEVC Main 10); the LoRA output was about 7% smaller (3.61 vs 3.89 Mbps).
+Played side by side, the LoRA output showed less of the over-sharpened look on hair,
+matching the effect described above.
+
 ### Color correction
 
 FlashVSR's generated crops can drift in tone from the primary restoration they
