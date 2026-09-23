@@ -78,6 +78,7 @@ def _session_config_from_args(
         flashvsr_tiles=int(getattr(args, "flashvsr_tiles", 1)),
         flashvsr_scale=int(getattr(args, "flashvsr_scale", 4)),
         flashvsr_accel=bool(getattr(args, "flashvsr_accel", False)),
+        flashvsr_lora=str(getattr(args, "flashvsr_lora", "") or ""),
         flashvsr_log_level=str(getattr(args, "log_level", "error")),
         restoration_model_name=str(args.restoration_model_name),
         seedvr2_repo=str(getattr(args, "seedvr2_repo", "") or ""),
@@ -799,6 +800,12 @@ def main() -> None:
     # FlashVSR runs as an offline 3-phase pass (each phase its own subprocess so
     # their peak VRAM never overlaps). Dispatch here, before the heavy torch /
     # pipeline imports — the orchestrator only spawns subprocesses.
+    if str(getattr(args, "flashvsr_lora", "") or "").strip() \
+            and str(args.secondary_restoration).lower() != "flashvsr-inline":
+        # Checked before the offline dispatch below: its phases re-run jasna with
+        # the same argv, where a later check would surface as a phase failure.
+        raise ValueError("--flashvsr-lora is supported with --secondary-restoration flashvsr-inline only")
+
     if str(args.secondary_restoration).lower() == "flashvsr":
         from jasna.restorer.flashvsr_offline import run_flashvsr_offline
         run_flashvsr_offline(args)
@@ -1119,6 +1126,17 @@ def main() -> None:
                     )
     elif restoration_model_name != "basicvsrpp":
         raise ValueError(f"Unsupported restoration model: {restoration_model_name}")
+
+    fvsr_lora_arg = str(getattr(args, "flashvsr_lora", "") or "").strip()
+    if fvsr_lora_arg:
+        from jasna.model_weights_resolver import resolve_model_weights_file
+
+        fvsr_lora_file = Path(fvsr_lora_arg).expanduser()
+        if not fvsr_lora_file.is_file() and fvsr_lora_file.parent == Path("."):
+            fvsr_lora_file = resolve_model_weights_file(fvsr_lora_arg)  # bare file name -> model_weights/
+        if not fvsr_lora_file.is_file():
+            raise FileNotFoundError(f"--flashvsr-lora not found: {fvsr_lora_arg} (also looked in {fvsr_lora_file})")
+        args.flashvsr_lora = str(fvsr_lora_file.resolve())  # the worker chdirs into the checkout
 
     if secondary_name == "flashvsr-inline":
         # No clip cap (tiny-long is flat in VRAM vs clip length); frame-gen is a

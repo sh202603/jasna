@@ -1039,6 +1039,18 @@ def add_flashvsr_arguments(group: "argparse._ArgumentGroup") -> None:
              "run without it.",
     )
     group.add_argument(
+        "--flashvsr-lora",
+        type=str,
+        default="",
+        help="flashvsr-inline only: a Lada LoRA for the FlashVSR DiT, as a path or a bare file "
+             "name looked up in the model_weights directory (e.g. "
+             "lada_flashvsr_secondary_lora_v1.pt from huggingface.co/sh202603/lada-seedvr2-lora). "
+             "Applied as bf16 adapters when the worker starts (a few percent slower, +32 MB "
+             "VRAM); combines with --flashvsr-accel. The published LoRA tones down FlashVSR's "
+             "mid-frequency over-sharpening and slightly reduces flicker at the cost of some "
+             "fine grain; validated with --flashvsr-scale 2. Default: none (base FlashVSR).",
+    )
+    group.add_argument(
         "--flashvsr-bundle-dir",
         type=str,
         default="",
