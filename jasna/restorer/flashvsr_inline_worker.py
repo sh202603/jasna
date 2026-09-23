@@ -21,17 +21,27 @@ Triton JIT), not lada's interpreter. It only uses numpy/torch plus the
 FlashVSR repo (added to ``sys.path`` at runtime). The wire color order is
 lada-native BGR; the worker converts BGR<->RGB around inference.
 
-Requires a FlashVSR_plus checkout with the tiny-long multi-chunk fix
-(``patches/flashvsr_plus_tinylong_multichunk_fix.patch``); the parent restorer
+Requires a FlashVSR_plus checkout with the tiny-long multi-chunk fix: the
+sh202603/FlashVSR_plus fork ships it, an upstream checkout needs
+``patches/flashvsr_plus_tinylong_multichunk_fix.patch``; the parent restorer
 verifies this before spawning us.
+
+Acceleration: the fork's opt-in FP8/fused-kernel parts are switched on by the
+parent through the environment (``FLASHVSR_ACCEL=1``); this worker only passes
+the warmup size and reports what happened, since the fork prints its decisions
+to the muted stdout.
 
 Wire protocol (parent = lada venv, child = this):
   parent -> child : header ``{"seq","n","h","w"}\\n`` (UTF-8) then n*h*w*3 raw
                     uint8 BGR bytes  (the 256px primary crops, HWC)
-  child  -> parent: header ``{"seq","n","h","w"}\\n`` then n*h*w*3 raw uint8
-                    BGR bytes  (the 256*scale px restored crops, HWC), exactly
-                    n frames
-  child  -> parent (once, at startup): ``{"status":"ready"}\\n``
+  child  -> parent: header ``{"seq","n","h","w"[,"accel_demoted"]}\\n`` then
+                    n*h*w*3 raw uint8 BGR bytes  (the 256*scale px restored
+                    crops, HWC), exactly n frames. ``accel_demoted`` (present
+                    once any part was switched off at runtime) lists those parts.
+  child  -> parent (once, at startup):
+                    ``{"status":"ready","accel":[...],"accel_log":[...]}\\n``
+                    (active acceleration parts; the fork's acceleration log
+                    lines, e.g. why a part was skipped. Both empty without it)
   child  -> parent (on per-clip failure): ``{"seq","error":"..."}\\n`` then
                     stays alive for the next clip.
 
@@ -94,6 +104,42 @@ def _install_protocol_fd(verbose: bool):
     sink = sys.stderr.fileno() if verbose else os.open(os.devnull, os.O_WRONLY)
     os.dup2(sink, 1)
     return proto
+
+
+def _init_pipeline(run, version, mode, device, dtype, accel_shape, verbose=False):
+    """``run.init_pipeline`` plus the fork's acceleration report.
+
+    Passes ``accel_shape`` (the (h, w) the pipeline will see, used to warm up
+    the accelerated parts at their real shape) when the checkout accepts it; an
+    upstream checkout has no acceleration and no such argument. The fork logs
+    its acceleration decisions with print(), which would land on the muted fd
+    1, so stdout is captured for the call and the ``accel:`` lines are
+    returned (ANSI colors stripped). Returns ``(pipe, active_parts, log_lines)``.
+    """
+    import contextlib
+    import inspect
+    import io
+    import re
+
+    kwargs = {}
+    if "accel_shape" in inspect.signature(run.init_pipeline).parameters:
+        kwargs["accel_shape"] = tuple(accel_shape)
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            pipe = run.init_pipeline(version, mode, device, dtype, **kwargs)
+    finally:
+        text = re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
+        if verbose:
+            sys.stderr.write(text)
+    log_lines = [ln.strip() for ln in text.splitlines() if "accel:" in ln]
+    return pipe, sorted(getattr(pipe, "accel_parts", None) or ()), log_lines
+
+
+def _accel_demoted():
+    """Acceleration parts switched off at runtime so far (fork only; else [])."""
+    mod = sys.modules.get("vsrlib.accel")
+    return sorted(mod.demoted_parts()) if mod is not None else []
 
 
 def _read_exact(stream, n: int) -> bytes:
@@ -412,11 +458,6 @@ def main() -> None:
 
     imageio.get_writer = _fake_get_writer
 
-    pipe = run.init_pipeline(args.version, "tiny-long", device, dtype)
-
-    # Handshake: tell the parent we're ready to accept clips.
-    proto.write((json.dumps({"status": "ready"}) + "\n").encode("utf-8"))
-
     scale = int(args.scale)
     color_fix_method = args.color_fix_method
     # Never written (imageio.get_writer is patched above); must merely be a
@@ -425,6 +466,17 @@ def main() -> None:
 
     # tiled-dit knob: number of full-width horizontal strips (1 = off, max 4).
     n_tiles = max(1, min(4, int(args.tiles)))
+
+    # Warm up the accelerated parts at the shape every clip will have: the
+    # primary crops are always 256px, split into strips when tiled.
+    _, y1, _, y2 = _strip_coords(256, 256, n_tiles, scale)[0][0]
+    pipe, accel_parts, accel_log = _init_pipeline(
+        run, args.version, "tiny-long", device, dtype,
+        ((y2 - y1) * scale, 256 * scale), verbose=args.verbose)
+
+    # Handshake: tell the parent we're ready to accept clips.
+    ready = {"status": "ready", "accel": accel_parts, "accel_log": accel_log}
+    proto.write((json.dumps(ready) + "\n").encode("utf-8"))
 
     while True:
         header = _read_header(stdin)
@@ -516,8 +568,11 @@ def main() -> None:
             out_arr = np.ascontiguousarray(out_arr[..., ::-1])
             oh, ow = int(out_arr.shape[1]), int(out_arr.shape[2])
 
-            resp = json.dumps({"seq": seq, "n": n, "h": oh, "w": ow}) + "\n"
-            proto.write(resp.encode("utf-8"))
+            resp = {"seq": seq, "n": n, "h": oh, "w": ow}
+            demoted = _accel_demoted()
+            if demoted:
+                resp["accel_demoted"] = demoted
+            proto.write((json.dumps(resp) + "\n").encode("utf-8"))
             proto.write(out_arr.tobytes())
 
             if str(device).startswith("cuda"):
