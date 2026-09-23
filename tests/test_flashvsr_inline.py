@@ -8,6 +8,7 @@ slicing, the RGB<->BGR flips) on a CPU box.
 """
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 import textwrap
@@ -76,7 +77,14 @@ _STUB_WORKER = textwrap.dedent(
         sys.stderr.write("[W716 07:57:26.7 CUDACachingAllocator.cpp:508] expandable_segments: memory mapping failed with OOM on device 0\\n")
         sys.stderr.write("STUB_MARKER real diagnostic line\\n")
         sys.stderr.flush()
-    out.write((json.dumps({"status": "ready"}) + "\\n").encode()); out.flush()
+    ready = {"status": "ready"}
+    if os.environ.get("STUB_ACCEL"):
+        ready["accel"] = ["fp8_conv_lq", "fp8_dit"]
+        ready["accel_log"] = [
+            "[FlashVSR] accel: fused_dit disabled: warmup failed (RuntimeError: jit); using the standard path.",
+            "[FlashVSR] accel: enabled fp8_conv_lq, fp8_dit.",
+        ]
+    out.write((json.dumps(ready) + "\\n").encode()); out.flush()
     O = 256 * int(sys.argv[sys.argv.index("--scale") + 1]) if "--scale" in sys.argv else 1024
     while True:
         h = rh(stdin)
@@ -99,7 +107,10 @@ _STUB_WORKER = textwrap.dedent(
             for c in range(3):
                 arr[i, :, :, c] = 255 if (MODE == "wire_marker" and c == 2) else (
                     0 if MODE == "wire_marker" else int(round(crops[i, :, :, c].mean())))
-        out.write((json.dumps({"seq": h.get("seq", 0), "n": rn, "h": O, "w": O}) + "\\n").encode())
+        resp = {"seq": h.get("seq", 0), "n": rn, "h": O, "w": O}
+        if os.environ.get("STUB_DEMOTE"):
+            resp["accel_demoted"] = ["fp8_dit"]
+        out.write((json.dumps(resp) + "\\n").encode())
         out.write(arr.tobytes()); out.flush()
     """
 )
@@ -583,3 +594,130 @@ class TestUnpatchedRepoRejectedAtConstruction:
                 repo=repo, model_dir=repo / "models" / "FlashVSR-v1.1",
                 fv_python=Path(sys.executable),
             )
+
+
+class TestAcceleration:
+    """--flashvsr-accel: the env switch reaches the worker, the handshake's
+    acceleration report and runtime demotions are logged, and the worker's
+    helpers pass the warmup shape / capture the fork's muted log."""
+
+    def _spawn(self, stub_env, monkeypatch, *, accel):
+        seen = {}
+        real_popen = subprocess.Popen
+
+        def spy(cmd, *a, **k):
+            seen["env"] = dict(k["env"])
+            return real_popen(cmd, *a, **k)
+
+        monkeypatch.setattr(subprocess, "Popen", spy)
+        r = FlashvsrInlineSecondaryRestorer(
+            repo=stub_env["repo"], model_dir=stub_env["model_dir"],
+            fv_python=Path(sys.executable), accel=accel, startup_timeout_s=30.0,
+        )
+        return r, seen["env"]
+
+    def test_accel_sets_env(self, stub_env, monkeypatch):
+        (stub_env["repo"] / "vsrlib").mkdir()
+        (stub_env["repo"] / "vsrlib" / "accel.py").write_text("")
+        r, env = self._spawn(stub_env, monkeypatch, accel=True)
+        r.close()
+        assert env["FLASHVSR_ACCEL"] == "1"
+
+    def test_no_accel_strips_shell_value(self, stub_env, monkeypatch):
+        monkeypatch.setenv("FLASHVSR_ACCEL", "1")
+        monkeypatch.setenv("FLASHVSR_FP8_DIT", "0")
+        r, env = self._spawn(stub_env, monkeypatch, accel=False)
+        r.close()
+        assert "FLASHVSR_ACCEL" not in env
+        assert env["FLASHVSR_FP8_DIT"] == "0"  # per-part overrides pass through
+
+    def test_warns_on_checkout_without_accel(self, stub_env, monkeypatch, caplog):
+        caplog.set_level(logging.WARNING)
+        r, _ = self._spawn(stub_env, monkeypatch, accel=True)
+        r.close()
+        assert "needs the FlashVSR_plus fork" in caplog.text
+
+    def test_no_fork_warning_with_fork_checkout(self, stub_env, monkeypatch, caplog):
+        (stub_env["repo"] / "vsrlib").mkdir()
+        (stub_env["repo"] / "vsrlib" / "accel.py").write_text("")
+        caplog.set_level(logging.WARNING)
+        r, _ = self._spawn(stub_env, monkeypatch, accel=True)
+        r.close()
+        assert "needs the FlashVSR_plus fork" not in caplog.text
+
+    def test_handshake_report_logged(self, stub_env, monkeypatch, caplog):
+        monkeypatch.setenv("STUB_ACCEL", "1")
+        caplog.set_level(logging.INFO)
+        r = _make_restorer(stub_env)
+        r.close()
+        levels = {rec.getMessage(): rec.levelno for rec in caplog.records}
+        skipped = next(m for m in levels if "fused_dit disabled" in m)
+        enabled = next(m for m in levels if "accel: enabled" in m)
+        assert levels[skipped] == logging.WARNING and levels[enabled] == logging.INFO
+        assert any("acceleration: fp8_conv_lq, fp8_dit" in m for m in levels)
+
+    def test_plain_handshake_reports_off(self, stub_env, caplog):
+        caplog.set_level(logging.INFO)
+        r = _make_restorer(stub_env)
+        r.close()
+        assert "acceleration: off" in caplog.text
+
+    def test_runtime_demotion_warned_once(self, stub_env, monkeypatch, caplog):
+        monkeypatch.setenv("STUB_DEMOTE", "1")
+        caplog.set_level(logging.WARNING)
+        r = _make_restorer(stub_env)
+        try:
+            for _ in range(2):
+                assert len(r.restore(torch.zeros(3, 3, 256, 256), keep_start=0, keep_end=3)) == 3
+        finally:
+            r.close()
+        warnings = [rec for rec in caplog.records if "switched off" in rec.getMessage()]
+        assert len(warnings) == 1 and "fp8_dit" in warnings[0].getMessage()
+
+
+class _FakePipe:
+    accel_parts = frozenset({"fp8_dit", "fp8_conv_lq"})
+
+
+class TestWorkerAccelHelpers:
+    def test_init_pipeline_passes_shape_and_captures_log(self, capsys):
+        from jasna.restorer.flashvsr_inline_worker import _init_pipeline
+        seen = {}
+
+        class Run:
+            @staticmethod
+            def init_pipeline(version, mode, device, dtype, accel_plan=None, accel_shape=None):
+                seen["args"] = (version, mode, device, dtype, accel_shape)
+                print("\033[1;33m[FlashVSR] accel: enabled fp8_conv_lq, fp8_dit.\033[m")
+                print("banner line")
+                return _FakePipe()
+
+        pipe, parts, log = _init_pipeline(Run, "11", "tiny-long", "cuda:0", "bf16", (320, 512))
+        assert seen["args"] == ("11", "tiny-long", "cuda:0", "bf16", (320, 512))
+        assert parts == ["fp8_conv_lq", "fp8_dit"]
+        assert log == ["[FlashVSR] accel: enabled fp8_conv_lq, fp8_dit."]
+        assert capsys.readouterr().out == ""  # nothing leaks to the (muted) stdout
+
+    def test_init_pipeline_upstream_checkout(self):
+        from jasna.restorer.flashvsr_inline_worker import _init_pipeline
+
+        class Run:  # upstream: no accel_shape, no pipe.accel_parts
+            @staticmethod
+            def init_pipeline(version, mode, device, dtype):
+                return object()
+
+        _, parts, log = _init_pipeline(Run, "11", "tiny-long", "cuda:0", "bf16", (512, 512))
+        assert parts == [] and log == []
+
+    def test_accel_demoted(self, monkeypatch):
+        from jasna.restorer.flashvsr_inline_worker import _accel_demoted
+        monkeypatch.delitem(sys.modules, "vsrlib.accel", raising=False)
+        assert _accel_demoted() == []
+
+        class Accel:
+            @staticmethod
+            def demoted_parts():
+                return frozenset({"fused_dit", "fp8_dit"})
+
+        monkeypatch.setitem(sys.modules, "vsrlib.accel", Accel)
+        assert _accel_demoted() == ["fp8_dit", "fused_dit"]
