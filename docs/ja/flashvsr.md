@@ -359,6 +359,12 @@ worker は起動時に LoRA の適用をログに出す:
 FlashVSR worker: applied LoRA lada_flashvsr_secondary_lora_v1.pt (rank 16, step 1000) to 180 DiT linear layers
 ```
 
+**jasna での確認(Linux)**: Ubuntu 26.04 / RTX 5080 16 GB / driver 595.91.07、1080p の
+実素材(6242 フレーム)を inline scale 2・`--flashvsr-accel` ありで、`--flashvsr-lora` の
+有無で処理した。どちらも 6242 フレームを同じエンコード設定(HEVC Main 10)で出力し、
+LoRA ありの出力は約 7% 小さかった(3.61 Mbps と 3.89 Mbps)。並べて再生すると、LoRA ありでは
+毛の過鮮鋭な見え方が抑えられ、上に書いた効果と一致した。
+
 ### 色補正
 
 FlashVSR が生成したクロップは、元になった一次復元結果から色味がずれることがあり、
