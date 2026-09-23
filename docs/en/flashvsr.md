@@ -369,7 +369,9 @@ FlashVSR, on the blended frames):
 - The residual-mosaic behaviour does not change.
 
 **Cost:** the LoRA is applied as bf16 low-rank adapters when the worker starts
-(about 5% slower, +32 MB VRAM). It is not merged into the model weights, because
+(about 5% slower, +32 MB VRAM, both measured on lada-ex). Measured in
+jasna on Windows (below), FlashVSR time was 1.05x and wall clock 1.06x. It is not
+merged into the model weights, because
 the trained change is far below the resolution of bf16 and FP8 weights and a merge
 would round most of it away.
 
@@ -398,6 +400,23 @@ and without `--flashvsr-lora`. Both runs produced 6242 frames with the same enco
 settings (HEVC Main 10); the LoRA output was about 7% smaller (3.61 vs 3.89 Mbps).
 Played side by side, the LoRA output showed less of the over-sharpened look on hair,
 matching the effect described above.
+
+**Verified in jasna (Windows):** Windows 11 / RTX 5060 Ti 16 GB, the same 1080p
+source, inline scale 2 / tiles 1. Three runs back to back; the whole-GPU peak includes
+the desktop's resident usage (about 1.5 GB):
+
+| | Wall clock | Whole-GPU peak | FlashVSR time |
+|---|---|---|---|
+| with `--flashvsr-accel`, no LoRA | 466 s | 9602 MiB | 423 s |
+| with `--flashvsr-accel`, LoRA | 495 s (1.06x) | 9445 MiB | 444 s (1.05x) |
+| without `--flashvsr-accel`, LoRA | 590 s | 10596 MiB | 566 s |
+
+All three produced 6242 frames with no offloads, worker retries or restarts. The LoRA
+output was about 6% smaller (3.81 vs 4.07 Mbps). In a visual A/B the LoRA output
+showed less of the over-sharpened look on hair, and the LoRA looked the same with and
+without acceleration. The whole-GPU peak was lower with the LoRA; that is measurement
+noise. Windows has no `expandable_segments`, so what the worker reserves varies from
+run to run, and this method cannot resolve a difference of about 32 MB.
 
 ### Color correction
 
