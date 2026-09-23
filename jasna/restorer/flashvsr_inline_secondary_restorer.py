@@ -41,6 +41,7 @@ import numpy as np
 import torch
 
 from jasna.restorer import bundled_script_path
+from jasna.restorer.flashvsr_offline import FLASHVSR_FORK_URL, apply_flashvsr_accel_env
 
 if TYPE_CHECKING:
     pass
@@ -76,8 +77,9 @@ def _check_patched_repo(repo: Path) -> None:
         raise RuntimeError(
             f"FlashVSR checkout at {repo} is missing the tiny-long multi-chunk fix.\n"
             "  --secondary-restoration flashvsr-inline uses tiny-long, which crashes on the\n"
-            "  second chunk without the fix. Apply tinylong_multichunk_fix.patch to the\n"
-            "  checkout, or use --secondary-restoration flashvsr (offline, tiny-mode)."
+            f"  second chunk without the fix. Use the FlashVSR_plus fork ({FLASHVSR_FORK_URL}),\n"
+            "  which includes it, apply patches/flashvsr_plus_tinylong_multichunk_fix.patch\n"
+            "  to this checkout, or use --secondary-restoration flashvsr (offline, tiny-mode)."
         )
 
 
@@ -97,6 +99,7 @@ class FlashvsrInlineSecondaryRestorer:
         device: str = "cuda:0",
         scale: int = 4,
         tiles: int = 1,
+        accel: bool = False,
         log_level: str = "error",
         startup_timeout_s: float = 300.0,
         verbose: bool = False,
@@ -158,6 +161,8 @@ class FlashvsrInlineSecondaryRestorer:
             # expandable_segments keeps the worker's reserved VRAM tight (the
             # co-residence discipline, §12).
             env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+        apply_flashvsr_accel_env(env, accel, Path(repo))
+        self._accel_demoted: set[str] = set()
 
         self._lock = threading.Lock()
         self._closed = False
@@ -229,7 +234,14 @@ class FlashvsrInlineSecondaryRestorer:
         if not header or header.get("status") != "ready":
             self._kill()
             raise RuntimeError(f"[flashvsr-inline] worker failed to start: {header}")
-        logger.info("[flashvsr-inline] worker ready")
+        # The worker's stdout is muted, so it relays the fork's acceleration log
+        # (e.g. why a part was skipped) and the active parts in the handshake.
+        for line in header.get("accel_log") or ():
+            level = logging.INFO if "enabled" in line else logging.WARNING
+            logger.log(level, "[flashvsr-inline] %s", line)
+        accel = header.get("accel") or []
+        logger.info("[flashvsr-inline] worker ready (acceleration: %s)",
+                    ", ".join(accel) if accel else "off")
 
     def close(self) -> None:
         if self._closed:
@@ -259,6 +271,17 @@ class FlashvsrInlineSecondaryRestorer:
             proc.wait(timeout=5)
         except (OSError, subprocess.TimeoutExpired):
             pass
+
+    def _report_demoted(self, parts) -> None:
+        """Warn once per acceleration part the worker switched off at runtime."""
+        new = sorted(set(parts) - self._accel_demoted)
+        if not new:
+            return
+        self._accel_demoted.update(new)
+        logger.warning(
+            "[flashvsr-inline] FlashVSR acceleration part(s) %s failed and were switched "
+            "off; the rest of this run uses the standard path for them.", ", ".join(new)
+        )
 
     # -- wire helpers --------------------------------------------------------
 
@@ -318,6 +341,7 @@ class FlashvsrInlineSecondaryRestorer:
                 raise RuntimeError("[flashvsr-inline] worker died (no response)")
             if "error" in resp:
                 raise RuntimeError(f"[flashvsr-inline] worker error: {resp['error']}")
+            self._report_demoted(resp.get("accel_demoted") or ())
             rn, rh, rw = int(resp["n"]), int(resp["h"]), int(resp["w"])
             data = self._read_exact(rn * rh * rw * 3)
 
