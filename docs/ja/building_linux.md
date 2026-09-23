@@ -237,7 +237,7 @@ python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurf
 
 ### 6.2 オプション: FlashVSR 二次復元（実験的）
 
-FlashVSR（`--secondary-restoration flashvsr` / `flashvsr-inline`）は別リポジトリのチェックアウトと専用 venv を必要とし、inline 用にはチェックアウトへの同梱パッチ適用も要る。セットアップ手順は [flashvsr.md](flashvsr.md) を参照。
+FlashVSR（`--secondary-restoration flashvsr` / `flashvsr-inline`）は別リポジトリのチェックアウトと専用 venv を必要とする。チェックアウトには fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus) を使う（inline に要る tiny-long の修正と `--flashvsr-accel` の高速化を含み、`uv sync` で依存が揃う）。セットアップ手順は [flashvsr.md](flashvsr.md) を参照。
 
 ---
 
