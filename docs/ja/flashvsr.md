@@ -164,6 +164,7 @@ jasna --input in.mp4 --output out.mkv \
 | `--flashvsr-dtype` | `bf16` | 計算 dtype(`fp16` / `bf16`)。 |
 | `--flashvsr-scale` | `4` | 両モード共通の処理倍率。`4` = モデルネイティブの 1024px、`2` = 512px(高速・低 VRAM)。詳細は「[処理倍率](#処理倍率--flashvsr-scale)」。 |
 | `--flashvsr-accel` / `--no-flashvsr-accel` | off | 両モード共通: fork の高速化(FP8 と融合カーネル)を使う。RTX 40 系以降が必要で、それ以外は自動で標準の処理に戻る。詳細は「[高速化](#高速化--flashvsr-accel)」。 |
+| `--flashvsr-lora` | なし | inline 専用: FlashVSR 用の Lada LoRA を使う(FlashVSR の過鮮鋭を抑える)。オフラインでは起動時にエラーになる。詳細は「[LoRA](#lora--flashvsr-lora)」。 |
 | `--flashvsr-max-clip-frames` | `90` | オフライン専用: Phase 1 の `--max-clip-size` の上限(tiny モードの VRAM 対策)。inline は `--max-clip-size` をそのまま使う。 |
 | `--flashvsr-unload-dit` / `--no-flashvsr-unload-dit` | on | VAE decode 前に DiT をオフロード(VRAM 節約)。 |
 | `--flashvsr-tiled-vae` / `--no-flashvsr-tiled-vae` | on | FlashVSR の VAE decode をタイル化(VRAM 節約)。 |
@@ -304,6 +305,59 @@ Linux でも scale 4 は `--flashvsr-tiles 2` を推奨する。
   変えて再開すると、clip ごとに高速化の有無が混ざる(clip は互いに独立なので継ぎ目は
   出ない)。揃えたい場合は新しい bundle で実行し直す。
 - 上流の checkout で指定すると、高速化が無い旨の警告を出して標準の速度で動く。
+
+### LoRA(`--flashvsr-lora`)
+
+`--flashvsr-lora` は、FlashVSR の DiT に Lada の LoRA を適用する。
+公開している `lada_flashvsr_secondary_lora_v1.pt`(30 MB)は、DiT の attention と FFN の
+Linear に掛ける rank 16 の LoRA で、LQ projector と TCDecoder は変えない。
+拡大したクロップを元の大きさに合成したとき、原寸の実際の肌の肌理と統計がそろうように学習し、
+素の FlashVSR との目視比較で選んだ。既定は無効。
+
+jasna の `model_weights` ディレクトリに置き、ファイル名で指定する:
+
+```bash
+wget -O model_weights/lada_flashvsr_secondary_lora_v1.pt \
+  https://huggingface.co/sh202603/lada-seedvr2-lora/resolve/main/lada_flashvsr_secondary_lora_v1.pt
+
+jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr-inline \
+      --flashvsr-repo ~/FlashVSR_plus --flashvsr-scale 2 \
+      --flashvsr-lora lada_flashvsr_secondary_lora_v1.pt
+```
+
+パスを含まないファイル名は `model_weights` ディレクトリから探す。パスでの指定もできる。
+
+**変わること**(scale 2、一次は BasicVSR++。素の FlashVSR に対して、合成後のフレームで計測):
+
+- 素の FlashVSR の中帯域の過鮮鋭(「シャープナー」のような見え方)が、4〜8 px の帯で約 3 割減る。
+  粒は密になり、尖りが減る。
+- クロップの拡大が小さい領域(フレームへ約 1.5 倍で戻す領域)では、素の FlashVSR は周囲の実際の肌より
+  多くの粒を足す。LoRA はそれを周囲と同じ水準に戻す。
+- 時間方向のちらつきが少し減る(約 5%)。
+- 代わりに、最も細かい粒の一部を失う(約 3 倍で戻す領域の 1〜2 px 帯で約 35%)。
+  素の FlashVSR が素材によって鮮鋭すぎると感じるときに使い、細部を最大限に残したいときは使わない。
+- 残存モザイクの出方は変わらない。
+
+**コスト**: LoRA は worker の起動時に bf16 の低ランクアダプタとして適用する(約 5% 遅くなり、
+VRAM が 32 MB 増える)。モデルの重みには合成しない。学習した変化量が bf16 や FP8 の重みの
+分解能よりはるかに小さく、合成すると大半が丸めで消えるためである。
+
+**`--flashvsr-accel` との併用**: できる。アダプタは FP8 の Linear の横に置き、融合 FP8 FFN には
+差し込む形で適用する。効き方は高速化なしと同じだった(実測)。実行中に FP8 の DiT 部品(`fp8_dit`)が
+失敗すると、fork のフォールバックが標準の Linear を戻し、アダプタも一緒に外れてしまう。
+その場合 worker は処理を止め、jasna が `fp8_dit` を切った worker を起こし直して(LoRA は再適用される)、
+その clip を 1 回やり直す。このとき警告が出る。
+
+**対象**: inline モードのみ。`--secondary-restoration flashvsr` で `--flashvsr-lora` を指定すると
+起動時にエラーになる。この LoRA は一次が BasicVSR++ の場合に合わせて選んだもので、オフラインの
+主な用途である SeedVR2 一次では、FlashVSR が足す細かい粒の大半を消してしまうため提供しない。
+`--flashvsr-scale 2` で検証済み(scale 4 は未検証)。
+
+worker は起動時に LoRA の適用をログに出す:
+
+```text
+FlashVSR worker: applied LoRA lada_flashvsr_secondary_lora_v1.pt (rank 16, step 1000) to 180 DiT linear layers
+```
 
 ### 色補正
 
