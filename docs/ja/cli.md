@@ -76,12 +76,13 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 | `--tvai-args` | `--help` を参照 | 追加の `tvai_up` パラメータ。 |
 | `--tvai-workers` | `2` | 並列で動かす TVAI ffmpeg ワーカー数。 |
 | `--tvai-denoise` | オフ | TVAI の高画質化処理の前にノイズ除去を適用します。 |
-| `--flashvsr-repo` | — | *(+modi)* `FlashVSR_plus` checkout のパス。FlashVSR 両モードで必須。 |
+| `--flashvsr-repo` | — | *(+modi)* `FlashVSR_plus` checkout のパス。FlashVSR 両モードで必須。fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus) を推奨。 |
 | `--flashvsr-python` | `<repo>/.venv/bin/python` | *(+modi)* FlashVSR venv の Python（基底 Python が開発ヘッダを持つこと）。 |
 | `--flashvsr-model-dir` | `<repo>/models/FlashVSR-v1.1` | *(+modi)* FlashVSR 重みのディレクトリ。 |
 | `--flashvsr-version` / `--flashvsr-dtype` | `11` / `bf16` | *(+modi)* モデルバージョンと計算 dtype。 |
 | `--flashvsr-scale` | `4` | *(+modi)* 両モード共通の処理倍率。`4` = モデルネイティブの 1024px、`2` = 512px（高速・低 VRAM）。出力解像度は変わりません。 |
 | `--flashvsr-tiles` | `1` | *(+modi)* inline モードの DiT 水平ストリップ数（VRAM 調整用）。 |
+| `--flashvsr-accel` | off | *(+modi)* 両モード共通。fork の高速化（FP8 と融合カーネル、約 1.4 倍速）を使う。RTX 40 系以降が必要で、それ以外は自動で標準の処理に戻る。詳細: [flashvsr.md](flashvsr.md#高速化--flashvsr-accel)。 |
 | `--flashvsr-max-clip-frames`、`--flashvsr-unload-dit`、`--flashvsr-tiled-vae`、`--flashvsr-bundle-dir`、`--flashvsr-keep-bundle` | `--help` 参照 | *(+modi)* オフラインモードのメモリ/ディスク調整。詳細: [flashvsr.md](flashvsr.md)。 |
 
 ## SD 1.5 画像復元

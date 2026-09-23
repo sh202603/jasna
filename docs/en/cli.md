@@ -76,12 +76,13 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 | `--tvai-args` | see `--help` | Extra `tvai_up` parameters. |
 | `--tvai-workers` | `2` | Parallel TVAI ffmpeg workers. |
 | `--tvai-denoise` | off | Apply TVAI Denoise before enhancement. |
-| `--flashvsr-repo` | — | *(+modi)* Path to your `FlashVSR_plus` checkout. Required for both FlashVSR modes. |
+| `--flashvsr-repo` | — | *(+modi)* Path to your `FlashVSR_plus` checkout. Required for both FlashVSR modes. The fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus) is recommended. |
 | `--flashvsr-python` | `<repo>/.venv/bin/python` | *(+modi)* Python of the FlashVSR venv (its base Python must ship the dev headers). |
 | `--flashvsr-model-dir` | `<repo>/models/FlashVSR-v1.1` | *(+modi)* FlashVSR weights directory. |
 | `--flashvsr-version` / `--flashvsr-dtype` | `11` / `bf16` | *(+modi)* Model version and compute dtype. |
 | `--flashvsr-scale` | `4` | *(+modi)* Processing scale for both modes: `4` = model-native 1024px, `2` = 512px (faster, lower VRAM). Output resolution is unchanged. |
 | `--flashvsr-tiles` | `1` | *(+modi)* Horizontal DiT strips for the inline mode (VRAM lever). |
+| `--flashvsr-accel` | off | *(+modi)* Both modes: use the fork's acceleration (FP8 and fused kernels, about 1.4x faster). Needs an RTX 40 series or newer GPU; anything else falls back to the standard path automatically. See [flashvsr.md](flashvsr.md#acceleration---flashvsr-accel). |
 | `--flashvsr-max-clip-frames`, `--flashvsr-unload-dit`, `--flashvsr-tiled-vae`, `--flashvsr-bundle-dir`, `--flashvsr-keep-bundle` | see `--help` | *(+modi)* Offline-mode memory/disk knobs. See [flashvsr.md](flashvsr.md). |
 
 ## SD 1.5 image restoration
