@@ -199,7 +199,7 @@ end) with the whole-GPU peak about **4 GB lower** (11.3–11.5 GB vs
 the ≤1.2 gate; visual A/B judged clean). The default stays at 4 (the
 model-native factor the original quality gates were run at).
 
-jasna's own measurements (RTX 5080 16 GB, Linux, `small-01.mp4` 480p / 4930
+jasna's own measurements (RTX 5080 16 GB, Linux, a 480p source of 4930
 frames with mosaic throughout, the default clip 90 / overlap 8; output frame
 count = input in every run; wall clock is the whole command, VRAM is the
 whole-GPU `nvidia-smi` peak):
@@ -209,7 +209,7 @@ whole-GPU `nvidia-smi` peak):
 | primary only | — | 20 s | — | 3.8 GB | reference (fp8-recon) |
 | inline | 4 / 2 | 491 s | 479 s | 13.7 GB | |
 | inline | 2 / 1 | 113 s | 100 s | 10.1 GB | **4.8x faster, 3.6 GB lower** than 4 / 2 |
-| inline, 1080p (`test-flashvsr-fhd-02`, 4203 f) | 2 / 1 | 156 s | 146 s | 11.3 GB | no offloads, no allocator warnings |
+| inline, 1080p (4203 f) | 2 / 1 | 156 s | 146 s | 11.3 GB | no offloads, no allocator warnings |
 | offline | 4 | 477 s | Phase 2 ~430 s | 13.2 GB | bundle 9.7 GB |
 | offline | 2 | 194 s | Phase 2 ~150 s | 7.8 GB | |
 
@@ -270,8 +270,8 @@ the sparse attention). In the fork's checks the flow-warping error stayed within
 1.07x of the standard path (quality gate: 1.2 or less), and a visual A/B found it
 equivalent.
 
-**Measured in jasna:** Windows 11 / RTX 5060 Ti 16 GB, 1080p (`test7-short.mp4`,
-6242 frames), inline scale 2 / tiles 1. The two runs were measured back to back;
+**Measured in jasna:** Windows 11 / RTX 5060 Ti 16 GB, a real 1080p source
+(6242 frames), inline scale 2 / tiles 1. The two runs were measured back to back;
 the whole-GPU peaks include the desktop's ~3.2 GB:
 
 | | Wall clock | Whole-GPU peak |
@@ -292,6 +292,32 @@ wall-clock gain is smaller than the fork's per-clip 1.37x. Part of it is that th
 primary pipeline and decode/encode time don't change (without acceleration,
 FlashVSR is about 90% of the wall clock), but that alone would give about 1.32x,
 so sharing the GPU with the primary likely costs some as well.
+
+The same configuration was measured on Linux: Ubuntu 26.04 / RTX 5080 16 GB /
+driver 595.91.07, a real 1080p source (4203 frames), inline scale 2 /
+tiles 1. The whole-GPU peaks include the desktop's ~1.8 GB:
+
+| | Wall clock | Whole-GPU peak |
+|---|---|---|
+| without `--flashvsr-accel` | 162 s | 11581 MiB |
+| with `--flashvsr-accel` | **127 s (1.28x faster)** | **10138 MiB (−1443 MiB)** |
+
+Both produced 4203 frames with zero offloads, zero worker retries and no part demoted
+at runtime. Excluding the 114 MiB difference in desktop residency, the application's
+own peak went 9695 -> 8366 MiB, the ~1.4 GiB the fork advertises. A visual A/B of
+the two played side by side found no quality difference.
+
+Scale 4 on Linux was measured with acceleration at both tile counts (same 1080p
+source). Tiles 2 took 556 s and peaked at 13765 MiB with zero offloads and zero OOM
+warnings; tiles 1 was faster at 443 s but sat on the 15770 MiB ceiling, with 63
+offloads (1426 MiB) and 177 OOM warnings (without acceleration tiles 1 has 159 and
+995). Acceleration lowers the demand but does not clear the ceiling, so scale 4 keeps
+`--flashvsr-tiles 2` on Linux as well.
+
+The offline three-stage path benefits too. On a real 480p source (4931 frames),
+scale 2 took 194 s / 7770 MiB without acceleration and 139 s (1.40x faster) / 7440 MiB
+with it. Phase 2 logged all three parts enabled, all three stages completed, and the
+output frame count matched the input.
 
 Notes:
 - The per-part variables (`FLASHVSR_FP8_CONV` / `FLASHVSR_FP8_DIT` /
@@ -319,7 +345,7 @@ function in both modes.
 Measured as the median per-channel |Δmean| inside the pixels the secondary
 changed (8-bit, vs the primary-only output of the same clip regime): on
 lada-ex, no correction 5.28 → AdaIN 0.98 → **wavelet 0.34** (0.32 at scale 2);
-on jasna at scale 2 (480p `small-01`), inline 1.76 → 0.43 → **0.24** and offline
+on jasna at scale 2 (a 480p source), inline 1.76 → 0.43 → **0.24** and offline
 1.61 → **0.24** (the two modes land on the same value, as expected from sharing
 the function). Upstream FlashVSR_plus has its own `color_fix`, but jasna does
 not use it: its call is wrapped in a bare `except: pass`, so a failure is
