@@ -172,6 +172,7 @@ jasna --input in.mp4 --output out.mkv \
 | `--flashvsr-dtype` | `bf16` | Compute dtype (`fp16` / `bf16`). |
 | `--flashvsr-scale` | `4` | Processing scale for both modes: `4` = model-native 1024px, `2` = 512px (faster, lower VRAM). See [Processing scale](#processing-scale---flashvsr-scale). |
 | `--flashvsr-accel` / `--no-flashvsr-accel` | off | Both modes: use the fork's acceleration (FP8 and fused kernels). Needs an RTX 40 series or newer GPU; anything else falls back to the standard path automatically. See [Acceleration](#acceleration---flashvsr-accel). |
+| `--flashvsr-lora` | none | Inline only: apply the Lada LoRA for FlashVSR (tones down FlashVSR's over-sharpening). The offline mode rejects it at startup. See [LoRA](#lora---flashvsr-lora). |
 | `--flashvsr-max-clip-frames` | `90` | Offline only: cap on Phase 1 `--max-clip-size` (tiny-mode VRAM). Inline uses `--max-clip-size` as-is. |
 | `--flashvsr-unload-dit` / `--no-flashvsr-unload-dit` | on | Offload the FlashVSR DiT before VAE decode (saves VRAM). |
 | `--flashvsr-tiled-vae` / `--no-flashvsr-tiled-vae` | on | Tile the FlashVSR VAE decode (saves VRAM). |
@@ -330,6 +331,66 @@ Notes:
   independent, so there are no seams); start a new bundle if you want them uniform.
 - With an upstream checkout jasna warns that acceleration is unavailable and runs
   at standard speed.
+
+### LoRA (`--flashvsr-lora`)
+
+`--flashvsr-lora` applies a Lada LoRA to the FlashVSR DiT. The published one,
+`lada_flashvsr_secondary_lora_v1.pt` (30 MB), is a rank-16 LoRA on the DiT
+attention and FFN linears (the LQ projector and the TCDecoder are unchanged). It was
+trained so that the upscaled crops, once blended back at their original size, match
+the statistics of real full-resolution skin texture, and was chosen by visual
+comparison against base FlashVSR. It is off by default.
+
+Download it into jasna's `model_weights` directory and pass the file name:
+
+```bash
+wget -O model_weights/lada_flashvsr_secondary_lora_v1.pt \
+  https://huggingface.co/sh202603/lada-seedvr2-lora/resolve/main/lada_flashvsr_secondary_lora_v1.pt
+
+jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr-inline \
+      --flashvsr-repo ~/FlashVSR_plus --flashvsr-scale 2 \
+      --flashvsr-lora lada_flashvsr_secondary_lora_v1.pt
+```
+
+A bare file name is looked up in the `model_weights` directory; a path works too.
+
+**What it changes** (measured at scale 2 with a BasicVSR++ primary, against base
+FlashVSR, on the blended frames):
+
+- The mid-frequency over-sharpening of base FlashVSR (the "sharpener" look) drops by
+  about 30% in the 4–8 px band, and the grain becomes denser and less spiky.
+- Where a crop is upscaled only moderately (about 1.5x back onto the frame), base
+  FlashVSR adds more grain than the surrounding real skin has; the LoRA brings it
+  back to that level.
+- Temporal flicker drops slightly (about 5%).
+- In exchange, some of the finest grain is lost (about 35% of the 1–2 px band on
+  regions upscaled about 3x). Use it when base FlashVSR looks over-sharpened on your
+  material; leave it off if you prefer maximum fine detail.
+- The residual-mosaic behaviour does not change.
+
+**Cost:** the LoRA is applied as bf16 low-rank adapters when the worker starts
+(about 5% slower, +32 MB VRAM). It is not merged into the model weights, because
+the trained change is far below the resolution of bf16 and FP8 weights and a merge
+would round most of it away.
+
+**With `--flashvsr-accel`:** they combine. The adapters sit beside the FP8 linears
+and are inserted into the fused FP8 FFN, and the effect is the same as without
+acceleration (measured). If the FP8 DiT part (`fp8_dit`) fails during the run, the
+fork's fallback puts the standard linears back and the adapters with them would be
+lost. The worker then stops, and jasna restarts it with `fp8_dit` switched off (the
+LoRA is re-applied) and redoes the clip once, with a warning.
+
+**Scope:** inline mode only; `--secondary-restoration flashvsr` rejects
+`--flashvsr-lora` at startup. The LoRA was chosen for a BasicVSR++ primary: on a
+SeedVR2 primary, the offline mode's main use, it removes most of the fine grain
+FlashVSR adds, so it is not offered there. Validated at `--flashvsr-scale 2`
+(scale 4 is untested).
+
+The worker logs the LoRA at startup:
+
+```text
+FlashVSR worker: applied LoRA lada_flashvsr_secondary_lora_v1.pt (rank 16, step 1000) to 180 DiT linear layers
+```
 
 ### Color correction
 
