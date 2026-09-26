@@ -65,7 +65,7 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 
 | Option | Default | Notes |
 | ------ | ------- | ----- |
-| `--secondary-restoration` | `none` | `unet-4x`, `tvai`, or `rtx-super-res`. See [Models](models.md). *(+modi)* also `flashvsr` (offline 3-phase pass) and `flashvsr-inline` (single pass); both need `--flashvsr-repo`. See [flashvsr.md](flashvsr.md). |
+| `--secondary-restoration` | `none` | `unet-4x`, `tvai`, or `rtx-super-res`. See [Models](models.md). *(+modi)* also `flashvsr` (offline 3-phase pass) and `flashvsr-inline` (single pass); both need `--flashvsr-repo`. See [flashvsr.md](flashvsr.md). `swiftvr-inline` (single pass, faster than FlashVSR) needs `--swiftvr-repo`; see [swiftvr.md](swiftvr.md). |
 | `--rtx-scale` | `4` | RTX Super Res upscale factor (`2` or `4`). |
 | `--rtx-quality` | `high` | `low`–`ultra`. |
 | `--rtx-denoise` | `medium` | `none` disables. |
@@ -85,6 +85,11 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 | `--flashvsr-accel` | off | *(+modi)* Both modes: use the fork's acceleration (FP8 and fused kernels, about 1.4x faster). Needs an RTX 40 series or newer GPU; anything else falls back to the standard path automatically. See [flashvsr.md](flashvsr.md#acceleration---flashvsr-accel). |
 | `--flashvsr-lora` | none | *(+modi)* Inline only: apply the Lada LoRA for FlashVSR (`lada_flashvsr_secondary_lora_v1.pt`; a bare file name is looked up in `model_weights`). Tones down FlashVSR's over-sharpening; combines with `--flashvsr-accel`. The offline mode rejects it. See [flashvsr.md](flashvsr.md#lora---flashvsr-lora). |
 | `--flashvsr-max-clip-frames`, `--flashvsr-unload-dit`, `--flashvsr-tiled-vae`, `--flashvsr-bundle-dir`, `--flashvsr-keep-bundle` | see `--help` | *(+modi)* Offline-mode memory/disk knobs. See [flashvsr.md](flashvsr.md). |
+| `--swiftvr-repo` | — | *(+modi)* Path to your SwiftVR checkout. Required for `swiftvr-inline`. The fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) (with `restore_clip()`) is required. |
+| `--swiftvr-python` | `<repo>/.venv/bin/python` | *(+modi)* Python of the SwiftVR venv (created by `uv sync`; on Linux its base Python must ship the dev headers). |
+| `--swiftvr-model-dir` | `<repo>/checkpoints` | *(+modi)* SwiftVR checkpoint directory. |
+| `--swiftvr-scale` | `4` | *(+modi)* Processing scale: `4` = model-native 1024px, `2` = 512px (faster, lower VRAM). Output resolution is unchanged. |
+| `--swiftvr-accel` | on | *(+modi)* FP8 DiT and torch.compile (`--no-swiftvr-accel` disables). Needs an RTX 40 series or newer GPU and a working Triton; unavailable parts are dropped at startup with a warning. See [swiftvr.md](swiftvr.md#acceleration---swiftvr-accel). |
 
 ## SD 1.5 image restoration
 

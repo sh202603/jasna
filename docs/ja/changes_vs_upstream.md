@@ -189,6 +189,18 @@ modi の **A/B モデル比較**(§11)でも seedvr2 を選択できる。外部
 
 stage スレッドが死ぬと（例: worker エラーで secondary が例外）、その生産側が満杯の `FrameQueue.put` で永久に待ち（cancel の経路が無い）、`Pipeline.run()` が返らなかった（進捗 100% のまま encode-stall 監視が 30 秒ごとに診断を出し続ける）。`_run_pass` は join 中に `error_holder` を監視し、最初のエラーで cancel を立て、フレームキューを abort（`FrameQueue.abort()` が待機中の `put` を解放して item を捨てる）、metadata キューを排出して全 stage を巻き戻し、元の例外を再送出する。`test_run_secondary_error_does_not_hang_with_blocked_producer` で担保（旧コードでは実際にハング）。§9 v2.1 (2) で worker の clip 途中失敗が本物のエラーになったことで顕在化した。
 
+## 16. 新機能（modi）: SwiftVR 二次復元（実験的、inline）
+
+FlashVSR 二次復元（§9）と同じ役割を [SwiftVR](https://github.com/H-oliday/SwiftVR)（one-step streaming diffusion VSR、Wan2.2-TI2V-5B バックボーン、Apache-2.0。fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) の `modi` ブランチを使う）で行う `--secondary-restoration swiftvr-inline`。256px の一次復元クロップを 1024px（4x）または `--swiftvr-scale 2` で 512px へ拡大して再 blend する。checkout、約 20 GB のチェックポイント、`uv sync` の venv は利用者が用意し `--swiftvr-repo` で渡す（同梱なし、サポーターモデルとは無関係）。GUI には出ない。
+
+- **inline のみ**。FlashVSR の `flashvsr-inline` と同じ同期 `SecondaryRestorer` が SwiftVR venv の worker（`jasna/restorer/swiftvr_inline_worker.py`、jasna も lada も import しない）を常駐起動し、同じ length-prefixed の uint8 BGR プロトコルで clip を往復する。worker は fork に追加した `SwiftVRPipeline.restore_clip()`（メモリ上の clip をフレーム数を保って処理する API。上流の `restore_video()` は 4k+1 に切り詰め、`StreamSession` は先頭を落とすため契約を満たさない）を呼ぶ。SwiftVR は固定チャンク（先頭 28、以降 24 フレーム）で処理するので VRAM は clip 長に依存せず、clip 上限は無い。短い clip は `restore_clip()` の中で 25 フレーム以上（4k+1）に末尾複製で埋める。28 フレーム以下の clip は LAST チャンク 1 個で DiT 入力は常に 7 latent なのでコストは同じで、25 まで埋めるとゼロの latent が入らない。オフライン 3 段は inline の検証後に追加する予定。
+- **高速化が既定 on（`--swiftvr-accel`、`--no-swiftvr-accel` で無効）**: fork の FP8 DiT と torch.compile。worker はモデルを読む前に GPU 世代（sm89 以上）と Triton の動作（小カーネルの実行）を確かめ、使えない部品を外して理由を ready ハンドシェイクで jasna に返す（実行中の降格と respawn は無い）。FP8 が外れると bf16（約 12 GiB）で動き 16 GB では一次と同居できないため、jasna は警告して続行し、VRAM 不足なら clip 処理の OOM で失敗する（フォールバック無し）。
+- **色補正は常時適用**（wavelet、一次出力の bicubic 拡大を参照）。primitive は FlashVSR worker を path 読み込みで共有し（FlashVSR worker は lada-ex と逐語同一のため切り出さない）、SwiftVR の出力が GPU 上にあるので GPU 上でフレームごとに適用する（FlashVSR 版の host 往復と数値一致をテストで担保）。`JASNA_SWIFTVR_COLOR_FIX=adain|wavelet|none` は検証専用の上書き。
+- **フラグ**は `--flashvsr-*` と揃えた `--swiftvr-repo`（必須）/ `--swiftvr-python`（既定 `<repo>/.venv/bin/python`）/ `--swiftvr-model-dir`（既定 `<repo>/checkpoints`）/ `--swiftvr-scale {2,4}` / `--swiftvr-accel`。dtype、version、tiles、LoRA、max-clip-frames は持たない（bf16 固定、モデル 1 種、短冊不要、LoRA 無し、clip 長非依存）。起動時検査は `flashvsr-inline` と同じ（fp8-recon 自動有効化、`--frame-gen` 拒否、SeedVR2 一次と排他）。
+- **実装**: `jasna/restorer/swiftvr_common.py`（引数登録とパス解決、torch 非依存）、`swiftvr_inline_secondary_restorer.py`、`swiftvr_inline_worker.py`、`session_config.py` / `session_factory.py` / `main.py` の配線、`scripts/build_nuitka.py`（worker を実ファイルとして複製）。fork 側は `swiftvr/runner.py` の `restore_chunk()`（オフライン runner から切り出し、`restore_video()` の出力はビット一致）と `swiftvr/pipeline.py` の `restore_clip()`（4k+1 フレームで `restore_video()` とビット一致）。テストは `tests/test_swiftvr_inline.py`（stub worker）と `test_main.py`。
+
+**検証**（Linux、RTX 5080 16 GB）: 実測と色補正ゲートは `docs/{ja,en}/swiftvr.md`。目視 A/B は利用者。Windows は未検証。
+
 ---
 
 ## 付録: リベース履歴

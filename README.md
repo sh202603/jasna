@@ -107,6 +107,16 @@ jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvs
 
 FlashVSR peaks at 12–16 GB VRAM on its own, so it cannot co-reside with the ~9 GB primary pipeline. It runs **offline in three subprocesses whose peak VRAM never overlaps**: (1) primary restoration → serialize crops to a disk *bundle*, (2) FlashVSR under its own venv, (3) re-blend + encode the final output. You supply a `FlashVSR_plus` checkout (the fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus) is recommended), its v1.1 weights, and a Python venv whose base Python ships the dev headers (FlashVSR's Triton attention kernel is JIT-compiled at runtime). File-output only; not compatible with `--stream` / `--frame-gen`. A single-pass variant, `--secondary-restoration flashvsr-inline`, runs FlashVSR inside the streaming pipeline with **no intermediate files** (needs a 16 GB card; the recommended fork already includes the tiny-long fix it relies on); it is the mode for the `basicvsrpp` primary, while the offline mode is the one that composes with the SeedVR2 primary. Both modes process at 1024px (4x) or, with `--flashvsr-scale 2`, at 512px (about 5x faster, a few GB less VRAM, same output resolution), and always color-correct the restored crops against the primary output. With the fork, `--flashvsr-accel` makes FlashVSR about 1.4x faster on RTX 40 series or newer GPUs. Details: [docs/en/flashvsr.md](docs/en/flashvsr.md).
 
+### SwiftVR secondary restoration (experimental)
+
+`--secondary-restoration swiftvr-inline` is the same idea with [SwiftVR](https://github.com/H-oliday/SwiftVR) (one-step streaming diffusion VSR on a Wan2.2 5B backbone) in place of FlashVSR, as a single pass inside the streaming pipeline only:
+
+```bash
+jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-inline --swiftvr-repo ~/SwiftVR
+```
+
+It runs the DiT in FP8 with torch.compile by default (`--no-swiftvr-accel` disables it; needs an RTX 40 series or newer GPU, otherwise it falls back to bf16 with a warning), which keeps SwiftVR near 8 GB so it co-resides with the primary pipeline on a 16 GB card without any tiling, even at the model-native 1024px (`--swiftvr-scale 2` processes at 512px). On an RTX 5080 a whole run is about 2x (scale 2) to 4x (scale 4) faster than with FlashVSR inline on the same material. You supply a checkout of the fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) (its `restore_clip()` API is required), the ~20 GB checkpoint and a `uv sync` venv. The restored crops are always color-corrected against the primary output, like FlashVSR's. Not compatible with `--frame-gen` or the SeedVR2 primary; there is no offline mode yet. Details: [docs/en/swiftvr.md](docs/en/swiftvr.md).
+
 ### TensorRT-RTX flavor (opt-in, fast engine compilation)
 
 Installing the `nvidia-rtx` extra instead of `nvidia` switches the TensorRT stack to [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx) (JIT compilation): first-run engine builds finish in a fraction of the time (RTX 5060 Ti: RF-DETR 118 s → 16 s, BasicVSR++ sub-engines 143 s → 52 s; RTX 5080: 36 s → 5 s / 55 s → 16 s), at the cost of slightly slower processing (steady-state throughput about −10% on a long 1080p video). Engines are cached under `.rtx`-tagged names, so both flavors can share one `model_weights` directory. One venv holds one flavor. Details: [docs/en/tensorrt_rtx.md](docs/en/tensorrt_rtx.md).
@@ -184,6 +194,7 @@ If you run out of VRAM during processing, reduce **max clip size** first, for ex
 - **[FP8 restoration backend](docs/en/fp8_recon.md)** — the cuDNN FP8 upsample stage with lower peak VRAM.
 - **[SeedVR2 primary restoration](docs/en/seedvr2.md)** — diffusion+LoRA mosaic removal replacing BasicVSR++.
 - **[FlashVSR secondary restoration](docs/en/flashvsr.md)** — offline and inline diffusion 4x upscaling.
+- **[SwiftVR secondary restoration](docs/en/swiftvr.md)** — inline diffusion 4x upscaling, faster than FlashVSR.
 - **[Frozen build](docs/en/frozen_build.md)** — the experimental Nuitka standalone build.
 - **[Changes vs upstream](docs/en/changes_vs_upstream.md)** — the full delta of this fork.
 

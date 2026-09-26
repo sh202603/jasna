@@ -107,6 +107,16 @@ jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvs
 
 FlashVSR は単体で 12〜16GB VRAM を消費するため、一次パイプライン（約 9GB）と同時常駐できません。**ピーク VRAM が時間的に重ならない 3 つのサブプロセス**として動きます:(1) 一次復元 → クロップをディスクの *bundle* へ直列化、(2) 専用 venv で FlashVSR、(3) 最終出力を再 blend + encode。`FlashVSR_plus` の checkout（fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus) を推奨）・v1.1 重み・基底 Python が開発ヘッダを持つ venv（FlashVSR の Triton アテンションカーネルは実行時に JIT される）は利用者が用意します。ファイル出力専用で、`--stream` / `--frame-gen` とは併用不可。単一パス版 `--secondary-restoration flashvsr-inline` は、FlashVSR をストリーミングパイプラインに挟んで**中間ファイル無し**で実行します（16GB カードが前提。推奨 fork は必要な tiny-long の修正を含む）。inline は `basicvsrpp` 一次向けのモードで、SeedVR2 一次と組み合わせるのはオフラインモードです。両モードとも処理解像度は 1024px（4x）か `--flashvsr-scale 2` で 512px（約 5 倍速・VRAM 数 GB 減・出力解像度は同じ）を選べ、復元クロップは常に一次出力を参照して色補正されます。fork を使うと、RTX 40 系以降では `--flashvsr-accel` で FlashVSR が約 1.4 倍速になります。詳細: [docs/ja/flashvsr.md](docs/ja/flashvsr.md)。
 
+### SwiftVR セカンダリ復元（実験的）
+
+`--secondary-restoration swiftvr-inline` は、FlashVSR の代わりに [SwiftVR](https://github.com/H-oliday/SwiftVR)（Wan2.2 5B バックボーンの one-step streaming diffusion VSR）を使う同種の二次復元で、ストリーミングパイプライン内の単一パスだけを持ちます:
+
+```bash
+jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-inline --swiftvr-repo ~/SwiftVR
+```
+
+既定で DiT を FP8 + torch.compile で動かし（`--no-swiftvr-accel` で無効。RTX 40 系以降が必要で、それ以外は警告して bf16 に戻る）、SwiftVR 単体を約 8GB に抑えるため、モデルネイティブの 1024px 処理でも短冊分割なしに 16GB カードで一次パイプラインと同時常駐します（`--swiftvr-scale 2` で 512px 処理）。RTX 5080 では、同じ素材の FlashVSR inline に対して実行全体が約 2 倍（scale 2）〜4 倍（scale 4）速くなります。fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) の checkout（`restore_clip()` API が必要）、約 20GB のチェックポイント、`uv sync` の venv は利用者が用意します。復元クロップは FlashVSR と同じく常に一次出力を参照して色補正されます。`--frame-gen` および SeedVR2 一次とは併用不可で、オフラインモードはまだありません。詳細: [docs/ja/swiftvr.md](docs/ja/swiftvr.md)。
+
 ### TensorRT-RTX フレーバー（opt-in、エンジンコンパイル高速化）
 
 `nvidia` の代わりに `nvidia-rtx` extra を入れると TensorRT スタックが [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx)（JIT コンパイル）に切り替わり、初回のエンジンビルドが大幅に短縮されます（RTX 5060 Ti 実測: RF-DETR 118 秒 → 16 秒、BasicVSR++ サブエンジン 143 秒 → 52 秒。RTX 5080: 36 秒 → 5 秒 / 55 秒 → 16 秒）。代償は処理速度の低下（1080p 長尺の定常スループットで約 −10%）です。エンジンは `.rtx` タグ付きの名前でキャッシュされ、両フレーバーで 1 つの `model_weights` ディレクトリを共有できます。1 つの venv には 1 フレーバーのみ入ります。詳細: [docs/ja/tensorrt_rtx.md](docs/ja/tensorrt_rtx.md)。
@@ -182,6 +192,7 @@ jasna --input input_folder --output output_folder
 - **[FP8 復元バックエンド](docs/ja/fp8_recon.md)** — cuDNN FP8 アップサンプル段でピーク VRAM を削減。
 - **[SeedVR2 一次復元](docs/ja/seedvr2.md)** — BasicVSR++ を置き換える diffusion+LoRA のモザイク除去。
 - **[FlashVSR セカンダリ復元](docs/ja/flashvsr.md)** — オフライン/インラインの拡散 4x アップスケール。
+- **[SwiftVR セカンダリ復元](docs/ja/swiftvr.md)** — インラインの拡散 4x アップスケール。FlashVSR より高速。
 - **[フローズンビルド](docs/ja/frozen_build.md)** — 実験的な Nuitka スタンドアロンビルド。
 - **[上流との変更点一覧](docs/ja/changes_vs_upstream.md)** — このフォークの全差分。
 

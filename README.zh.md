@@ -98,6 +98,16 @@ jasna --input in.mp4 --output out.mkv --secondary-restoration flashvsr --flashvs
 
 FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存。它以**峰值 VRAM 在时间上互不重叠的三个子进程**运行:(1) 一级修复 → 将裁剪块序列化到磁盘 *bundle*，(2) 在其专用 venv 中执行 FlashVSR，(3) 重新混合并编码最终输出。你需自备 `FlashVSR_plus` 检出（推荐 fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus)）、其 v1.1 权重以及一个基础 Python 带开发头文件的 venv（FlashVSR 的 Triton 注意力内核在运行时 JIT 编译）。仅文件输出；不兼容 `--stream` / `--frame-gen`。单趟版本 `--secondary-restoration flashvsr-inline` 在流水线内运行 FlashVSR，**无中间文件**（需 16GB 显卡；推荐的 fork 已包含所需的 tiny-long 修复）；inline 面向 `basicvsrpp` 一级修复，与 SeedVR2 一级修复组合时使用离线模式。两种模式均可在 1024px（4x）或通过 `--flashvsr-scale 2` 在 512px 下处理（约快 5 倍、VRAM 少几 GB、输出分辨率不变），并始终以一级修复输出为参考对修复块做颜色校正。使用该 fork 时，在 RTX 40 系列及更新的 GPU 上 `--flashvsr-accel` 可使 FlashVSR 提速约 1.4 倍。详情: [docs/en/flashvsr.md](docs/en/flashvsr.md)。
 
+### SwiftVR 二级修复（实验性）
+
+`--secondary-restoration swiftvr-inline` 与上者思路相同，但用 [SwiftVR](https://github.com/H-oliday/SwiftVR)（基于 Wan2.2 5B 的 one-step streaming diffusion VSR）替代 FlashVSR，且只有流水线内的单趟模式:
+
+```bash
+jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-inline --swiftvr-repo ~/SwiftVR
+```
+
+默认以 FP8 + torch.compile 运行 DiT（`--no-swiftvr-accel` 关闭；需要 RTX 40 系列及更新的 GPU，否则回退到 bf16 并给出警告），使 SwiftVR 自身约 8GB，因此即使在模型原生的 1024px 下也无需分块即可与一级流水线在 16GB 显卡上共存（`--swiftvr-scale 2` 以 512px 处理）。在 RTX 5080 上，同一素材的整体运行比 FlashVSR inline 快约 2 倍（scale 2）到 4 倍（scale 4）。你需自备 fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) 的检出（需要其 `restore_clip()` API）、约 20GB 的检查点和 `uv sync` 的 venv。修复块与 FlashVSR 一样始终以一级输出为参考做颜色校正。不兼容 `--frame-gen` 和 SeedVR2 一级修复；暂无离线模式。详情: [docs/en/swiftvr.md](docs/en/swiftvr.md)。
+
 ### TensorRT-RTX 风味（可选，加速引擎编译）
 
 安装 `nvidia-rtx` extra（替代 `nvidia`）可将 TensorRT 栈切换为 [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx)（JIT 编译）:首次引擎构建时间大幅缩短（RTX 5060 Ti 实测: RF-DETR 118 秒 → 16 秒，BasicVSR++ 子引擎 143 秒 → 52 秒；RTX 5080: 36 秒 → 5 秒 / 55 秒 → 16 秒），代价是处理速度略有下降（1080p 长视频稳态吞吐约 −10%）。引擎以带 `.rtx` 标签的名称缓存，两种风味可共享同一个 `model_weights` 目录。一个 venv 只能安装一种风味。详情: [docs/en/tensorrt_rtx.md](docs/en/tensorrt_rtx.md)。
@@ -173,6 +183,7 @@ jasna --input input_folder --output output_folder
 - **[FP8 修复后端](docs/en/fp8_recon.md)** — cuDNN FP8 上采样阶段，降低峰值显存。
 - **[SeedVR2 一级修复](docs/en/seedvr2.md)** — 替换 BasicVSR++ 的 diffusion+LoRA 去马赛克。
 - **[FlashVSR 二级修复](docs/en/flashvsr.md)** — 离线/内联扩散 4x 放大。
+- **[SwiftVR 二级修复](docs/en/swiftvr.md)** — 内联扩散 4x 放大，比 FlashVSR 更快。
 - **[冻结构建](docs/en/frozen_build.md)** — 实验性 Nuitka 独立构建。
 - **[与上游的完整变更](docs/en/changes_vs_upstream.md)** — 本分支的全部差异。
 
