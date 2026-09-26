@@ -115,7 +115,7 @@ FlashVSR は単体で 12〜16GB VRAM を消費するため、一次パイプラ�
 jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-inline --swiftvr-repo ~/SwiftVR
 ```
 
-既定で DiT を FP8 + torch.compile で動かし（`--no-swiftvr-accel` で無効。RTX 40 系以降が必要で、それ以外は警告して bf16 に戻る）、SwiftVR 単体を約 8GB に抑えるため、モデルネイティブの 1024px 処理でも短冊分割なしに 16GB カードで一次パイプラインと同時常駐します（`--swiftvr-scale 2` で 512px 処理）。RTX 5080 では、同じ素材の FlashVSR inline に対して実行全体が約 2 倍（scale 2）〜4 倍（scale 4）速くなります。fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) の checkout（`restore_clip()` API が必要）、約 20GB のチェックポイント、`uv sync` の venv は利用者が用意します。復元クロップは FlashVSR と同じく常に一次出力を参照して色補正されます。`--frame-gen` および SeedVR2 一次とは併用不可で、オフラインモードはまだありません。詳細: [docs/ja/swiftvr.md](docs/ja/swiftvr.md)。
+既定で DiT を FP8 + torch.compile で動かし（`--no-swiftvr-accel` で無効。RTX 40 系以降が必要で、それ以外は警告して bf16 に戻る）、SwiftVR 単体を約 8GB に抑えるため、モデルネイティブの 1024px 処理でも短冊分割なしに 16GB カードで一次パイプラインと同時常駐します（`--swiftvr-scale 2` は 512px 処理で速いが、時間方向の安定性は目視で劣る）。RTX 5080 では、同じ素材の FlashVSR inline に対して実行全体が約 2 倍（scale 2）〜4 倍（scale 4）速くなります。fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) の checkout（`restore_clip()` API が必要）、約 20GB のチェックポイント、`uv sync` の venv は利用者が用意します。復元クロップは FlashVSR と同じく常に一次出力を参照して色補正されます。`--frame-gen` および SeedVR2 一次とは併用不可で、オフラインモードはまだありません。詳細: [docs/ja/swiftvr.md](docs/ja/swiftvr.md)。
 
 ### TensorRT-RTX フレーバー（opt-in、エンジンコンパイル高速化）
 
