@@ -155,7 +155,9 @@ redrawing its detail, and its output follows the input shift only about half
 way (phase correlation: 1.2 to 1.6 px at 512 per frame). Left alone, the
 restored region drifts against its surroundings every frame and the thickness
 of edges and the texture appear to flicker. At scale 2 this is clearly visible
-on 1080p material.
+on 1080p material. The cause and the fix come from a report by
+[mioh-labs](https://github.com/mioh-labs/mioh)
+("[Acknowledgement](#acknowledgement)").
 
 The smoothing stabilises only the framing of what SwiftVR sees and puts its
 output back exactly where it belongs. The primary restoration, the blend mask,
@@ -440,6 +442,18 @@ correction and wire transfer included), startup takes about 7 s (model load
 
 Fork side: `restore_chunk()` in `swiftvr/runner.py` (shared with the offline
 runner) and `restore_clip()` in `swiftvr/pipeline.py`.
+
+## Acknowledgement
+
+The scale 2 temporal stability fix (crop view smoothing) is due to a report and
+reference implementation by [mioh-labs](https://github.com/mioh-labs/mioh).
+They traced the flicker not to SwiftVR itself but to the framing of the crop
+SwiftVR sees moving from frame to frame, and published the countermeasure
+(smooth the crop's position and scale with a 15-frame moving average and map
+the output back to the original box) together with the probe experiments and
+the evaluation metrics. jasna's implementation places that geometry in the
+pipeline's primary and blend stages; the mirrored margins and the clamp are
+jasna's own design.
 
 ## Notes for Windows
 
