@@ -116,9 +116,12 @@ SwiftVR is a 4x model: the 256px crops are pre-upscaled bilinearly by the scale
 and the DiT processes the result. `4` processes at 1024px as in training; `2`
 processes at 512px. At 512px the DiT's token grid is 16x16, one window, so the
 window shift has no effect and the attention structure differs from training. It
-works and passes the numeric gates, but in the visual check it is temporally
-less stable than scale 4, clearly so on 1080p material
-("[Verification](#verification)"). The default scale 4 is recommended. The
+works and passes the numeric gates. Before crop view smoothing (below, on by
+default) the visual check found it temporally less stable than scale 4,
+clearly so on 1080p material ("[Verification](#verification)"); with the
+smoothing, scale 2 is visually on par with scale 4 in temporal steadiness and
+texture, with no misplacement and no visible seams at clip boundaries. Scale 4
+stays the default; scale 2 is a valid choice where speed and VRAM matter. The
 output video resolution is the same for both.
 
 The main cause of the unsteadiness that stood out at scale 2 was the crop
@@ -208,6 +211,14 @@ on this metric and would need a path that hands the source frame to the
 secondary stage, so the margins are mirrored. Windows of 7, 15 and 31 give
 2.38, 2.24 and 2.16; beyond 15 the gain is small while the clamp binds on more
 frames, so 15 is the default.
+
+Visual check (the user's, 1080p, on the end-to-end outputs above and on
+crop-level four-panel comparisons): with view smoothing, scale 2 is on par with
+scale 4 in temporal steadiness and texture, with no misplacement and no visible
+seam at the clip boundaries (every 74 frames). Smoothing at scale 4 loses no
+texture. On the crop-level comparison the mirrored-margin version looked as
+steady as the scale 4 baseline or steadier. On this result the smoothing is on
+by default at both scales.
 
 What remains after the fix is a low-frequency variation with a 2-frame period
 that is SwiftVR's own (the TAE's temporal compression) and the coarser
@@ -382,8 +393,10 @@ frame count matched the input in every run.
 - **Visual A/B** (the user's, 480p and 1080p, against FlashVSR inline outputs
   of the same material): texture and detail at scale 4 are on par with FlashVSR.
   **Scale 2 is temporally less stable than scale 4, clearly visible on the 1080p
-  material** (the proxy above also puts scale 2 higher). Use the default scale
-  4; scale 2 only where speed matters more than temporal steadiness.
+  material** (the proxy above also puts scale 2 higher). Crop view smoothing
+  (on by default) removed this difference: with it, scale 2 is visually on par
+  with scale 4 in temporal steadiness and texture
+  ("[Crop view smoothing](#crop-view-smoothing---swiftvr-view-window)").
 
 ### Scale 2 temporal stability
 
