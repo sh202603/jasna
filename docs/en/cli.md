@@ -89,6 +89,7 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 | `--swiftvr-python` | `<repo>/.venv/bin/python` | *(+modi)* Python of the SwiftVR venv (created by `uv sync`; on Linux its base Python must ship the dev headers). |
 | `--swiftvr-model-dir` | `<repo>/checkpoints` | *(+modi)* SwiftVR checkpoint directory. |
 | `--swiftvr-scale` | `4` | *(+modi)* Processing scale: `4` = model-native 1024px, `2` = 512px (faster, lower VRAM). Output resolution is unchanged. |
+| `--swiftvr-view-window` | `15` | *(+modi)* Smooth the position and scale of the crop view SwiftVR sees with a moving average over N frames (`0` disables). The primary crops follow the detection box and shift by a few px every frame, and SwiftVR redraws its detail on such shifts, which was the main cause of the scale 2 flicker. The primary restoration and the blend mask are unchanged. See [swiftvr.md](swiftvr.md#crop-view-smoothing---swiftvr-view-window). |
 | `--swiftvr-accel` | on | *(+modi)* FP8 DiT and torch.compile (`--no-swiftvr-accel` disables). Needs an RTX 40 series or newer GPU and a working Triton; unavailable parts are dropped at startup with a warning. See [swiftvr.md](swiftvr.md#acceleration---swiftvr-accel). |
 
 ## SD 1.5 image restoration

@@ -89,6 +89,7 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 | `--swiftvr-python` | `<repo>/.venv/bin/python` | *(+modi)* SwiftVR venv の Python（`uv sync` が作る。Linux では基底 Python に開発ヘッダが要る）。 |
 | `--swiftvr-model-dir` | `<repo>/checkpoints` | *(+modi)* SwiftVR チェックポイントのディレクトリ。 |
 | `--swiftvr-scale` | `4` | *(+modi)* 処理倍率。`4` = モデルネイティブの 1024px、`2` = 512px（高速・低 VRAM）。出力解像度は変わりません。 |
+| `--swiftvr-view-window` | `15` | *(+modi)* SwiftVR に渡す切り出し（view）の位置と倍率を前後 N フレームの移動平均で平滑化する（`0` で無効）。一次復元のクロップは検出枠に追従して毎フレーム数 px ずれ、SwiftVR はそのずれに反応してディテールを描き直すので、これが scale 2 の揺れの主因だった。一次復元と blend の mask は変わらない。詳細: [swiftvr.md](swiftvr.md#切り出し-view-の平滑化--swiftvr-view-window)。 |
 | `--swiftvr-accel` | on | *(+modi)* FP8 DiT と torch.compile（`--no-swiftvr-accel` で無効）。RTX 40 系以降と動く Triton が必要で、使えない部品は起動時に外して警告する。詳細: [swiftvr.md](swiftvr.md#高速化--swiftvr-accel)。 |
 
 ## SD 1.5 画像復元
