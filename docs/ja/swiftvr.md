@@ -97,6 +97,7 @@ jasna --input in.mp4 --output out.mkv \
 | `--swiftvr-python` | `<repo>/.venv/bin/python` | SwiftVR 環境の Python(`uv sync` が作る venv)。 |
 | `--swiftvr-model-dir` | `<repo>/checkpoints` | チェックポイントのディレクトリ(`reae.safetensors`、`prompt_embedding.safetensors`、`transformer/`)。 |
 | `--swiftvr-scale` | `4` | 処理倍率。`4` = モデルネイティブの 1024px、`2` = 512px(高速、低 VRAM)。詳細は「[処理倍率](#処理倍率--swiftvr-scale)」。 |
+| `--swiftvr-view-window` | `15` | SwiftVR に渡す切り出し(view)の位置と倍率を前後 N フレームの移動平均で平滑化する(`0` で無効)。詳細は「[切り出し view の平滑化](#切り出し-view-の平滑化--swiftvr-view-window)」。 |
 | `--swiftvr-accel` / `--no-swiftvr-accel` | **on** | FP8 DiT と torch.compile。RTX 40 系以降と動く Triton が必要で、使えない部品は worker が起動時に外して警告する。詳細は「[高速化](#高速化--swiftvr-accel)」。 |
 
 FlashVSR にある `--flashvsr-version`、`--flashvsr-dtype`、`--flashvsr-tiles`、
@@ -114,10 +115,80 @@ attention の構造が違う。動作はするが品質は scale 4 と同じゲ�
 1080p 素材でははっきり分かる。既定の scale 4 を推奨する。どちらでも出力動画の解像度は
 変わらない。
 
-scale 2 の揺れは設定では消せない。one-step の生成は出力の画素の尺度でテクスチャを
-作るので、scale 2 では生成されたテクスチャとそのフレームごとの揺れが、被写体に対して
-scale 4 の 2 倍粗い尺度で見える。チャンク境界、FP8、窓の大きさは原因ではなく、生成を
-弱める調整は揺れと同じだけ肌理も減らす(「[scale 2 の時間安定性](#scale-2-の時間安定性)」)。
+scale 2 で目立っていた揺れの主因は、SwiftVR に渡す切り出しの位置がフレームごとに
+動くことだった。一次復元のクロップは検出枠に追従して毎フレーム数 px ずれ、SwiftVR は
+そのずれに反応してディテールを描き直す。既定で有効な `--swiftvr-view-window` がこの
+入力のずれを取り除き、crop 単位の指標では scale 2 の時間安定性が scale 4 の水準に並ぶ
+(「[切り出し view の平滑化](#切り出し-view-の平滑化--swiftvr-view-window)」)。
+残る差(scale 2 の生成は被写体に対して 2 倍粗い尺度で行われる)は設定では変わらない。
+チャンク境界、FP8、窓の大きさは原因ではなく、生成を弱める調整は揺れと同じだけ肌理も
+減らす(「[scale 2 の時間安定性](#scale-2-の時間安定性)」)。
+
+### 切り出し view の平滑化(`--swiftvr-view-window`)
+
+既定で有効(15 フレーム、`0` で無効)で、scale 2 と 4 の両方に効く。
+
+一次復元のクロップは検出枠に追従する。jasna は clip 内の最大枠に合わせた共通倍率で
+クロップを縮小し、256px 格子の中央に置いて鏡で埋めるので、被写体の格子上の位置は
+フレームごとに動く(1080p 素材の実測で平均 3.0 格子 px/frame、枠幅の変化は最大 18%)。
+SwiftVR はサブピクセル級の入力のずれにも反応してディテールを描き直し、しかも出力は
+入力のずれに半分程度しか追従しない(位相相関で毎フレーム 1.2〜1.6 px@512 のずれ)。
+復元領域が周囲に対して毎フレーム位置を変えることが、scale 2 で目立つ揺れの実体である。
+この原因は掲示板の報告で指摘され、当方の crop 単位のハーネスで確認した。
+
+対策は、SwiftVR に渡す入力の配置だけを平滑化し、出力を正確に元の位置へ戻すことである。
+
+- 一次段の末尾(GPU 上)で、各フレームの 256px 格子を、前後 N フレームの移動平均で
+  求めた配置(view)へ双線形で再サンプルする。格子の外は鏡で埋める。
+- 平滑化した view がそのフレームのクロップを覆えない場合(窓 15 で全フレームの
+  約 10%、はみ出しは中央値 5 px、最大 82 px)は、view の位置を必要最小限だけずらして
+  覆う。このクランプ後も枠のずれは平滑化なしの半分以下に収まる(3.04 → 1.45 格子
+  px/frame)。
+- blend 段は SwiftVR の出力(view 格子)から元フレームの画素位置へ直接 1 回で
+  リサンプルする。配置が元の格子と同じならこれは従来の合成と同じ位置をサンプルするので、
+  無効時と他の二次復元の経路は変わらない。
+- 一次復元、blend の mask、worker と wire は変わらない。速度と VRAM への影響は
+  clip あたり `grid_sample` 1 回分で、実測では誤差の範囲(下表)。
+
+e2e(Linux、RTX 5080、条件は「[VRAM と速度](#vram-と速度)」と同じ、同日比較、
+出力フレーム数はすべて入力と一致):
+
+| 素材 | 構成 | 壁時計 | GPU 全体ピーク | 時間変化の代理指標 |
+|------|------|--------|----------------|--------------------|
+| 1080p | scale 2、`--swiftvr-view-window 0` | 53.8 秒 | 11.2 GB | 1.50 |
+| 1080p | scale 2、view 平滑化(既定) | 54.1 秒 | 11.2 GB | 1.43 |
+| 1080p | scale 4、view 平滑化(既定) | 137.0 秒 | 13.9 GB | 1.33 |
+| 480p | scale 2、`--swiftvr-view-window 0` | 43.8 秒 | 10.3 GB | 1.054 |
+| 480p | scale 2、view 平滑化(既定) | 44.2 秒 | 10.3 GB | 1.029 |
+
+代理指標は flow 補償のない隣接フレーム差の比(「[ゲート](#ゲート)」)で、平滑化なしの
+scale 2 は前日の値(1.50)と一致する(従来経路が変わっていないことの確認)。view 平滑化で
+scale 2 は 1.43 に下がるが scale 4(1.32)には届かない。この指標は被写体の動きに伴う
+ディテールの変化と、対策と無関係に残る 2 フレーム周期の変動も拾うので、crop 単位の
+flow-warping error 比ほどは下がらない。480p の色補正ゲートは view 平滑化で 0.237 → 0.224
+(合格)。
+
+crop 単位の実測(1080p 素材、58 clip、512px 評価、クロップの有効域に限定した
+flow-warping error 比。低いほど時間方向に安定):
+
+| 変種 | flow-warping error 比 |
+| --- | --- |
+| scale 2 | 4.99 |
+| scale 2、view 平滑化(本番と同じ鏡余白 + クランプ) | 2.57 |
+| scale 2、view 平滑化(余白を元フレームの周辺で埋める、クランプなし) | 2.24 |
+| scale 4 | 2.16 |
+| scale 4、view 平滑化(余白を元フレームの周辺で埋める、クランプなし) | 1.59 |
+
+ぼけだけを揃えた対照(出力を平滑化と同じサブピクセル量だけずらす)は 4.23 で、
+2.2〜2.6 への低下は入力の安定化そのものによる。鮮鋭度は、評価のために出力を元の格子へ
+戻す双線形リサンプルでラプラシアン分散が半減するが、本番の blend はこの経路を通らず、
+view 空間では 324 → 323 と維持される。余白を元フレームの周辺で埋める版は当方の指標では
+鏡余白と差が小さく、二次段に元フレームを渡す経路が要るので、鏡余白で実装した。
+窓は 7 で 2.38、15 で 2.24、31 で 2.16 と 15 以上で差が小さく、広げるほどクランプが
+効くフレームが増えるので、15 を既定にした。
+
+対策後も残るのは、SwiftVR の出力に固有の 2 フレーム周期の低域の変動(TAE の時間圧縮の
+性質)と、生成の尺度の違い(scale 2 は被写体に対して 2 倍粗い)である。
 
 ### 高速化(`--swiftvr-accel`)
 
@@ -259,7 +330,8 @@ wavelet。FlashVSR の行は同じ日に同じ素材で取った(fork、`--flash
 - **時間方向の変化**(二次が変更した領域内の隣接フレーム差の、一次のみ出力に対する比。
   flow 補償なしの粗い代理指標): 480p では scale 4 で 1.021、scale 2 で 1.056、補正なしで
   1.030。1080p(4 フレームごとの対)では scale 4 で 1.32、scale 2 で 1.50 と大きく、
-  目視の印象(次項)と向きが一致する。
+  目視の印象(次項)と向きが一致する(いずれも view 平滑化の実装前の値。実装後は
+  「[切り出し view の平滑化](#切り出し-view-の平滑化--swiftvr-view-window)」)。
 - **目視 A/B**(利用者、480p と 1080p、FlashVSR inline の同素材出力と比較): 復元の
   肌理とディテールは scale 4 で FlashVSR と同等。**scale 2 は scale 4 より時間安定性が
   弱く、1080p 素材でははっきり視認できる**(上の代理指標でも scale 2 のほうが大きい)。
@@ -292,7 +364,10 @@ production と同じ wavelet 色補正をかけてから、768px で一次のみ
   下げる調整は、いずれも揺れを減らした分だけ鮮鋭さを落とし、scale 4 の水準には届かない。
   scale 4 は安定性と鮮鋭さの両方でこれらを上回る。
 
-以上から scale 2 は現状のまま据え置き、scale 4 を推奨する。
+以上の切り分けの後、掲示板の報告で指摘された別の原因(SwiftVR に渡す切り出しの位置が
+フレームごとに動くこと)を同じハーネスで測り、揺れの主因がこちらだと確認した。DiT の
+生成が入力のずれに反応していたのであり、入力が安定すれば scale 2 の flow-warping
+error 比は scale 4 の水準まで下がる。対策は「[切り出し view の平滑化](#切り出し-view-の平滑化--swiftvr-view-window)」にまとめ、既定で有効にした。
 
 ## 実装
 
@@ -306,12 +381,20 @@ production と同じ wavelet 色補正をかけてから、768px で一次のみ
   lada も import しない(lada-ex にそのまま持ち込める)。高速化の判定、モデル読込、
   warmup、clip ごとの `restore_clip()` と色補正。色補正の primitive は
   `flashvsr_inline_worker.py` を path 読み込みで共有する。
+- `jasna/tracking/crop_view.py`: 切り出し view の幾何(配置の計算、平滑化、
+  クランプ、view への再サンプル、blend のサンプル)。`restorer/restoration_pipeline.py`
+  が一次段の末尾で view を作り、`blend_buffer.py` が view から直接合成する。restorer は
+  `view_smoothing_window` 属性で窓幅を申告する(0 で従来経路。FlashVSR inline にも
+  同じ機構を足せる)。
 - `jasna/session_config.py` / `session_factory.py` / `main.py`: 設定フィールド、
   restorer の生成、起動時検査(fp8-recon 自動有効化、frame-gen と SeedVR2 一次の拒否)。
 - `scripts/build_nuitka.py`: worker を実ファイルとして `<dist>/jasna/restorer/` に複製する
   (FlashVSR worker と並べて置く。色補正の共有のため)。
 - テスト: `tests/test_swiftvr_inline.py`(stub worker で wire、フラグ、ハンドシェイク、
-  色補正の GPU 版と FlashVSR 版の一致)、`tests/test_main.py`(choices と既定値)。
+  色補正の GPU 版と FlashVSR 版の一致)、`tests/test_main.py`(choices と既定値)、
+  `tests/test_crop_view.py`(view の幾何: 配置が元の格子なら従来経路と一致、平滑化した
+  view の往復、クランプの被覆)、`test_restoration_pipeline.py` と `test_blend_buffer.py`
+  の view 経路。
 
 SwiftVR fork 側: `swiftvr/runner.py` の `restore_chunk()`(オフライン runner と共有)、
 `swiftvr/pipeline.py` の `restore_clip()`。
