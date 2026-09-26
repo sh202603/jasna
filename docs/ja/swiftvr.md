@@ -143,6 +143,8 @@ SwiftVR はサブピクセル級の入力のずれにも反応してディテー
 入力のずれに半分程度しか追従しない(位相相関で毎フレーム 1.2〜1.6 px@512 のずれ)。
 そのままでは復元領域が周囲に対して毎フレーム位置を変え、輪郭の太さと質感が
 フレームごとに揺れて見える。scale 2 ではこれが 1080p 素材ではっきり視認できる。
+この原因の特定と対策は [mioh-labs](https://github.com/mioh-labs/mioh) の報告による
+(「[謝辞](#謝辞)」)。
 
 平滑化は SwiftVR に渡す入力の配置だけを安定させ、出力を正確に元の位置へ戻す。
 一次復元と blend の mask、worker と wire は変わらない。
@@ -375,6 +377,16 @@ jasna の restorer から実 worker を起動した場合(乱数クロップ、�
 
 SwiftVR fork 側: `swiftvr/runner.py` の `restore_chunk()`(オフライン runner と共有)、
 `swiftvr/pipeline.py` の `restore_clip()`。
+
+## 謝辞
+
+scale 2 の時間安定性の改善(切り出し view の平滑化)は、
+[mioh-labs](https://github.com/mioh-labs/mioh) の報告と参考実装による。揺れの原因が
+SwiftVR そのものではなく SwiftVR に渡す切り出しの見え方がフレームごとに動くことに
+あると突き止め、切り出しの位置と倍率を前後 15 フレームの移動平均で平滑化して出力を
+元の枠に戻す対策を、プローブ実験と評価指標とともに公開してくれた。jasna の実装は
+その幾何をパイプラインの一次段と blend 段に組み込んだもので、鏡余白とクランプは
+jasna 側の設計である。
 
 ## Windows での注意事項
 
