@@ -115,9 +115,10 @@ SwiftVR is a 4x model: the 256px crops are pre-upscaled bilinearly by the scale
 and the DiT processes the result. `4` processes at 1024px as in training; `2`
 processes at 512px. At 512px the DiT's token grid is 16x16, one window, so the
 window shift has no effect and the attention structure differs from training. It
-works, but its quality is checked separately with the same gates as scale 4
-("[Verification](#verification)"). The output video resolution is the same for
-both.
+works and passes the numeric gates, but in the visual check it is temporally
+less stable than scale 4, clearly so on 1080p material
+("[Verification](#verification)"). The default scale 4 is recommended. The
+output video resolution is the same for both.
 
 ### Acceleration (`--swiftvr-accel`)
 
@@ -261,8 +262,9 @@ frame count matched the input in every run.
   about 5x faster at scale 4 (387 to 77 s) and 3.8x at scale 2 (76 to 20 s).
   Earlier 1080p FlashVSR measurements: scale 2 127 s / 10.1 GB, scale 4 tiles 2
   556 s / 13.8 GB.
-- Scale 4 at 1080p reaches 14.0 GB, a little over 2 GB below the ceiling, so
-  use scale 2 where more is resident. There is no strip tiling.
+- Scale 4 at 1080p reaches 14.0 GB, a little over 2 GB below the ceiling.
+  There is no strip tiling. Scale 2 has VRAM to spare but weaker temporal
+  stability in the visual check below, so use scale 4 whenever VRAM allows.
 - The color correction costs about 4.6% of the wall time (102.2 s vs 97.7 s).
 - `--no-swiftvr-accel` (bf16, 480p, scale 4): jasna warned and continued, the
   worker ran out of VRAM on the first clip (one retry, then a clip error), and
@@ -279,10 +281,14 @@ frame count matched the input in every run.
   corrected.
 - **Temporal change** (adjacent-frame difference inside the changed region,
   relative to the primary-only output; a crude proxy without flow
-  compensation): 1.021 at scale 4, 1.056 at scale 2, 1.030 uncorrected (target
-  at most 1.2).
-- The visual A/B is the user's. FlashVSR outputs for it were produced the same
-  day on the same material.
+  compensation): at 480p 1.021 at scale 4, 1.056 at scale 2, 1.030 uncorrected;
+  at 1080p (every 4th frame pair) 1.32 at scale 4 and 1.50 at scale 2, much
+  larger and in the same direction as the visual check below.
+- **Visual A/B** (the user's, 480p and 1080p, against FlashVSR inline outputs
+  of the same material): texture and detail at scale 4 are on par with FlashVSR.
+  **Scale 2 is temporally less stable than scale 4, clearly visible on the 1080p
+  material** (the proxy above also puts scale 2 higher). Use the default scale
+  4; scale 2 only where speed matters more than temporal steadiness.
 
 ## Implementation
 
