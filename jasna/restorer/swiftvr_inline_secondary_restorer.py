@@ -71,12 +71,20 @@ class SwiftvrInlineSecondaryRestorer:
         device: str = "cuda:0",
         scale: int = 4,
         accel: bool = True,
+        view_window: int = 15,
         log_level: str = "error",
         startup_timeout_s: float = DEFAULT_STARTUP_TIMEOUT_S,
         verbose: bool = False,
     ) -> None:
         if int(scale) not in (2, 4):
             raise ValueError(f"[swiftvr-inline] scale must be 2 or 4, got {scale}")
+        if int(view_window) < 0:
+            raise ValueError(f"[swiftvr-inline] view window must be >= 0, got {view_window}")
+        # Capability read by RestorationPipeline: SwiftVR redraws its detail on
+        # sub-pixel input shifts, so the pipeline hands it crops re-viewed
+        # through a placement smoothed over this many frames (0 = own grid).
+        # The wire is unchanged: the worker still sees 256px crops.
+        self.view_smoothing_window = int(view_window)
         check_restore_clip_api(Path(repo))
         worker = _resolve_worker_script()
         if not worker.is_file():
