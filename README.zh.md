@@ -106,7 +106,7 @@ FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存
 jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-inline --swiftvr-repo ~/SwiftVR
 ```
 
-默认以 FP8 + torch.compile 运行 DiT（`--no-swiftvr-accel` 关闭；需要 RTX 40 系列及更新的 GPU，否则回退到 bf16 并给出警告），使 SwiftVR 自身约 8GB，因此即使在模型原生的 1024px 下也无需分块即可与一级流水线在 16GB 显卡上共存（`--swiftvr-scale 2` 以 512px 处理，更快但时间稳定性肉眼可见地较差）。在 RTX 5080 上，同一素材的整体运行比 FlashVSR inline 快约 2 倍（scale 2）到 4 倍（scale 4）。你需自备 fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) 的检出（需要其 `restore_clip()` API）、约 20GB 的检查点和 `uv sync` 的 venv。修复块与 FlashVSR 一样始终以一级输出为参考做颜色校正。不兼容 `--frame-gen` 和 SeedVR2 一级修复；暂无离线模式。详情: [docs/en/swiftvr.md](docs/en/swiftvr.md)。
+默认以 FP8 + torch.compile 运行 DiT（`--no-swiftvr-accel` 关闭；需要 RTX 40 系列及更新的 GPU，否则回退到 bf16 并给出警告），使 SwiftVR 自身约 8GB，因此即使在模型原生的 1024px 下也无需分块即可与一级流水线在 16GB 显卡上共存（`--swiftvr-scale 2` 以 512px 处理，更快但时间稳定性肉眼可见地较差，且无法通过设置消除，推荐 scale 4）。在 RTX 5080 上，同一素材的整体运行比 FlashVSR inline 快约 2 倍（scale 2）到 4 倍（scale 4）。你需自备 fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) 的检出（需要其 `restore_clip()` API）、约 20GB 的检查点和 `uv sync` 的 venv。修复块与 FlashVSR 一样始终以一级输出为参考做颜色校正。不兼容 `--frame-gen` 和 SeedVR2 一级修复；暂无离线模式。详情: [docs/en/swiftvr.md](docs/en/swiftvr.md)。
 
 ### TensorRT-RTX 风味（可选，加速引擎编译）
 
