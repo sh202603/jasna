@@ -20,10 +20,9 @@ configuration (2 strips at scale 4, no strips at scale 2), and 2 to 4 times
 faster over a whole run ("[VRAM and speed](#vram-and-speed)"). Its VRAM lets it
 co-reside with the primary pipeline without strip tiling even at scale 4.
 
-SwiftVR currently has the inline mode only. An offline 3-phase mode (the
-counterpart of FlashVSR's `flashvsr`) is planned after the inline verification;
-until then, the SeedVR2 primary and 12 GB-class GPUs are served by FlashVSR's
-offline mode.
+SwiftVR has the inline mode only. There is no offline 3-phase mode (the
+counterpart of FlashVSR's `flashvsr`), so the SeedVR2 primary and 12 GB-class
+GPUs are served by FlashVSR's offline mode.
 
 ## How it works
 
@@ -40,6 +39,14 @@ clip held in memory and returns exactly as many frames as it was given
 4k+1, and `StreamSession` drops leading frames, so neither meets the secondary
 restorer's contract). SwiftVR restores a clip in fixed causal chunks (28 frames,
 then 24 at a time), so its VRAM does not depend on the clip length.
+
+The crops the worker receives are not the primary output as is but a **view**
+of it whose placement is smoothed over time. The primary crops follow the
+detection box and move from frame to frame, and SwiftVR redraws its detail on
+that motion, so at the end of the primary stage each frame's 256px grid is
+resampled into the placement averaged over 15 frames before it is sent, and
+the blend composites SwiftVR's output straight into the frame with the view's
+placement ("[Crop view smoothing](#crop-view-smoothing---swiftvr-view-window)").
 
 ## Requirements
 
@@ -110,31 +117,30 @@ There is no counterpart of FlashVSR's `--flashvsr-version`, `--flashvsr-dtype`,
 requires it), no strip tiling is needed, and there is no LoRA. Color correction
 has no flag either (always on, see below).
 
+## Processing details
+
 ### Processing scale (`--swiftvr-scale`)
 
 SwiftVR is a 4x model: the 256px crops are pre-upscaled bilinearly by the scale
 and the DiT processes the result. `4` processes at 1024px as in training; `2`
-processes at 512px. At 512px the DiT's token grid is 16x16, one window, so the
-window shift has no effect and the attention structure differs from training. It
-works and passes the numeric gates. Before crop view smoothing (below, on by
-default) the visual check found it temporally less stable than scale 4,
-clearly so on 1080p material ("[Verification](#verification)"); with the
-smoothing, scale 2 is visually on par with scale 4 in temporal steadiness and
-texture, with no misplacement and no visible seams at clip boundaries. Scale 4
-stays the default; scale 2 is a valid choice where speed and VRAM matter. The
-output video resolution is the same for both.
+processes at 512px. The output video resolution is the same for both.
 
-The main cause of the unsteadiness that stood out at scale 2 was the crop
-framing SwiftVR sees moving from frame to frame. The primary crops follow the
-detection box and shift by a few px every frame, and SwiftVR redraws its detail
-on such shifts. `--swiftvr-view-window`, on by default, removes that input
-jitter, and on the crop-level metric scale 2 then matches the scale 4 level
-("[Crop view smoothing](#crop-view-smoothing---swiftvr-view-window)"). What
-remains (at scale 2 the generation works at a scale twice as coarse relative to
-the subject) no setting changes. Chunk boundaries, FP8 and the window size are
-not the cause, and settings that weaken the generation remove texture as fast
-as they remove the unsteadiness
-("[Scale 2 temporal stability](#scale-2-temporal-stability)").
+Scale 2 is about 2.5 times faster than scale 4 over a whole run and peaks 2 to
+2.5 GB lower GPU-wide ("[VRAM and speed](#vram-and-speed)"). In quality, with
+crop view smoothing (on by default) it is visually on par with scale 4: no
+difference in temporal steadiness, texture, placement accuracy or the look of
+clip boundaries ("[Quality gates](#quality-gates)"). The default is scale 4,
+the training configuration; use scale 2 where speed and VRAM matter.
+
+What still differs between the two is the structure of the generation. At
+512px the DiT's token grid is 16x16, one window, so the window shift has no
+effect and the attention structure differs from training. And since the
+one-step generation makes texture at the scale of its output pixels, scale 2
+generates at a scale twice as coarse relative to the subject as scale 4. No
+setting changes this; settings that weaken the generation (downscaling or
+blurring the input, scaling down the DiT prediction, a lower timestep) remove
+texture as fast as they remove unsteadiness
+("[What determines temporal stability](#what-determines-temporal-stability)").
 
 ### Crop view smoothing (`--swiftvr-view-window`)
 
@@ -146,13 +152,14 @@ and mirrors the margins, so the subject's position in the grid moves from frame
 to frame (measured on 1080p material: 3.0 grid px per frame on average, box
 width changes of up to 18%). SwiftVR reacts to sub-pixel input shifts by
 redrawing its detail, and its output follows the input shift only about half
-way (phase correlation: 1.2 to 1.6 px at 512 per frame). The restored region
-therefore drifts against its surroundings every frame, which is what the scale
-2 flicker consists of. A community report pointed at this cause; the crop-level
-harness confirmed it.
+way (phase correlation: 1.2 to 1.6 px at 512 per frame). Left alone, the
+restored region drifts against its surroundings every frame and the thickness
+of edges and the texture appear to flicker. At scale 2 this is clearly visible
+on 1080p material.
 
-The fix smooths only the framing of what SwiftVR sees and puts its output back
-exactly where it belongs.
+The smoothing stabilises only the framing of what SwiftVR sees and puts its
+output back exactly where it belongs. The primary restoration, the blend mask,
+the worker and the wire are unchanged.
 
 - At the end of the primary stage (on the GPU), each frame's 256px grid is
   resampled bilinearly into a view whose placement is the moving average of
@@ -166,62 +173,23 @@ exactly where it belongs.
   frame's pixels, in one resample. With the frame's own placement this samples
   the same positions as the legacy composite, so the disabled case and the
   other secondary restorers are unchanged.
-- The primary restoration, the blend mask, the worker and the wire are
-  unchanged. The cost is one `grid_sample` per clip; speed and VRAM are within
-  noise (table below).
 
-End to end (Linux, RTX 5080, same conditions as "[VRAM and speed](#vram-and-speed)",
-same-day comparison, output frame count equal to the input in every run):
+The effect saturates from a window of 15 (crop-level flow-warping error ratio
+2.38 at 7, 2.24 at 15, 2.16 at 31), and a wider window makes the clamp bind on
+more frames, so 15 is the default. Filling the outside of the grid from the
+source frame instead of mirroring differs little on this metric (2.24 vs 2.34)
+and would need a path that hands the source frame to the secondary stage, so
+it is not used.
 
-| Material | Configuration | Wall clock | Whole-GPU peak | Temporal-change proxy |
-|----------|---------------|------------|----------------|-----------------------|
-| 1080p | scale 2, `--swiftvr-view-window 0` | 53.8 s | 11.2 GB | 1.50 |
-| 1080p | scale 2, view smoothing (default) | 54.1 s | 11.2 GB | 1.43 |
-| 1080p | scale 4, view smoothing (default) | 137.0 s | 13.9 GB | 1.33 |
-| 480p | scale 2, `--swiftvr-view-window 0` | 43.8 s | 10.3 GB | 1.054 |
-| 480p | scale 2, view smoothing (default) | 44.2 s | 10.3 GB | 1.029 |
+The effect is a crop-level flow-warping error ratio of 4.99 to 2.57 at scale 2
+(scale 4: 2.16), and visually scale 2 becomes on par with scale 4 in temporal
+steadiness and texture ("[Quality gates](#quality-gates)",
+"[What determines temporal stability](#what-determines-temporal-stability)").
+The cost is one `grid_sample` per clip; speed and VRAM are within measurement
+noise ("[VRAM and speed](#vram-and-speed)").
 
-The proxy is the adjacent-frame difference ratio without flow compensation
-("[Gates](#gates)"); scale 2 without smoothing reproduces the previous day's
-value (1.50), which confirms that the legacy path is unchanged. With view
-smoothing scale 2 drops to 1.43 but does not reach scale 4 (1.32): this proxy
-also counts the detail change that comes with subject motion and the 2-frame
-variation the fix does not address, so it falls less than the crop-level
-flow-warping error ratio. The 480p color gate with view smoothing is 0.237 to
-0.224 (pass).
-
-Crop-level measurement (1080p material, 58 clips, evaluated at 512px inside the
-crops' valid region; flow-warping error ratio, lower is steadier over time):
-
-| Variant | Flow-warping error ratio |
-| --- | --- |
-| scale 2 | 4.99 |
-| scale 2, view smoothing (mirrored margins + clamp, as in production) | 2.57 |
-| scale 2, view smoothing (margins filled from the source frame, no clamp) | 2.24 |
-| scale 4 | 2.16 |
-| scale 4, view smoothing (margins filled from the source frame, no clamp) | 1.59 |
-
-A blur-only control (the output shifted by the same sub-pixel amounts as the
-smoothing) gives 4.23, so the drop to 2.2 to 2.6 comes from the stabilised
-input itself. Sharpness: the bilinear resample that maps the output back to the
-own grid for the evaluation halves the Laplacian variance, but the production
-blend does not take that path, and in view space the variance is kept (324 to
-323). Filling the margins from the source frame differs little from mirroring
-on this metric and would need a path that hands the source frame to the
-secondary stage, so the margins are mirrored. Windows of 7, 15 and 31 give
-2.38, 2.24 and 2.16; beyond 15 the gain is small while the clamp binds on more
-frames, so 15 is the default.
-
-Visual check (the user's, 1080p, on the end-to-end outputs above and on
-crop-level four-panel comparisons): with view smoothing, scale 2 is on par with
-scale 4 in temporal steadiness and texture, with no misplacement and no visible
-seam at the clip boundaries (every 74 frames). Smoothing at scale 4 loses no
-texture. On the crop-level comparison the mirrored-margin version looked as
-steady as the scale 4 baseline or steadier. On this result the smoothing is on
-by default at both scales.
-
-What remains after the fix is a low-frequency variation with a 2-frame period
-that is SwiftVR's own (the TAE's temporal compression) and the coarser
+What remains after the smoothing is a low-frequency variation with a 2-frame
+period that is SwiftVR's own (the TAE's temporal compression) and the coarser
 generation scale of scale 2.
 
 ### Acceleration (`--swiftvr-accel`)
@@ -308,11 +276,111 @@ copies), and how short clips look is checked visually.
   third-party model; the checkout, checkpoint and venv are the user's. Not
   exposed in the GUI.
 
-## Verification
+## Measurements
 
-### SwiftVR side (`restore_clip()`)
+Linux, RTX 5080 16 GB. The GPU-wide peak includes about 1.9 GB of desktop
+residency and is the maximum of a 1 s `nvidia-smi` poll. Default clip 90,
+`--fp8-recon` (auto), wavelet color correction, view smoothing at its default
+(15). The material is 480p (4930 frames) and 1080p (4203 frames); the output
+frame count matched the input in every run.
 
-Checked on an RTX 5080 (16 GB), Linux, with the fork on an 89-frame 256px clip.
+### VRAM and speed
+
+| Material | Configuration | Wall time | GPU-wide peak |
+|----------|---------------|-----------|---------------|
+| 480p | primary only | 25.0 s | 3.8 GB |
+| 480p | `swiftvr-inline` scale 4 | **102.2 s** | **12.7 GB** |
+| 480p | `swiftvr-inline` scale 2 | **44.2 s** | **10.3 GB** |
+| 480p | `swiftvr-inline` scale 4, color fix none | 97.7 s | 12.8 GB |
+| 480p | `flashvsr-inline` scale 4 tiles 2 | 411.7 s | 14.4 GB |
+| 480p | `flashvsr-inline` scale 2 | 100.7 s | 10.6 GB |
+| 1080p | `swiftvr-inline` scale 4 | **137.0 s** | **13.9 GB** |
+| 1080p | `swiftvr-inline` scale 2 | **54.1 s** | **11.2 GB** |
+
+- Whole runs are about 4x (scale 4) and 2.3x (scale 2) faster than with
+  FlashVSR inline. Net of the 25 s primary-only run, the secondary share is
+  about 5x faster at scale 4 (387 to 77 s) and 4x at scale 2 (76 to 19 s).
+  Earlier 1080p FlashVSR measurements: scale 2 127 s / 10.1 GB, scale 4 tiles 2
+  556 s / 13.8 GB.
+- Scale 4 at 1080p reaches 13.9 GB, a little over 2 GB below the ceiling.
+  There is no strip tiling.
+- View smoothing costs nothing measurable: `--swiftvr-view-window 0` gives
+  53.8 s / 11.2 GB at 1080p scale 2 and 43.8 s / 10.3 GB at 480p scale 2 (0.3
+  to 0.4 s from the default). The FlashVSR comparison rows and the 480p scale 4
+  row are runs without the smoothing; the difference is within the same noise.
+- The color correction costs about 4.6% of the wall time (102.2 s vs 97.7 s).
+- `--no-swiftvr-accel` (bf16, 480p, scale 4): jasna warned and continued, the
+  worker ran out of VRAM on the first clip (one retry, then a clip error), and
+  the secondary thread's exception ended the run with exit code 1 after 13 s
+  (no hang; 14.6 GB GPU-wide). As designed.
+
+### Quality gates
+
+- **Color drift** (per-channel median |Δmean| inside the pixels the secondary
+  changed, against the primary-only output, 480p,
+  `scripts/evaluation/flashvsr-color-fix-report.py`): uncorrected 0.765 to
+  **wavelet 0.225 at scale 4, 0.224 at scale 2** (pass). FlashVSR's same metric
+  is 1.73 to 0.25: SwiftVR drifts less uncorrected and lands at the same level
+  corrected.
+- **Temporal change** (adjacent-frame difference inside the changed region,
+  relative to the primary-only output; a crude proxy without flow
+  compensation): at 480p 1.021 at scale 4 and 1.029 at scale 2; at 1080p (every
+  4th frame pair) 1.33 at scale 4 and 1.43 at scale 2. Scale 2 without view
+  smoothing is 1.054 at 480p and 1.50 at 1080p, so the smoothing brings it
+  close to scale 4 without reaching it. This proxy also counts the detail
+  change that comes with subject motion and the 2-frame variation the
+  smoothing does not address, so it falls less than the crop-level
+  flow-warping error ratio.
+- **Visual A/B** (the user's, 480p and 1080p): texture and detail at scale 4
+  are on par with FlashVSR inline's output of the same material. Scale 2 is on
+  par with scale 4 in temporal steadiness and texture, with no misplacement
+  and no visible seam at the clip boundaries (every 74 frames). Smoothing at
+  scale 4 loses no texture. Scale 2 without view smoothing is temporally less
+  stable than scale 4, clearly visible on 1080p material.
+
+### What determines temporal stability
+
+The causes of the scale 2 unsteadiness were isolated on the primary-restored
+crops of the 1080p material: 58 crop clips, 5085 frames. SwiftVR's
+`restore_clip()` is run directly, its output gets the production wavelet color
+correction, and it is compared against the primary-only crops
+(bicubic-upscaled). The metric is the flow-warping error ratio (flow computed
+once from the primary-only crops with SPyNet and applied to both; lower is
+steadier over time), evaluated at 512px inside the crops' valid region.
+
+| Variant | Flow-warping error ratio |
+| --- | --- |
+| scale 2 | 4.99 |
+| scale 2, view smoothing (mirrored margins + clamp, the production setup) | 2.57 |
+| scale 2, view smoothing (margins filled from the source frame, no clamp) | 2.24 |
+| scale 4 | 2.16 |
+| scale 4, view smoothing (margins filled from the source frame, no clamp) | 1.59 |
+
+- **The input framing is the main cause:** a blur-only control (the output
+  shifted by the same sub-pixel amounts as the smoothing) gives 4.23, so the
+  drop to 2.2 to 2.6 comes from the stabilised input itself. On sharpness, the
+  bilinear resample that maps the output back to the own grid for this
+  evaluation halves the Laplacian variance, but the production blend does not
+  take that path, and in view space the variance is kept (324 to 323).
+- **The DiT generation is where the unsteadiness arises:** a TAE round trip
+  alone, without the DiT, is steady even at scale 2 (ratio 1.26, first 20
+  clips, 768px evaluation). The generation reacts to the input shifts.
+- **Not the chunk boundaries:** pairs across a chunk boundary (output frames
+  25, 49, 73) and all other pairs have the same ratio (3.758 and 3.763).
+  Overlap (1 or 2 latents of the previous chunk as context) and a chunk length
+  of 48 do not help.
+- **Not FP8:** bf16 gives 3.75, the same (FP8 3.76).
+- **Not the window size:** an 8x8 window, which restores the window shift at
+  512px, does not help.
+- **Weakening the generation removes texture too:** downscaling the input
+  (128px then 4x: 3.11) or blurring it, scaling down the DiT prediction, and a
+  lower timestep all lose as much sharpness as unsteadiness and do not reach
+  scale 4.
+
+### SwiftVR-side checks
+
+The fork's `restore_clip()` was checked on an RTX 5080 with an 89-frame 256px
+clip.
 
 - Extracting the chunk processing out of `runner.py` left `restore_video()`'s
   PNG output bit-identical in all three configurations: bf16, FP8 +
@@ -329,112 +397,10 @@ Checked on an RTX 5080 (16 GB), Linux, with the fork on an 89-frame 256px clip.
 | scale 2, FP8 + compile | 0.41 s (217 fps) | 5.6 / 6.1 GiB |
 | scale 4, bf16 (`restore_video`, 89 frames) | 4.2 s | 12.1 / 12.6 GiB |
 
-### Through the worker
-
-Checked by starting the real worker from jasna's restorer (random crops, color
-correction and wire transfer included). Startup about 7 s (model load 2 s,
-warmup 4 s). A 90-frame clip takes 2.1 s at scale 4, 0.6 s at scale 2, and
+Started from jasna's restorer as the real worker (random crops, color
+correction and wire transfer included), startup takes about 7 s (model load
+2 s, warmup 4 s), and a 90-frame clip 2.1 s at scale 4, 0.6 s at scale 2, and
 3.9 s at scale 4 in bf16 (`--no-swiftvr-accel`).
-
-### End to end
-
-Completion on real material, GPU-wide peak, wall time and the color-correction
-gate are in "[VRAM and speed](#vram-and-speed)". The visual A/B against FlashVSR
-is the user's.
-
-## VRAM and speed
-
-Linux, RTX 5080 16 GB (GPU-wide peak including ~1.9 GB of desktop residency,
-`nvidia-smi` polled every second), the default clip 90, `--fp8-recon` (auto),
-wavelet color correction. The FlashVSR rows were taken the same day on the same
-material (fork, `--flashvsr-accel`, `--flashvsr-tiles 2` at scale 4). The output
-frame count matched the input in every run.
-
-| Material | Configuration | Wall time | GPU-wide peak |
-|----------|---------------|-----------|---------------|
-| 480p, 4930 frames | primary only | 25.0 s | 3.8 GB |
-| 480p | `swiftvr-inline` scale 4 | **102.2 s** | **12.7 GB** |
-| 480p | `swiftvr-inline` scale 2 | **44.8 s** | **10.4 GB** |
-| 480p | `swiftvr-inline` scale 4, color fix none | 97.7 s | 12.8 GB |
-| 480p | `flashvsr-inline` scale 4 tiles 2 | 411.7 s | 14.4 GB |
-| 480p | `flashvsr-inline` scale 2 | 100.7 s | 10.6 GB |
-| 1080p, 4203 frames | `swiftvr-inline` scale 4 | **139.5 s** | **14.0 GB** |
-| 1080p | `swiftvr-inline` scale 2 | **56.9 s** | **12.0 GB** |
-
-- Whole runs are about 4x (scale 4) and 2.2x (scale 2) faster than with
-  FlashVSR inline. Net of the 25 s primary-only run, the secondary share is
-  about 5x faster at scale 4 (387 to 77 s) and 3.8x at scale 2 (76 to 20 s).
-  Earlier 1080p FlashVSR measurements: scale 2 127 s / 10.1 GB, scale 4 tiles 2
-  556 s / 13.8 GB.
-- Scale 4 at 1080p reaches 14.0 GB, a little over 2 GB below the ceiling.
-  There is no strip tiling. Scale 2 has VRAM to spare but weaker temporal
-  stability in the visual check below, so use scale 4 whenever VRAM allows.
-- The color correction costs about 4.6% of the wall time (102.2 s vs 97.7 s).
-- `--no-swiftvr-accel` (bf16, 480p, scale 4): jasna warned and continued, the
-  worker ran out of VRAM on the first clip (one retry, then a clip error), and
-  the secondary thread's exception ended the run with exit code 1 after 13 s
-  (no hang; 14.6 GB GPU-wide). As designed.
-
-### Gates
-
-- **Color drift** (per-channel median |Δmean| inside the pixels the secondary
-  changed, against the primary-only output, 480p,
-  `scripts/evaluation/flashvsr-color-fix-report.py`): uncorrected 0.765 to
-  **wavelet 0.225 at scale 4, 0.241 at scale 2** (pass). FlashVSR's same metric
-  is 1.73 to 0.25: SwiftVR drifts less uncorrected and lands at the same level
-  corrected.
-- **Temporal change** (adjacent-frame difference inside the changed region,
-  relative to the primary-only output; a crude proxy without flow
-  compensation): at 480p 1.021 at scale 4, 1.056 at scale 2, 1.030 uncorrected;
-  at 1080p (every 4th frame pair) 1.32 at scale 4 and 1.50 at scale 2, much
-  larger and in the same direction as the visual check below (all measured
-  before view smoothing; after it, see
-  "[Crop view smoothing](#crop-view-smoothing---swiftvr-view-window)").
-- **Visual A/B** (the user's, 480p and 1080p, against FlashVSR inline outputs
-  of the same material): texture and detail at scale 4 are on par with FlashVSR.
-  **Scale 2 is temporally less stable than scale 4, clearly visible on the 1080p
-  material** (the proxy above also puts scale 2 higher). Crop view smoothing
-  (on by default) removed this difference: with it, scale 2 is visually on par
-  with scale 4 in temporal steadiness and texture
-  ("[Crop view smoothing](#crop-view-smoothing---swiftvr-view-window)").
-
-### Scale 2 temporal stability
-
-The cause of the scale 2 unsteadiness was isolated on the primary-restored
-crops of a 1080p clip (4203 frames): 58 crop clips, 5085 frames. SwiftVR's
-`restore_clip()` was run directly, its output got the production wavelet color
-correction, and it was compared at 768px against the primary-only crops
-(bicubic-upscaled). The metrics are the flow-warping error ratio (flow computed
-once from the primary-only crops with SPyNet and applied to both; lower is
-steadier over time) and sharpness (ratio of Laplacian variance).
-
-| Variant | Flow-warping error ratio | Sharpness |
-| --- | --- | --- |
-| scale 4 | 1.89 | 24.2 |
-| scale 2 | 3.88 | 18.3 |
-| scale 2, downscaled to 128px then 4x | 3.11 | 11.9 |
-
-- **Not the chunk boundaries**: pairs across a chunk boundary (output frames 25,
-  49, 73) and all other pairs have the same ratio (3.758 and 3.763 at 512px).
-  Overlap (1 or 2 latents of the previous chunk as context) and a chunk length
-  of 48 do not help.
-- **Not FP8**: bf16 gives 3.75, the same (512px evaluation; FP8 3.76).
-- **Not the window size**: an 8x8 window, which restores the window shift at
-  512px, does not help.
-- **The DiT generation itself**: a TAE round trip alone, without the DiT, is
-  steady even at scale 2 (1.26, first 20 clips).
-- **Weakening the generation removes texture too**: downscaling or blurring the
-  input, scaling down the DiT prediction, and a lower timestep all lose as much
-  sharpness as unsteadiness and do not reach scale 4. Scale 4 beats all of them
-  in both steadiness and sharpness.
-
-After this isolation, another cause pointed out in a community report (the
-crop framing SwiftVR sees moving from frame to frame) was measured with the
-same harness and turned out to be the main one: the DiT generation was reacting
-to the input shifts, and with a steady input the scale 2 flow-warping error
-ratio falls to the scale 4 level. The fix is described under
-"[Crop view smoothing](#crop-view-smoothing---swiftvr-view-window)" and is on
-by default.
 
 ## Implementation
 
@@ -442,9 +408,10 @@ by default.
   resolution (no torch import).
 - `jasna/restorer/swiftvr_inline_secondary_restorer.py`: the synchronous
   `SecondaryRestorer`. Worker spawn and handshake, wire I/O, RGB/BGR flips, the
-  keep-window slice. Same structure as the FlashVSR inline restorer, minus the
-  patch check, the acceleration environment variables, runtime demotion
-  reports and respawn.
+  keep-window slice; it announces the view smoothing window through its
+  `view_smoothing_window` attribute. Same structure as the FlashVSR inline
+  restorer, minus the patch check, the acceleration environment variables,
+  runtime demotion reports and respawn.
 - `jasna/restorer/swiftvr_inline_worker.py`: the worker under the SwiftVR venv.
   Imports neither jasna nor lada (it can be carried over to lada-ex as is).
   Acceleration decision, model load, warmup, per-clip `restore_clip()` and color
@@ -452,10 +419,12 @@ by default.
   `flashvsr_inline_worker.py` by loading it by path.
 - `jasna/tracking/crop_view.py`: the crop view geometry (placements,
   smoothing, clamp, resampling into the view, sampling for the blend).
-  `restorer/restoration_pipeline.py` builds the view at the end of the primary
-  stage and `blend_buffer.py` composites straight from it. A restorer asks for
-  it with a `view_smoothing_window` attribute (0 = legacy path; the FlashVSR
-  inline restorer could use the same mechanism).
+  `restorer/restoration_pipeline.py` reads the secondary restorer's
+  `view_smoothing_window` and builds the view at the end of the primary stage,
+  `pipeline_items.py` carries the placements as `view_placements`, and
+  `blend_buffer.py` composites straight from the view only when they are set
+  (0 or no attribute means the legacy path; the FlashVSR inline restorer could
+  use the same mechanism).
 - `jasna/session_config.py` / `session_factory.py` / `main.py`: config fields,
   restorer construction, startup checks (fp8-recon auto-enable, rejection of
   frame-gen and of the SeedVR2 primary).
@@ -482,3 +451,5 @@ Unverified on Windows. Expected differences:
 - Triton comes as `triton-windows` through `uv sync`; no C++ compiler is needed
   (fork README).
 - `--swiftvr-python` defaults to `<repo>/.venv/Scripts/python.exe`.
+- View smoothing is GPU work on jasna's side only, so nothing about it is
+  Windows-specific.
