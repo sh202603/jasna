@@ -140,6 +140,18 @@ def add_swiftvr_arguments(group: "argparse._ArgumentGroup") -> None:
              "way: the blend shrink-composites the crops back onto the frame.",
     )
     group.add_argument(
+        "--swiftvr-view-window",
+        type=int,
+        default=15,
+        metavar="N",
+        help="Smooth the placement of the crops SwiftVR sees over N frames (default: "
+             "%(default)s; 0 disables). The primary crops follow the detection box and "
+             "shift by a few px every frame; SwiftVR redraws its detail on such shifts, "
+             "which is the frame-to-frame flicker of scale 2. The crops are re-viewed "
+             "through a moving-average placement before SwiftVR and composited back from "
+             "that view; the primary restoration and the blend mask are unchanged.",
+    )
+    group.add_argument(
         "--swiftvr-accel",
         default=True,
         action=argparse.BooleanOptionalAction,
