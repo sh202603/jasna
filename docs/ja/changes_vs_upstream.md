@@ -199,7 +199,7 @@ FlashVSR 二次復元（§9）と同じ役割を [SwiftVR](https://github.com/H-
 - **フラグ**は `--flashvsr-*` と揃えた `--swiftvr-repo`（必須）/ `--swiftvr-python`（既定 `<repo>/.venv/bin/python`）/ `--swiftvr-model-dir`（既定 `<repo>/checkpoints`）/ `--swiftvr-scale {2,4}` / `--swiftvr-accel`。dtype、version、tiles、LoRA、max-clip-frames は持たない（bf16 固定、モデル 1 種、短冊不要、LoRA 無し、clip 長非依存）。起動時検査は `flashvsr-inline` と同じ（fp8-recon 自動有効化、`--frame-gen` 拒否、SeedVR2 一次と排他）。
 - **実装**: `jasna/restorer/swiftvr_common.py`（引数登録とパス解決、torch 非依存）、`swiftvr_inline_secondary_restorer.py`、`swiftvr_inline_worker.py`、`session_config.py` / `session_factory.py` / `main.py` の配線、`scripts/build_nuitka.py`（worker を実ファイルとして複製）。fork 側は `swiftvr/runner.py` の `restore_chunk()`（オフライン runner から切り出し、`restore_video()` の出力はビット一致）と `swiftvr/pipeline.py` の `restore_clip()`（4k+1 フレームで `restore_video()` とビット一致）。テストは `tests/test_swiftvr_inline.py`（stub worker）と `test_main.py`。
 
-**検証**（Linux、RTX 5080 16 GB）: 実測と色補正ゲートは `docs/{ja,en}/swiftvr.md`。目視 A/B は利用者。Windows は未検証。
+**検証**（Linux、RTX 5080 16 GB）: 実測と色補正ゲートは `docs/{ja,en}/swiftvr.md`。目視 A/B（利用者、480p と 1080p、FlashVSR inline と比較）: scale 4 の肌理とディテールは FlashVSR と同等、scale 2 は時間安定性が scale 4 より弱く 1080p でははっきり視認できる（既定の scale 4 を推奨）。Windows は未検証。
 
 ---
 
