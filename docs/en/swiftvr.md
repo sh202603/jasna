@@ -120,6 +120,13 @@ less stable than scale 4, clearly so on 1080p material
 ("[Verification](#verification)"). The default scale 4 is recommended. The
 output video resolution is the same for both.
 
+No setting removes the scale 2 unsteadiness. The one-step generation makes
+texture at the scale of its output pixels, so at scale 2 the generated texture,
+and its frame-to-frame variation, is twice as coarse relative to the subject as
+at scale 4. Chunk boundaries, FP8 and the window size are not the cause, and
+settings that weaken the generation remove texture as fast as they remove the
+unsteadiness ("[Scale 2 temporal stability](#scale-2-temporal-stability)").
+
 ### Acceleration (`--swiftvr-accel`)
 
 On by default. It uses the fork's two acceleration parts.
@@ -289,6 +296,38 @@ frame count matched the input in every run.
   **Scale 2 is temporally less stable than scale 4, clearly visible on the 1080p
   material** (the proxy above also puts scale 2 higher). Use the default scale
   4; scale 2 only where speed matters more than temporal steadiness.
+
+### Scale 2 temporal stability
+
+The cause of the scale 2 unsteadiness was isolated on the primary-restored
+crops of a 1080p clip (4203 frames): 58 crop clips, 5085 frames. SwiftVR's
+`restore_clip()` was run directly, its output got the production wavelet color
+correction, and it was compared at 768px against the primary-only crops
+(bicubic-upscaled). The metrics are the flow-warping error ratio (flow computed
+once from the primary-only crops with SPyNet and applied to both; lower is
+steadier over time) and sharpness (ratio of Laplacian variance).
+
+| Variant | Flow-warping error ratio | Sharpness |
+| --- | --- | --- |
+| scale 4 | 1.89 | 24.2 |
+| scale 2 | 3.88 | 18.3 |
+| scale 2, downscaled to 128px then 4x | 3.11 | 11.9 |
+
+- **Not the chunk boundaries**: pairs across a chunk boundary (output frames 25,
+  49, 73) and all other pairs have the same ratio (3.758 and 3.763 at 512px).
+  Overlap (1 or 2 latents of the previous chunk as context) and a chunk length
+  of 48 do not help.
+- **Not FP8**: bf16 gives 3.75, the same (512px evaluation; FP8 3.76).
+- **Not the window size**: an 8x8 window, which restores the window shift at
+  512px, does not help.
+- **The DiT generation itself**: a TAE round trip alone, without the DiT, is
+  steady even at scale 2 (1.26, first 20 clips).
+- **Weakening the generation removes texture too**: downscaling or blurring the
+  input, scaling down the DiT prediction, and a lower timestep all lose as much
+  sharpness as unsteadiness and do not reach scale 4. Scale 4 beats all of them
+  in both steadiness and sharpness.
+
+Scale 2 is therefore left as it is, and scale 4 is recommended.
 
 ## Implementation
 
