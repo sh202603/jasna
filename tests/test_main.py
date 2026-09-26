@@ -173,6 +173,34 @@ class TestBuildParser:
                 "--flashvsr-scale", "3",
             ])
 
+    def test_swiftvr_choice_and_defaults(self):
+        args = build_parser().parse_args([
+            "--input", "a.mp4", "--output", "b.mp4",
+            "--secondary-restoration", "swiftvr-inline",
+            "--swiftvr-repo", "/opt/SwiftVR",
+        ])
+        assert args.secondary_restoration == "swiftvr-inline"
+        assert args.swiftvr_repo == "/opt/SwiftVR"
+        assert args.swiftvr_python == ""
+        assert args.swiftvr_model_dir == ""
+        assert args.swiftvr_scale == 4
+        assert args.swiftvr_accel is True  # acceleration is the default
+
+    def test_swiftvr_scale_and_accel_flags(self):
+        args = build_parser().parse_args([
+            "--input", "a.mp4", "--output", "b.mp4",
+            "--secondary-restoration", "swiftvr-inline",
+            "--swiftvr-repo", "/opt/SwiftVR",
+            "--swiftvr-scale", "2", "--no-swiftvr-accel",
+        ])
+        assert args.swiftvr_scale == 2
+        assert args.swiftvr_accel is False
+        with pytest.raises(SystemExit):
+            build_parser().parse_args([
+                "--input", "a.mp4", "--output", "b.mp4",
+                "--swiftvr-scale", "3",
+            ])
+
     def test_post_export_command(self):
         args = build_parser().parse_args([
             "--input", "a.mp4",

@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Literal, Mapping
 
 RestorationModelName = Literal["basicvsrpp", "seedvr2"]
-SecondaryRestorationName = Literal["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr-inline"]
+SecondaryRestorationName = Literal[
+    "none", "unet-4x", "tvai", "rtx-super-res", "flashvsr-inline", "swiftvr-inline"
+]
 DenoiseStrengthName = Literal["none", "low", "medium", "high"]
 DenoiseStepName = Literal["after_primary", "after_secondary"]
 VrModeName = Literal["auto", "off", "sbs", "sbs-fisheye"]
@@ -71,6 +73,12 @@ class SessionConfig:
     flashvsr_accel: bool = False
     flashvsr_lora: str = ""
     flashvsr_log_level: str = "error"
+    swiftvr_repo: str = ""
+    swiftvr_python: str = ""
+    swiftvr_model_dir: str = ""
+    swiftvr_scale: int = 4
+    swiftvr_accel: bool = True
+    swiftvr_log_level: str = "error"
     # Primary restoration model. For "seedvr2", ``restoration_model_path``
     # carries the LoRA checkpoint instead of the BasicVSR++ checkpoint.
     restoration_model_name: RestorationModelName = "basicvsrpp"

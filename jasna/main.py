@@ -80,6 +80,12 @@ def _session_config_from_args(
         flashvsr_accel=bool(getattr(args, "flashvsr_accel", False)),
         flashvsr_lora=str(getattr(args, "flashvsr_lora", "") or ""),
         flashvsr_log_level=str(getattr(args, "log_level", "error")),
+        swiftvr_repo=str(getattr(args, "swiftvr_repo", "") or ""),
+        swiftvr_python=str(getattr(args, "swiftvr_python", "") or ""),
+        swiftvr_model_dir=str(getattr(args, "swiftvr_model_dir", "") or ""),
+        swiftvr_scale=int(getattr(args, "swiftvr_scale", 4)),
+        swiftvr_accel=bool(getattr(args, "swiftvr_accel", True)),
+        swiftvr_log_level=str(getattr(args, "log_level", "error")),
         restoration_model_name=str(args.restoration_model_name),
         seedvr2_repo=str(getattr(args, "seedvr2_repo", "") or ""),
         seedvr2_python=str(getattr(args, "seedvr2_python", "") or ""),
@@ -277,12 +283,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--secondary-restoration",
         type=str,
         default="none",
-        choices=["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr", "flashvsr-inline"],
+        choices=["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr", "flashvsr-inline",
+                 "swiftvr-inline"],
         help=CLI_HELP["secondary_restoration"]
              + ' "flashvsr" runs an offline 3-phase pass; "flashvsr-inline" runs FlashVSR '
              'inline in the streaming pipeline (no intermediate files, needs a patched '
              'FlashVSR repo). Both need --flashvsr-repo. See the "FlashVSR" group for '
-             'its options.',
+             'its options. "swiftvr-inline" runs SwiftVR inline (faster than FlashVSR, FP8 '
+             'by default); needs --swiftvr-repo, see the "SwiftVR" group.',
     )
 
     seedvr2 = parser.add_argument_group("SeedVR2 (primary restoration, experimental)")
@@ -480,6 +488,10 @@ def build_parser() -> argparse.ArgumentParser:
     flashvsr = parser.add_argument_group("FlashVSR")
     from jasna.restorer.flashvsr_offline import add_flashvsr_arguments
     add_flashvsr_arguments(flashvsr)
+
+    swiftvr = parser.add_argument_group("SwiftVR")
+    from jasna.restorer.swiftvr_common import add_swiftvr_arguments
+    add_swiftvr_arguments(swiftvr)
 
     detection = parser.add_argument_group("Detection")
     detection.add_argument(
@@ -711,11 +723,12 @@ def main() -> None:
         for value in sys.argv[1:]
     )
 
-    if str(getattr(args, "secondary_restoration", "")).lower() == "flashvsr-inline" \
+    if str(getattr(args, "secondary_restoration", "")).lower() in ("flashvsr-inline", "swiftvr-inline") \
             and not getattr(args, "fp8_recon", False):
         # fp8-recon shrinks the primary's peak by ~0.9-1.7GB, which the inline
-        # co-residence budget assumes (FLASHVSR_INLINE_FEASIBILITY §12). Auto-enable
-        # it; the restorer falls back to TRT if the GPU can't do fp8 (sm89+/--fp16).
+        # co-residence budget assumes (FLASHVSR_INLINE_FEASIBILITY §12; the same
+        # budget for SwiftVR). Auto-enable it; the restorer falls back to TRT if
+        # the GPU can't do fp8 (sm89+/--fp16).
         args.fp8_recon = True
 
     if getattr(args, "fp8_recon", False):
@@ -1086,10 +1099,10 @@ def main() -> None:
                 "--restoration-model-name seedvr2 does not support --frame-gen "
                 "(no VRAM budget next to the resident worker; run frame generation as a separate pass)"
             )
-        if secondary_name == "flashvsr-inline":
+        if secondary_name in ("flashvsr-inline", "swiftvr-inline"):
             raise ValueError(
                 "--restoration-model-name seedvr2 cannot be combined with --secondary-restoration "
-                "flashvsr-inline (the two resident workers exceed a 16 GB card; use the offline "
+                f"{secondary_name} (the two resident workers exceed a 16 GB card; use the offline "
                 "'flashvsr' mode, whose phases never co-reside)"
             )
         if secondary_name == "tvai":
@@ -1138,12 +1151,12 @@ def main() -> None:
             raise FileNotFoundError(f"--flashvsr-lora not found: {fvsr_lora_arg} (also looked in {fvsr_lora_file})")
         args.flashvsr_lora = str(fvsr_lora_file.resolve())  # the worker chdirs into the checkout
 
-    if secondary_name == "flashvsr-inline":
-        # No clip cap (tiny-long is flat in VRAM vs clip length); frame-gen is a
+    if secondary_name in ("flashvsr-inline", "swiftvr-inline"):
+        # No clip cap (both are flat in VRAM vs clip length); frame-gen is a
         # separate pass.
         if frame_gen_multiplier > 1:
             raise ValueError(
-                "--secondary-restoration flashvsr-inline does not support --frame-gen "
+                f"--secondary-restoration {secondary_name} does not support --frame-gen "
                 "(run frame generation as a separate pass)"
             )
     if args.license_email and args.license_key:

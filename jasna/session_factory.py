@@ -103,6 +103,23 @@ def _build_secondary_restorer(config: SessionConfig, device: "torch.device"):
             lora_path=str(config.flashvsr_lora) or None,
             log_level=str(config.flashvsr_log_level),
         )
+    if config.secondary_restoration == "swiftvr-inline":
+        from jasna.restorer.swiftvr_common import resolve_swiftvr_paths
+        from jasna.restorer.swiftvr_inline_secondary_restorer import SwiftvrInlineSecondaryRestorer
+
+        sv_repo, sv_py, sv_model = resolve_swiftvr_paths(
+            config.swiftvr_repo, config.swiftvr_python, config.swiftvr_model_dir,
+            mode="swiftvr-inline",
+        )
+        return SwiftvrInlineSecondaryRestorer(
+            repo=sv_repo,
+            model_dir=sv_model,
+            sv_python=sv_py,
+            device=config.device,
+            scale=int(config.swiftvr_scale),
+            accel=bool(config.swiftvr_accel),
+            log_level=str(config.swiftvr_log_level),
+        )
     raise ValueError(f"Unsupported secondary restoration: {config.secondary_restoration}")
 
 
