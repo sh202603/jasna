@@ -86,7 +86,7 @@ The `--ltx-*` options need `--restoration-model-name ltx`, `ltx-4step`, `ltx-8st
 
 | Option | Default | Notes |
 | ------ | ------- | ----- |
-| `--secondary-restoration` | `none` | `unet-4x`, `tvai`, or `rtx-super-res`. See [Models](models.md). *(+modi)* also `flashvsr` (offline 3-phase pass) and `flashvsr-inline` (single pass); both need `--flashvsr-repo`. See [flashvsr.md](flashvsr.md). |
+| `--secondary-restoration` | `none` | `unet-4x`, `tvai`, or `rtx-super-res`. See [Models](models.md). *(+modi)* also `flashvsr` (offline 3-phase pass) and `flashvsr-inline` (single pass); both need `--flashvsr-repo`. See [flashvsr.md](flashvsr.md). `swiftvr-inline` (single pass, faster than FlashVSR) needs `--swiftvr-repo`; see [swiftvr.md](swiftvr.md). |
 | `--rtx-scale` | `4` | RTX Super Res upscale factor (`2` or `4`). |
 | `--rtx-quality` | `high` | `low`, `medium`, `high`, `ultra`. |
 | `--rtx-denoise` | `medium` | `none`, `low`, `medium`, `high`, `ultra`. |
