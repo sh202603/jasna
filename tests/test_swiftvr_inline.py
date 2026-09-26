@@ -209,8 +209,9 @@ class TestCommon:
         a = p.parse_args([])
         assert (a.swiftvr_repo, a.swiftvr_python, a.swiftvr_model_dir) == ("", "", "")
         assert a.swiftvr_scale == 4 and a.swiftvr_accel is True
-        a = p.parse_args(["--no-swiftvr-accel", "--swiftvr-scale", "2"])
-        assert a.swiftvr_accel is False and a.swiftvr_scale == 2
+        assert a.swiftvr_view_window == 15
+        a = p.parse_args(["--no-swiftvr-accel", "--swiftvr-scale", "2", "--swiftvr-view-window", "0"])
+        assert a.swiftvr_accel is False and a.swiftvr_scale == 2 and a.swiftvr_view_window == 0
         with pytest.raises(SystemExit):
             p.parse_args(["--swiftvr-scale", "3"])
 
@@ -313,6 +314,20 @@ class TestErrorPaths:
         with pytest.raises(RuntimeError) as ei:
             _make_restorer(stub_env, accel=False)
         assert "--no-swiftvr-accel" not in str(ei.value)
+
+    def test_view_window_is_a_capability_attribute(self, stub_env):
+        r = _make_restorer(stub_env)
+        try:
+            assert r.view_smoothing_window == 15  # default: the pipeline smooths the crop view
+        finally:
+            r.close()
+        r = _make_restorer(stub_env, view_window=0)
+        try:
+            assert r.view_smoothing_window == 0
+        finally:
+            r.close()
+        with pytest.raises(ValueError, match="view window"):
+            _make_restorer(stub_env, view_window=-1)
 
     def test_invalid_scale_rejected(self, stub_env):
         with pytest.raises(ValueError, match="scale must be 2 or 4"):
@@ -432,7 +447,7 @@ class TestColorFix:
 
 class TestSessionFactoryBranch:
     def test_builds_restorer_from_config(self, tmp_path, monkeypatch):
-        from jasna.session_config import SessionConfig
+        from factories import session_config
         import jasna.session_factory as sf
 
         repo = _make_repo(tmp_path)
@@ -448,24 +463,15 @@ class TestSessionFactoryBranch:
         monkeypatch.setattr(
             "jasna.restorer.swiftvr_inline_secondary_restorer.SwiftvrInlineSecondaryRestorer", _Fake
         )
-        cfg = SessionConfig(
-            device="cuda:0", fp16=True, batch_size=4, detection_model_name="rfdetr-v6",
-            detection_model_path=Path("det.onnx"), detection_score_threshold=0.25,
-            max_detection_gap=2, min_detection_duration=2, scene_detection=True,
-            restoration_model_path=Path("restore.pth"), compile_basicvsrpp=True,
-            max_clip_size=90, temporal_overlap=8, enable_crossfade=True,
-            denoise_strength="none", denoise_step="after_primary",
-            secondary_restoration="swiftvr-inline", tvai_ffmpeg_path="ffmpeg", tvai_model="iris-2",
-            tvai_scale=4, tvai_args="", tvai_workers=2, rtx_scale=4, rtx_quality="high",
-            rtx_denoise="medium", rtx_deblur="none", vr_mode="auto", codec="hevc",
-            encoder_settings={}, lut_path=None, retarget_high_fps=False, disable_progress=False,
-            working_dir=None, swiftvr_repo=str(repo), swiftvr_scale=2, swiftvr_accel=False,
-            swiftvr_log_level="info",
+        cfg = session_config(
+            secondary_restoration="swiftvr-inline", swiftvr_repo=str(repo), swiftvr_scale=2,
+            swiftvr_accel=False, swiftvr_view_window=7, swiftvr_log_level="info",
         )
         assert isinstance(sf._build_secondary_restorer(cfg, "cuda:0"), _Fake)
         assert captured["repo"] == repo and captured["sv_python"] == py
         assert captured["model_dir"] == repo / "checkpoints"
         assert captured["scale"] == 2 and captured["accel"] is False
+        assert captured["view_window"] == 7
         assert captured["log_level"] == "info" and captured["device"] == "cuda:0"
 
 

@@ -45,15 +45,24 @@ class _RestoreResultBase:
     resize_shapes: list[tuple[int, int]]
 
 
+# Per-frame placement (s_x, o_x, s_y, o_y) of the smoothed crop view a
+# geometry-sensitive secondary restorer saw (tracking.crop_view). None means
+# the frames are in each frame's own 256 grid and the blend uses its legacy
+# unpad + resize path.
+ViewPlacement = tuple[float, float, float, float]
+
+
 @dataclass
 class PrimaryRestoreResult(_RestoreResultBase):
     primary_raw: torch.Tensor
+    view_placements: list[ViewPlacement] | None = None
 
 
 @dataclass
 class SecondaryRestoreResult(_RestoreResultBase):
     restored_frames: list[torch.Tensor]
     clip_keep_offset: int = 0
+    view_placements: list[ViewPlacement] | None = None
 
 
 @dataclass
