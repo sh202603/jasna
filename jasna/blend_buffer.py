@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from jasna.crop_buffer import scale_offsets
 from jasna.pipeline_items import SecondaryRestoreResult
 from jasna.tracking.blending import create_bbox_blend_mask
+from jasna.tracking.crop_view import sample_view_to_bbox
 
 _log = logging.getLogger(__name__)
 
@@ -130,24 +131,29 @@ class BlendBuffer:
             return
 
         frame_u8 = sr.restored_frames[local_i].to(device)
-        pad_offset, resize_shape = scale_offsets(frame_u8, sr.pad_offsets[local_i], sr.resize_shapes[local_i])
         i_clip = clip_offset + local_i
         cw = sr.crossfade_weights.get(i_clip, 1.0) if sr.crossfade_weights else 1.0
 
         x1, y1, x2, y2 = sr.enlarged_bboxes[local_i]
-        crop_h, crop_w = sr.crop_shapes[local_i]
-        pad_left, pad_top = pad_offset
-        resize_h, resize_w = resize_shape
-
         mask_lr = sr.masks[local_i].to(device)
 
-        unpadded = frame_u8[:, pad_top:pad_top + resize_h, pad_left:pad_left + resize_w]
-        resized_back = F.interpolate(
-            unpadded.unsqueeze(0).float(),
-            size=(crop_h, crop_w),
-            mode="bilinear",
-            align_corners=False,
-        ).squeeze(0)
+        if sr.view_placements is not None:
+            # The restorer worked on the smoothed crop view (tracking.crop_view):
+            # sample it straight into the frame's bbox, one resample, no detour
+            # through the own grid (which halves the Laplacian variance).
+            resized_back = sample_view_to_bbox(frame_u8, sr.view_placements[local_i], (x1, y1, x2, y2))
+        else:
+            crop_h, crop_w = sr.crop_shapes[local_i]
+            pad_offset, resize_shape = scale_offsets(frame_u8, sr.pad_offsets[local_i], sr.resize_shapes[local_i])
+            pad_left, pad_top = pad_offset
+            resize_h, resize_w = resize_shape
+            unpadded = frame_u8[:, pad_top:pad_top + resize_h, pad_left:pad_left + resize_w]
+            resized_back = F.interpolate(
+                unpadded.unsqueeze(0).float(),
+                size=(crop_h, crop_w),
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0)
 
         if self.vr_projector is not None:
             # Project the restoration *delta* back to source space (not the whole

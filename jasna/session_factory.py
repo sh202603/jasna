@@ -118,6 +118,7 @@ def _build_secondary_restorer(config: SessionConfig, device: "torch.device"):
             device=config.device,
             scale=int(config.swiftvr_scale),
             accel=bool(config.swiftvr_accel),
+            view_window=int(config.swiftvr_view_window),
             log_level=str(config.swiftvr_log_level),
         )
     raise ValueError(f"Unsupported secondary restoration: {config.secondary_restoration}")

@@ -85,6 +85,7 @@ def _session_config_from_args(
         swiftvr_model_dir=str(getattr(args, "swiftvr_model_dir", "") or ""),
         swiftvr_scale=int(getattr(args, "swiftvr_scale", 4)),
         swiftvr_accel=bool(getattr(args, "swiftvr_accel", True)),
+        swiftvr_view_window=int(getattr(args, "swiftvr_view_window", 15)),
         swiftvr_log_level=str(getattr(args, "log_level", "error")),
         restoration_model_name=str(args.restoration_model_name),
         seedvr2_repo=str(getattr(args, "seedvr2_repo", "") or ""),

@@ -15,6 +15,7 @@ from jasna.restorer.denoise import DenoiseStep, DenoiseStrength, apply_denoise, 
 from jasna.restorer.secondary_restorer import SecondaryRestorer
 from jasna.tracking.blending import create_bbox_blend_mask
 from jasna.tracking.clip_tracker import TrackedClip
+from jasna.tracking.crop_view import compute_view_placements, reframe_to_view
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +178,16 @@ class RestorationPipeline:
             return bool(getattr(self.secondary_restorer, "prefers_cpu_input", False))
         return False
 
+    @property
+    def view_smoothing_window(self) -> int:
+        """Frames over which the secondary restorer wants the crop placement
+        smoothed (0 = it takes each frame's own grid). A capability attribute
+        of the secondary restorer, like ``prefers_cpu_input``; see
+        tracking.crop_view."""
+        if self.secondary_restorer is not None:
+            return max(0, int(getattr(self.secondary_restorer, "view_smoothing_window", 0)))
+        return 0
+
     def _apply_denoise(self, frames: torch.Tensor) -> torch.Tensor:
         return apply_denoise(frames, self._denoise_strength)
 
@@ -248,6 +259,17 @@ class RestorationPipeline:
         if self._denoise_step is DenoiseStep.AFTER_PRIMARY:
             primary_raw = self._apply_denoise(primary_raw)
 
+        # Last, and here rather than in the secondary stage: the inline workers
+        # take their input from host RAM (prefers_cpu_input), and the
+        # resampling must stay on the GPU. Everything above works in the own
+        # grid (pad / mask alignment), so the view is built after it.
+        view_placements = None
+        window = self.view_smoothing_window
+        if window > 1 and len(raw_crops) > 1:
+            own, view = compute_view_placements(enlarged_bboxes, pad_offsets, resize_shapes, window)
+            primary_raw = reframe_to_view(primary_raw, own, view)
+            view_placements = [tuple(float(v) for v in row) for row in view]
+
         return PrimaryRestoreResult(
             track_id=clip.track_id,
             start_frame=clip.start_frame,
@@ -263,6 +285,7 @@ class RestorationPipeline:
             crop_shapes=crop_shapes,
             pad_offsets=pad_offsets,
             resize_shapes=resize_shapes,
+            view_placements=view_placements,
         )
 
     def build_secondary_result(
@@ -295,4 +318,5 @@ class RestorationPipeline:
             pad_offsets=pr.pad_offsets[ks:ke],
             resize_shapes=pr.resize_shapes[ks:ke],
             clip_keep_offset=ks,
+            view_placements=pr.view_placements[ks:ke] if pr.view_placements is not None else None,
         )

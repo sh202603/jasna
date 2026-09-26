@@ -78,6 +78,7 @@ class SessionConfig:
     swiftvr_model_dir: str = ""
     swiftvr_scale: int = 4
     swiftvr_accel: bool = True
+    swiftvr_view_window: int = 15
     swiftvr_log_level: str = "error"
     # Primary restoration model. For "seedvr2", ``restoration_model_path``
     # carries the LoRA checkpoint instead of the BasicVSR++ checkpoint.

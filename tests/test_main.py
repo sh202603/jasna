@@ -185,6 +185,7 @@ class TestBuildParser:
         assert args.swiftvr_model_dir == ""
         assert args.swiftvr_scale == 4
         assert args.swiftvr_accel is True  # acceleration is the default
+        assert args.swiftvr_view_window == 15  # the crop view is smoothed by default
 
     def test_swiftvr_scale_and_accel_flags(self):
         args = build_parser().parse_args([
