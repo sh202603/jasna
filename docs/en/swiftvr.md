@@ -20,9 +20,13 @@ configuration (2 strips at scale 4, no strips at scale 2), and 2 to 4 times
 faster over a whole run ("[VRAM and speed](#vram-and-speed)"). Its VRAM lets it
 co-reside with the primary pipeline without strip tiling even at scale 4.
 
-SwiftVR has the inline mode only. There is no offline 3-phase mode (the
-counterpart of FlashVSR's `flashvsr`), so the SeedVR2 primary and 12 GB-class
-GPUs are served by FlashVSR's offline mode.
+There are two modes. `swiftvr-inline` is a single pass that co-resides SwiftVR
+with the primary pipeline, for the `basicvsrpp` primary on a 16 GB card.
+`swiftvr` is the same offline 3-phase pass as FlashVSR's `flashvsr` and runs
+SwiftVR alone on the GPU ("[Offline 3-phase mode](#offline-3-phase-mode---secondary-restoration-swiftvr)");
+it serves 12 GB-class GPUs, GPUs without FP8 and the SeedVR2 primary. The
+inline description below (processing details, quality) applies to offline as
+is; the differences are collected in the offline section.
 
 ## How it works
 
@@ -99,6 +103,13 @@ jasna --input in.mp4 --output out.mkv \
       --secondary-restoration swiftvr-inline \
       --swiftvr-repo ~/SwiftVR \
       --log-level info
+
+# offline 3-phase (12 GB-class GPUs, GPUs without FP8, the SeedVR2 primary)
+jasna --input in.mp4 --output out.mkv \
+      --secondary-restoration swiftvr \
+      --swiftvr-repo ~/SwiftVR \
+      --swiftvr-bundle-dir /data/jasna_bundle \
+      --log-level info
 ```
 
 ### Flags
@@ -111,11 +122,14 @@ jasna --input in.mp4 --output out.mkv \
 | `--swiftvr-scale` | `4` | Processing scale. `4` = model-native 1024px, `2` = 512px (faster, lower VRAM). See "[Processing scale](#processing-scale---swiftvr-scale)". |
 | `--swiftvr-view-window` | `15` | Smooth the position and scale of the crop view SwiftVR sees with a moving average over N frames (`0` disables). See "[Crop view smoothing](#crop-view-smoothing---swiftvr-view-window)". |
 | `--swiftvr-accel` / `--no-swiftvr-accel` | **on** | FP8 DiT and torch.compile. Needs an RTX 40 series or newer GPU and a working Triton; the worker drops unavailable parts at startup with a warning. See "[Acceleration](#acceleration---swiftvr-accel)". |
+| `--swiftvr-bundle-dir` | temp | `swiftvr` (offline) only: persist the intermediate bundle here (enables stage resume). |
+| `--swiftvr-keep-bundle` | off | `swiftvr` (offline) only: keep the bundle after completion (implied by `--swiftvr-bundle-dir`). |
 
 There is no counterpart of FlashVSR's `--flashvsr-version`, `--flashvsr-dtype`,
-`--flashvsr-tiles` or `--flashvsr-lora`: there is one model, bf16 only (FP8
-requires it), no strip tiling is needed, and there is no LoRA. Color correction
-has no flag either (always on, see below).
+`--flashvsr-tiles`, `--flashvsr-lora` or `--flashvsr-max-clip-frames`: there is
+one model, bf16 only (FP8 requires it), no strip tiling is needed, there is no
+LoRA, and VRAM does not depend on the clip length, so no clip cap is needed.
+Color correction has no flag either (always on, see below).
 
 ## Processing details
 
@@ -217,7 +231,9 @@ is unavailable and reports why in jasna's log. Without FP8 the DiT runs in bf16
 (~12 GiB), which **does not co-reside with the primary on a 16 GB card**: jasna
 warns and continues, and if VRAM runs out a clip fails with an out-of-memory
 error (the worker retries it once, then stops). With 24 GB or more,
-`--no-swiftvr-accel` also runs.
+`--no-swiftvr-accel` also runs. In the offline `swiftvr` mode SwiftVR has the
+GPU to itself, so bf16 is a regular path there and fits 16 GB
+("[Offline 3-phase mode](#offline-3-phase-mode---secondary-restoration-swiftvr)").
 
 ### Color correction
 
@@ -267,7 +283,7 @@ copies), and how short clips look is checked visually.
   ~0.9 to 1.7 GB to fit the co-residence budget; a GPU without fp8 falls back
   to TRT.
 - **Not combinable with the SeedVR2 primary** (two resident workers exceed 16 GB;
-  rejected at startup).
+  rejected at startup; the offline `swiftvr` mode combines with it).
 - Synchronous. SwiftVR is the rate limiter, so mosaic-dense stretches run at its
   speed (frames without mosaic are primary-only and fast).
 - VR modes and `--stream` are not rejected, as with FlashVSR inline.
@@ -277,6 +293,189 @@ copies), and how short clips look is checked visually.
 - **Not bundled, unrelated to the supporter models.** SwiftVR is an Apache-2.0
   third-party model; the checkout, checkpoint and venv are the user's. Not
   exposed in the GUI.
+
+## Offline 3-phase mode (`--secondary-restoration swiftvr`)
+
+`swiftvr` is the same offline 3-phase pass as FlashVSR's `flashvsr`: each phase
+runs as its own process, one after the other, so the SwiftVR phase has the GPU
+to itself. The same crops go through the same functions as inline, so the
+output matches inline's ("[Offline measurements](#offline-measurements)");
+what differs is the VRAM requirement, the intermediate files and the resume.
+
+| Phase | Env | What |
+|-------|-----|------|
+| 1 (dump) | jasna | decode + detect + primary restoration (BasicVSR++ or SeedVR2); serialize every clip's 256px crops (the same smoothed crop view as inline) + masks + geometry to a **bundle** on disk. blend/encode is throwaway. |
+| 2 (SwiftVR) | SwiftVR venv | restore each clip's 256px crops to 256*scale px, color-correct them, write them back into the bundle (`jasna/restorer/swiftvr_phase2_driver.py`). |
+| 3 (reblend) | jasna | re-decode the source, re-assemble the restore results from the bundle, blend with the view placements and encode the final output. |
+
+Phase 1 and Phase 3 are FlashVSR's code (`jasna/restorer/flashvsr_offline.py`),
+run as `jasna --flashvsr-phase dump` / `reblend` subprocesses (the internal name
+stays `flashvsr`). The Phase 2 driver runs under the SwiftVR venv's Python and
+loads the inline worker (`swiftvr_inline_worker.py`) by path to share its
+acceleration decision, model load, warmup, the frame-count-checked
+`restore_clip()` call and the GPU color correction. There is no wire, so no
+BGR flip either (the bundle is RGB).
+
+The **bundle** has FlashVSR's format, now version 2. Phase 1 builds the same
+smoothed crop view as inline (`--swiftvr-view-window`, default 15) and writes
+its placement into the clip geometry as `view_placements`; Phase 3 composites
+straight from the view into the frame when placements are present (the inline
+blend's path). FlashVSR bundles carry null placements and behave as before.
+Phase 3 also reads version 1 bundles and refuses newer versions.
+
+### When to use it
+
+Inline co-resides SwiftVR with the primary pipeline: about 8 GiB in FP8, which
+fits a 16 GB card next to the primary. It cannot be arranged in three cases,
+and offline is the path for them.
+
+1. A GPU without FP8 (RTX 30 series and older, compute capability below 8.9).
+   The DiT runs in bf16 at about 12.4 GiB and does not co-reside with the
+   primary even on 16 GB.
+2. A 12 GB-class GPU. Even in FP8, SwiftVR plus the primary exceeds 12 GB
+   (scale 4 needs over 11 GB for the application alone; scale 2 is borderline
+   at 1080p).
+3. The SeedVR2 primary. Two resident workers exceed 16 GB, so inline rejects
+   the combination at startup.
+
+Whether offline helps is decided by SwiftVR's standalone peak. Measured on an
+RTX 5080 (16 GB, about 2.0 GB of desktop residency) after the same load and
+warmup as Phase 2, over 3 clips of 90 256px frames (fork e7f186b, which loads
+the FP8 DiT block by block; earlier forks peak at 10.4 GB during the load and
+cannot load on a 12 GB card). allocated / reserved are torch's numbers, the
+process peak is `nvidia-smi`'s.
+
+| Configuration | Load peak | Run peak (allocated / reserved) | Process peak (expandable segments) | Same (without, Windows stand-in) | One 90-frame clip |
+|---|---|---|---|---|---|
+| scale 4, FP8 + compile | 5.3 GiB | 7.8 / 8.2 GiB | 8.8 GB | 9.0 GB | 1.6 s |
+| scale 4, bf16 | 9.4 GiB | 12.4 / 12.6 GiB | 13.3 GB | not measured | 3.4 s |
+| scale 2, FP8 + compile | 5.3 GiB | 5.6 / 5.9 GiB | 6.4 GB | 6.5 GB | 0.4 s |
+| scale 2, bf16 | 9.4 GiB | 10.2 / 10.3 GiB | 10.9 GB | not measured | 0.8 s |
+
+To simulate a 12 GB card, the FP8 runs were repeated with torch's allocation
+capped at 10.5 GiB and at 9.5 GiB: scale 4 and scale 2 both completed under
+10.5 GiB, and scale 4 also under 9.5 GiB (same peak as without the cap).
+
+- **12 GB-class with FP8 (RTX 4070, 5070 and the like):** scale 4 in FP8 fits
+  at 8.8 GB, with room for 3 GB of desktop residency. Scale 2 is 6.4 GB.
+- **RTX 30 series, 16 GB:** scale 4 in bf16 fits at 13.3 GB
+  (`--no-swiftvr-accel` is not needed: the driver drops FP8 and falls back to
+  bf16 without a warning).
+- **12 GB-class without FP8 (RTX 3060 12 GB and the like):** scale 4 in bf16
+  does not fit; scale 2 in bf16 is borderline at 10.9 GB.
+- **SeedVR2 primary:** the SeedVR2 worker runs in Phase 1 and SwiftVR in
+  Phase 2, so the combination works.
+
+Inline's GPU-wide peak (same fork, RTX 5080, about 1.85 GB of desktop
+residency included) is 10.5 GB at 480p / 11.4 GB at 1080p for scale 2 and
+12.8 / 14.0 GB for scale 4. On a 12 GB card the measurements say: scale 4
+offline; scale 2 inline first, and offline if VRAM pressure shows (offloader
+spills, worker out-of-memory warnings).
+
+### Offline behavior and constraints
+
+- Rejected at startup, as in FlashVSR's offline mode: `--stream`,
+  `--frame-gen`, `--retarget-high-fps`, `--segments`, VR modes (including
+  `--vr-mode auto` detecting VR content), folder input, image input.
+- `--max-clip-size` passes through as given (default 90); there is no
+  counterpart of FlashVSR offline's `--flashvsr-max-clip-frames`.
+  `--swiftvr-scale`, `--swiftvr-view-window` and `--swiftvr-accel` mean the
+  same as inline.
+- **bf16 is a regular path.** On a GPU without FP8 the driver drops FP8 and
+  runs bf16, without inline's warning.
+- **Combinable with the SeedVR2 primary.** Inline's fp8-recon auto-enable does
+  not apply: Phase 1 runs the primary on the standard TensorRT path unless
+  `--fp8-recon` is passed (inline enables it for its co-residence VRAM budget).
+  Pass `--fp8-recon` for the same primary as inline.
+- Two encodes (Phase 1's throwaway and Phase 3's final) and a re-decode of the
+  source in Phase 3. This fixed cost is FlashVSR's too; with SwiftVR's shorter
+  secondary time it is a larger share ("[Offline measurements](#offline-measurements)").
+- **Stage resume.** With `--swiftvr-bundle-dir` the bundle persists; re-running
+  the same command after a failure makes Phase 2 skip the completed clips
+  (Phase 1 runs again). If VRAM runs out mid-clip in Phase 2, the driver
+  retries once, then exits non-zero and leaves the bundle.
+- **Disk space.** The bundle is dominated by Phase 2's uncompressed restored
+  crops, 3 x (256 x scale)^2 bytes per frame (3 MiB at scale 4, 0.75 MiB at
+  scale 2). The rule of thumb (about 8 GB per mosaic minute at scale 4), the
+  `/tmp` on tmpfs caveat, the warning before Phase 1 and the space gate before
+  Phase 2 are those of [FlashVSR's disk space section](flashvsr.md#disk-space),
+  with `--swiftvr-bundle-dir` in the messages.
+- The Phase 2 driver sets `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` on
+  Linux (like the inline worker; with fork e7f186b it moves the FP8 peak by
+  only 0.2 GB, but it keeps the bf16 path's 12.4 GiB inside 16 GB). On Windows
+  it sets `PYTHONUTF8=1`.
+- The frozen build copies the driver as a real file to
+  `<dist>/jasna/restorer/` as well.
+
+### Offline measurements
+
+Linux, RTX 5080 16 GB, fork e7f186b. The inline runs were repeated the same
+day with the same jasna and fork (within noise of the inline table above). The
+GPU-wide peak includes about 1.9 GB of desktop residency (0.5 s `nvidia-smi`
+poll); per-phase peaks and times are per process. Default clip 90, wavelet
+color correction, view smoothing 15. The output frame count matched the input
+in every run.
+
+| Material | scale | inline wall / GPU-wide peak | offline wall / GPU-wide peak | Phase 1 / 2 / 3 process peak | Phase 1 / 2 / 3 time |
+|----------|-------|------|------|------|------|
+| 480p | 2 | 44.4 s / 10.3 GB | **62.8 s / 8.0 GB** | 2.9 / 6.4 / 0.5 GB | 27.3 / 27.9 / 2.1 s |
+| 480p | 4 | 101.3 s / 12.6 GB | **118.0 s / 10.4 GB** | 2.9 / 8.8 / 0.5 GB | 27.3 / 80.7 / 4.7 s |
+| 1080p | 2 | 54.7 s / 11.1 GB | **95.0 s / 8.0 GB** | 4.0 / 6.4 / 1.0 GB | 42.0 / 38.4 / 9.5 s |
+| 1080p | 4 | 137.5 s / 13.8 GB | **172.9 s / 10.4 GB** | 4.0 / 8.8 / 1.0 GB | 41.5 / 113.9 / 12.2 s |
+| 480p | 4, bf16 (`--no-swiftvr-accel`) | (inline runs out of VRAM) | **186.6 s / 14.9 GB** | 2.9 / 13.3 / 0.5 GB | 27.4 / 149.7 / 4.3 s |
+
+- The GPU-wide peak is Phase 2's (SwiftVR alone) and matches the standalone
+  table above. Phase 1 is the primary-only run; Phase 3 is light.
+- The wall-time difference is the fixed cost of Phase 1's throwaway encode and
+  Phase 3's re-decode and encode; with SwiftVR's short secondary time the
+  ratio to inline is larger than FlashVSR's.
+- **Equivalence gate** (inline and offline outputs decoded and compared frame
+  by frame with `ffmpeg`'s psnr filter). With the default encode (HEVC NVENC)
+  the result was a mean of 46.22 dB at 480p (min
+  42.16 dB) and 47.97 to 48.85 dB at 1080p (min
+  42.07 to 44.02 dB), but that is the encode noise floor: on
+  the same material, FP8 vs bf16 offline outputs (restorations that really
+  differ) sit at 46.29 dB and FlashVSR tiny vs tiny-long at
+  46.36 dB, indistinguishable, while frames without mosaic are bit-identical
+  between inline and offline (1490 of 4930). Seeing the
+  difference needs the encode out of the way, so 480p scale 2 was repeated
+  with `--encoder-settings tune=lossless,spatial_aq=0,temporal-aq=0` (NVENC lossless; the default
+  adaptive quantization cannot be combined with it, so it is switched off):
+  - inline vs offline (FP8): mean 65.31 dB, min 53.17 dB, 2221 of 4930 frames identical
+  - offline bf16 vs FP8 (control: the restorations differ, so this must differ): mean 69.87 dB, min 60.69 dB, 2221 of 4930 frames identical
+  - inline vs offline bf16: mean 65.31 dB, min 53.30 dB, 2221 of 4930 frames identical
+  - inline vs offline with `--fp8-recon` passed to Phase 1: all 4930 frames bit-identical (PSNR inf)
+  The residual against inline is the primary restoration: inline auto-enables
+  `--fp8-recon` for its co-residence VRAM budget, while Phase 1 runs the primary
+  alone and does not. With `--fp8-recon` passed to Phase 1, all 4930 frames are
+  bit-identical to inline. The SwiftVR phase is deterministic on the same crops
+  (the resume test is bit-identical too), and the bf16 control sits 69.87 dB
+  from FP8, so the gate does discriminate.
+- **bf16** (`--no-swiftvr-accel`, scale 4, 480p): the driver reported
+  `accel: off` and completed in bf16. PSNR against the FP8 output: mean
+  46.29 dB (min 42.12 dB), the level of the fork's FP8 vs bf16
+  measurement (about 47 dB).
+- **Resume:** killing the driver mid-Phase 2 (after 3 clips) ended the run
+  non-zero with `SwiftVR run failed. Bundle kept for resume at:` and the
+  `--swiftvr-bundle-dir` hint. The same command re-run completed with Phase 2
+  reporting `done: 54 restored, 3 already present`, and the output matches the uninterrupted run:
+  all 4930 frames bit-identical (PSNR inf). This machine runs MPS in Exclusive_Process mode, which refuses
+  new CUDA contexts with `cudaErrorDevicesUnavailable` right after a client is
+  killed, so the re-run waited until the GPU accepted one (5 s
+  after the kill; not a jasna constraint).
+- **SeedVR2 primary:** on a 20 s (500-frame) 480p cut,
+  `--restoration-model-name seedvr2` + `swiftvr` (scale 2) was accepted at
+  startup and completed (57.1 s, GPU-wide peak 12.6 GB;
+  Phase 1 is jasna 1.2 GB plus the SeedVR2 worker
+  9.8 GB, Phase 2 6.4 GB). On the same cut,
+  `swiftvr-inline` was rejected at startup with `cannot be combined`.
+- **Short clips:** the 480p bundle holds 57 clips, the shortest 2 frames (4 of up to 2 frames, 0 without a view); the 1080p bundle 58 clips, the shortest 2 frames (1 of up to 2 frames, 0 without a view). A single-frame clip has no view and Phase 3
+  composites it through the legacy path (pinned by a unit test).
+- **FlashVSR regression:** `flashvsr` offline (scale 2, `--flashvsr-accel`)
+  completed as before on a version 2 bundle (placements null for every clip:
+  57 / 57), 144.0 s, 4930 frames
+  (PSNR mean 46.36 dB against the old FlashVSR inline output, the tiny
+  vs tiny-long difference).
 
 ## Measurements
 
@@ -406,8 +605,8 @@ correction and wire transfer included), startup takes about 7 s (model load
 
 ## Implementation
 
-- `jasna/restorer/swiftvr_common.py`: registration of `--swiftvr-*` and path
-  resolution (no torch import).
+- `jasna/restorer/swiftvr_common.py`: registration of `--swiftvr-*`, path
+  resolution and the offline Phase 2 command (no torch import).
 - `jasna/restorer/swiftvr_inline_secondary_restorer.py`: the synchronous
   `SecondaryRestorer`. Worker spawn and handshake, wire I/O, RGB/BGR flips, the
   keep-window slice; it announces the view smoothing window through its
@@ -419,6 +618,17 @@ correction and wire transfer included), startup takes about 7 s (model load
   Acceleration decision, model load, warmup, per-clip `restore_clip()` and color
   correction. The color-correction primitives are shared with
   `flashvsr_inline_worker.py` by loading it by path.
+- `jasna/restorer/swiftvr_phase2_driver.py`: the offline Phase 2 driver (SwiftVR
+  venv). Imports no jasna; loads the sibling worker by path and shares its
+  acceleration decision, model load, warmup, frame-count-checked `restore_clip()`
+  call and GPU color correction. Walks the bundle's clips, skipping completed ones.
+- `jasna/restorer/flashvsr_offline.py`: the offline orchestrator shared with
+  FlashVSR. An engine record (`OfflineEngine`) swaps in the path resolution and
+  flag names, the scale, Phase 1's clip cap (FlashVSR only) and view window
+  (SwiftVR only), and the Phase 2 command (`swiftvr_common.swiftvr_phase2_command()`).
+  The Phase 1 dump hook overrides `RestorationPipeline.view_smoothing_window` with
+  the configured window to build the view, written as bundle version 2's
+  `view_placements`; Phase 3 blends through the view path when they are present.
 - `jasna/tracking/crop_view.py`: the crop view geometry (placements,
   smoothing, clamp, resampling into the view, sampling for the blend).
   `restorer/restoration_pipeline.py` reads the secondary restorer's
@@ -430,12 +640,14 @@ correction and wire transfer included), startup takes about 7 s (model load
 - `jasna/session_config.py` / `session_factory.py` / `main.py`: config fields,
   restorer construction, startup checks (fp8-recon auto-enable, rejection of
   frame-gen and of the SeedVR2 primary).
-- `scripts/build_nuitka.py`: copies the worker as a real file to
-  `<dist>/jasna/restorer/` (next to the FlashVSR worker, for the shared color
-  correction).
+- `scripts/build_nuitka.py`: copies the worker and the Phase 2 driver as real
+  files to `<dist>/jasna/restorer/` (next to the FlashVSR worker: the driver
+  loads the worker by path, the worker the FlashVSR worker).
 - Tests: `tests/test_swiftvr_inline.py` (stub worker: wire, flags, handshake,
-  the GPU color fix against the FlashVSR version), `tests/test_main.py`
-  (choices and defaults), `tests/test_crop_view.py` (view geometry: the own
+  the GPU color fix against the FlashVSR version), `tests/test_swiftvr_offline.py`
+  (startup checks for both engines, the Phase 2 command, bundle version 2 round
+  trip and version check, the Phase 1 hook's view, Phase 3's view blend matching
+  the inline path, the driver), `tests/test_main.py` (choices and defaults), `tests/test_crop_view.py` (view geometry: the own
   placement reproduces the legacy path, round trip through a smoothed view,
   clamp coverage), and the view path in `test_restoration_pipeline.py` and
   `test_blend_buffer.py`.
@@ -467,3 +679,6 @@ Unverified on Windows. Expected differences:
 - `--swiftvr-python` defaults to `<repo>/.venv/Scripts/python.exe`.
 - View smoothing is GPU work on jasna's side only, so nothing about it is
   Windows-specific.
+- The offline Phase 2 driver is started with `<repo>\.venv\Scripts\python.exe`
+  and `PYTHONUTF8=1`. Without `expandable_segments` its process peak is the
+  Linux stand-in's FP8 +0.2 GB (9.0 GB at scale 4, 6.5 GB at scale 2).
