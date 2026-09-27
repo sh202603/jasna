@@ -380,12 +380,13 @@ def copy_frozen_runtime_files() -> None:
     # FlashVSR / SwiftVR / SeedVR2 pass these as real script files to their
     # external venv's Python; when frozen they are resolved under
     # <dist>/jasna/restorer/ (see _resolve_worker_script / the phase-2 driver
-    # lookup). The SwiftVR worker also loads the FlashVSR worker by path for
-    # the shared color-correction primitives, so both must land side by side.
+    # lookup). The SwiftVR worker loads the FlashVSR worker by path for the
+    # shared color-correction primitives, and the SwiftVR Phase 2 driver loads
+    # the SwiftVR worker by path, so all of them must land side by side.
     restorer_out = DIST / "jasna" / "restorer"
     restorer_out.mkdir(parents=True, exist_ok=True)
     for script in ["flashvsr_inline_worker.py", "flashvsr_phase2_driver.py", "seedvr2_lora_worker.py",
-                   "swiftvr_inline_worker.py"]:
+                   "swiftvr_inline_worker.py", "swiftvr_phase2_driver.py"]:
         shutil.copy2(ROOT / "jasna" / "restorer" / script, restorer_out / script)
 
 
