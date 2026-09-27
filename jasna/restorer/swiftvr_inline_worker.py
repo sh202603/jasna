@@ -2,27 +2,25 @@
 # SPDX-License-Identifier: AGPL-3.0
 """
 Persistent SwiftVR inference worker — runs inside the SwiftVR venv (NOT the
-jasna venv), spawned by ``SwiftvrInlineSecondaryRestorer``.
+lada venv), spawned by ``SwiftVrRestorer``.
 
 Loads ``SwiftVRPipeline`` once (weights resident) and, for each clip received
 over stdin/stdout, upscales the 256px primary crops to 256*scale px
 (``--scale``: 4 = the model-native 1024px, 2 = 512px) with
 ``SwiftVRPipeline.restore_clip()`` and streams them back. SwiftVR restores in
 fixed causal chunks, so its VRAM does not grow with the clip length, and with
-FP8 it co-resides with jasna's primary pipeline on a 16 GB GPU.
+FP8 it co-resides with lada's primary pipeline on a 16 GB GPU.
 
 Output crops get an always-on color correction against the bicubic-upscaled
-input (``--color-fix-method``), the same wavelet/AdaIN math as the FlashVSR
-worker: the primitives are loaded by path from the sibling
-``flashvsr_inline_worker.py`` (whose top level is stdlib-only) and applied on
-the GPU here, since SwiftVR's output already lives there.
+input (``--color-fix-method``): wavelet reconstruction (SwiftVR's high
+frequencies on the input's low frequencies) or AdaIN, applied on the GPU here,
+since SwiftVR's output already lives there.
 
-This script is intentionally free of any ``jasna`` (or ``lada``) import: it is
-executed by the SwiftVR env's Python (``--swiftvr-python``) and only uses
-numpy/torch plus the ``swiftvr`` package (the checkout is added to ``sys.path``
-as a fallback to its editable install). The wire color order is lada-native
-BGR, like the FlashVSR and SeedVR2 workers, so the same file can serve lada-ex;
-the parent adapter flips RGB<->BGR around the wire.
+This script is intentionally free of any ``lada`` import: it is executed by
+the SwiftVR env's Python (``--swiftvr-python``) and only uses numpy/torch plus
+the ``swiftvr`` package (the checkout is added to ``sys.path`` as a fallback to
+its editable install). The wire color order is lada-native BGR; the worker
+converts BGR<->RGB around inference.
 
 Acceleration (``--fp8-dit``, ``--torch-compile``; both passed by the parent for
 ``--swiftvr-accel``) is decided BEFORE the ~20 GB model load: FP8 needs an
@@ -31,13 +29,12 @@ Linux that means the base Python's dev headers). Whatever fails is switched
 off with a reason in the handshake; there is no runtime demotion, since
 SwiftVR's FP8 replaces the DiT linears in place and has no fallback path.
 
-The offline Phase 2 driver (``swiftvr_phase2_driver.py``) loads this file by
-path and reuses its model handling (``_decide_accel``, ``_load_pipeline``,
-``_warmup``, ``_restore_checked``, ``_color_fix_frames_gpu``), so an offline
-clip goes through the same functions as an inline one. Keep the top level
-stdlib-only for that.
+The model handling (``_decide_accel``, ``_load_pipeline``, ``_warmup``,
+``_restore_checked``, ``_color_fix_frames_gpu``) is reusable by loading this
+file by path, so an offline driver can run a clip through the same functions
+as the resident worker. Keep the top level stdlib-only for that.
 
-Wire protocol (parent = jasna venv, child = this):
+Wire protocol (parent = lada venv, child = this):
   parent -> child : header ``{"seq","n","h","w"}\\n`` (UTF-8) then n*h*w*3 raw
                     uint8 BGR bytes  (the 256px primary crops, HWC)
   child  -> parent: header ``{"seq","n","h","w"}\\n`` then n*h*w*3 raw uint8
@@ -89,7 +86,7 @@ def _parse_args() -> argparse.Namespace:
         choices=["adain", "wavelet", "none"],
         help="Color correction of the output crops against the bicubic-upscaled input "
              "(always on in production; 'none' exists only for A/B baselines and is "
-             "reachable via the JASNA_SWIFTVR_COLOR_FIX env override, not the CLI).",
+             "reachable via the LADA_SWIFTVR_COLOR_FIX env override, not the lada CLI).",
     )
     ap.add_argument("--verbose", action="store_true", help="send worker stdout to stderr, not /dev/null")
     return ap.parse_args()
@@ -136,45 +133,78 @@ def _read_header(stream) -> dict | None:
 # ---------------------------------------------------------------------------- #
 # Color correction (always on in production)
 #
-# Same method and reference as the FlashVSR worker: the output crop's high
-# frequencies on the low frequencies of the bicubic-upscaled input crop
-# (wavelet), or a mean/std transfer (adain). The primitives are shared by
-# loading the sibling worker by path (no copy to drift, and the FlashVSR worker
-# stays verbatim-identical with lada-ex's). Unlike its ``_color_fix_frames``,
-# which ferries host float32 frames to the device one by one, this runs on
+# The output crop's high frequencies on the low frequencies of the bicubic-
+# upscaled input crop (wavelet), or a mean/std transfer (adain). Without it the
+# blended region can drift in tone from its surroundings. Runs on
 # device-resident uint8 tensors, since ``restore_clip`` returns them there.
 # ---------------------------------------------------------------------------- #
 
-_PRIMITIVES = None
+
+def _calc_mean_std(feat, eps=1e-5):
+    """Per-sample, per-channel mean/std of an (N, C, H, W) tensor."""
+    n, c = feat.shape[:2]
+    var = feat.reshape(n, c, -1).var(dim=2, unbiased=False) + eps
+    std = var.sqrt().reshape(n, c, 1, 1)
+    mean = feat.reshape(n, c, -1).mean(dim=2).reshape(n, c, 1, 1)
+    return mean, std
 
 
-def _color_fix_primitives():
-    """``flashvsr_inline_worker`` loaded by path (cached); stdlib-only top level."""
-    global _PRIMITIVES
-    if _PRIMITIVES is None:
-        import importlib.util
+def _adain(content, style):
+    """Mean/std transfer: content keeps its structure, takes the style's
+    (= input crop's) global per-channel color statistics."""
+    s_mean, s_std = _calc_mean_std(style)
+    c_mean, c_std = _calc_mean_std(content)
+    return (content - c_mean) / c_std * s_std + s_mean
 
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flashvsr_inline_worker.py")
-        spec = importlib.util.spec_from_file_location("_swiftvr_color_fix_primitives", path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        _PRIMITIVES = module
-    return _PRIMITIVES
+
+def _wavelet_blur(x, radius):
+    import torch
+    import torch.nn.functional as F
+
+    vals = [[0.0625, 0.125, 0.0625],
+            [0.125, 0.25, 0.125],
+            [0.0625, 0.125, 0.0625]]
+    kernel = torch.tensor(vals, dtype=x.dtype, device=x.device)
+    weight = kernel.view(1, 1, 3, 3).repeat(x.shape[1], 1, 1, 1)
+    x_pad = F.pad(x, (radius,) * 4, mode="replicate")
+    return F.conv2d(x_pad, weight, bias=None, stride=1, padding=0,
+                    dilation=radius, groups=x.shape[1])
+
+
+def _wavelet_decompose(x, levels=5):
+    import torch
+
+    high = torch.zeros_like(x)
+    low = x
+    for i in range(levels):
+        blurred = _wavelet_blur(low, 2 ** i)
+        high = high + (low - blurred)
+        low = blurred
+    return high, low
+
+
+def _wavelet_reconstruct(content, style, levels=5):
+    """Content's high-frequency detail on the style's (= input crop's) low
+    frequencies: the blended region's local tone is guaranteed to match the
+    primary restoration, keeping only SwiftVR's texture contribution."""
+    c_high, _ = _wavelet_decompose(content, levels=levels)
+    _, s_low = _wavelet_decompose(style, levels=levels)
+    return c_high + s_low
 
 
 def _color_fix_frames_gpu(out_u8, lq_u8, method: str):
     """Correct ``out_u8`` (n, oh, ow, 3) uint8 RGB against ``lq_u8`` (n, h, w, 3)
     uint8 RGB, both on the same device; returns (n, oh, ow, 3) uint8 there.
 
-    Numerically the same as ``flashvsr_inline_worker._color_fix_frames`` on the
-    same float32 inputs (content = out/255, style = bicubic(lq/255) to the
-    output size, per frame, then clamp, *255, round-half-even): only the
-    host/device traffic differs.
+    Reference (style) = bicubic upscale of the input crop to the exact output
+    size. Per frame: content = out/255, style = bicubic(lq/255), correct, then
+    clamp, *255, round-half-even. Both methods are per-frame exact (adain uses
+    per-frame stats, wavelet is purely spatial), and one (3, oh, ow) float32
+    pair is a few MB, so no VRAM spike next to the resident DiT.
     """
     import torch
     import torch.nn.functional as F
 
-    prims = _color_fix_primitives()
     n, oh, ow = int(out_u8.shape[0]), int(out_u8.shape[1]), int(out_u8.shape[2])
     fixed_all = torch.empty_like(out_u8)
     for i in range(n):
@@ -182,9 +212,9 @@ def _color_fix_frames_gpu(out_u8, lq_u8, method: str):
         style = lq_u8[i].permute(2, 0, 1).unsqueeze(0).to(torch.float32).div_(255.0)
         style = F.interpolate(style, size=(oh, ow), mode="bicubic", align_corners=False)
         if method == "adain":
-            fixed = prims._adain(content, style)
+            fixed = _adain(content, style)
         else:
-            fixed = prims._wavelet_reconstruct(content, style)
+            fixed = _wavelet_reconstruct(content, style)
         fixed_all[i] = (
             fixed.clamp_(0.0, 1.0).mul_(255.0).round_().squeeze(0).permute(1, 2, 0).to(torch.uint8)
         )
