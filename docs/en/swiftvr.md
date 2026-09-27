@@ -242,8 +242,8 @@ they were built from, which after the blend reads as a color mismatch between
 the restored region and its surroundings. Every output crop is therefore
 corrected against the **bicubic-upscaled input crop (the primary output)**. The
 method is FlashVSR's wavelet reconstruction (SwiftVR's high frequencies on the
-input's low frequencies), and the function is shared with the FlashVSR worker
-by loading it by path. Since SwiftVR's output lives on the GPU, the correction
+input's low frequencies), the same functions as the FlashVSR worker's (inlined,
+checked bit for bit by a test). Since SwiftVR's output lives on the GPU, the correction
 is applied there frame by frame (numerically the same as the FlashVSR worker's
 host-round-trip version).
 
@@ -616,8 +616,9 @@ correction and wire transfer included), startup takes about 7 s (model load
 - `jasna/restorer/swiftvr_inline_worker.py`: the worker under the SwiftVR venv.
   Imports neither jasna nor lada (it can be carried over to lada-ex as is).
   Acceleration decision, model load, warmup, per-clip `restore_clip()` and color
-  correction. The color-correction primitives are shared with
-  `flashvsr_inline_worker.py` by loading it by path.
+  correction. The color-correction primitives (wavelet / AdaIN) are inlined, the
+  same math as the FlashVSR worker's (a test checks the two agree bit for bit),
+  so the file stays identical with lada-ex's copy.
 - `jasna/restorer/swiftvr_phase2_driver.py`: the offline Phase 2 driver (SwiftVR
   venv). Imports no jasna; loads the sibling worker by path and shares its
   acceleration decision, model load, warmup, frame-count-checked `restore_clip()`
@@ -642,7 +643,7 @@ correction and wire transfer included), startup takes about 7 s (model load
   frame-gen and of the SeedVR2 primary).
 - `scripts/build_nuitka.py`: copies the worker and the Phase 2 driver as real
   files to `<dist>/jasna/restorer/` (next to the FlashVSR worker: the driver
-  loads the worker by path, the worker the FlashVSR worker).
+  loads the worker by path).
 - Tests: `tests/test_swiftvr_inline.py` (stub worker: wire, flags, handshake,
   the GPU color fix against the FlashVSR version), `tests/test_swiftvr_offline.py`
   (startup checks for both engines, the Phase 2 command, bundle version 2 round
