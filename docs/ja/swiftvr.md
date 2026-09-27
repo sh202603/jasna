@@ -18,9 +18,12 @@ tiny-long の同条件(scale 4 は短冊 2、scale 2 は短冊なし)に対し�
 実行全体で約 2〜4 倍速い(「[VRAM と速度](#vram-と速度)」)。VRAM は scale 4 でも短冊分割
 なしに一次と同時常駐できる。
 
-SwiftVR にあるのは inline モードだけである。オフライン 3 段(FlashVSR の `flashvsr` に
-相当)は無いので、SeedVR2 一次との併用や 12 GB 級 GPU は FlashVSR のオフラインモードで
-組む。
+モードは 2 つある。`swiftvr-inline` は SwiftVR を一次パイプラインと同居させる単一パスで、
+16 GB カードの `basicvsrpp` 一次向け。`swiftvr` は FlashVSR の `flashvsr` と同じオフライン
+3 段で、SwiftVR を GPU 単独で走らせる(「[オフライン 3 段](#オフライン-3-段--secondary-restoration-swiftvr)」)。
+12 GB 級 GPU、FP8 が使えない GPU、SeedVR2 一次との併用はこちらで組む。以下の inline の
+記述(処理の詳細、品質)はオフラインにもそのまま当てはまり、違いは「オフライン 3 段」の節に
+まとめる。
 
 ## 仕組み
 
@@ -93,6 +96,13 @@ jasna --input in.mp4 --output out.mkv \
       --secondary-restoration swiftvr-inline \
       --swiftvr-repo ~/SwiftVR \
       --log-level info
+
+# オフライン 3 段(12 GB 級 GPU、FP8 非対応 GPU、SeedVR2 一次との併用)
+jasna --input in.mp4 --output out.mkv \
+      --secondary-restoration swiftvr \
+      --swiftvr-repo ~/SwiftVR \
+      --swiftvr-bundle-dir /data/jasna_bundle \
+      --log-level info
 ```
 
 ### フラグ
@@ -105,11 +115,13 @@ jasna --input in.mp4 --output out.mkv \
 | `--swiftvr-scale` | `4` | 処理倍率。`4` = モデルネイティブの 1024px、`2` = 512px(高速、低 VRAM)。詳細は「[処理倍率](#処理倍率--swiftvr-scale)」。 |
 | `--swiftvr-view-window` | `15` | SwiftVR に渡す切り出し(view)の位置と倍率を前後 N フレームの移動平均で平滑化する(`0` で無効)。詳細は「[切り出し view の平滑化](#切り出し-view-の平滑化--swiftvr-view-window)」。 |
 | `--swiftvr-accel` / `--no-swiftvr-accel` | **on** | FP8 DiT と torch.compile。RTX 40 系以降と動く Triton が必要で、使えない部品は worker が起動時に外して警告する。詳細は「[高速化](#高速化--swiftvr-accel)」。 |
+| `--swiftvr-bundle-dir` | temp | `swiftvr`(オフライン)専用。中間 bundle をここに永続化する(段階再開が可能に)。 |
+| `--swiftvr-keep-bundle` | off | `swiftvr`(オフライン)専用。完了後も bundle を残す(`--swiftvr-bundle-dir` 指定時は暗黙的に有効)。 |
 
 FlashVSR にある `--flashvsr-version`、`--flashvsr-dtype`、`--flashvsr-tiles`、
-`--flashvsr-lora` に相当するものは無い。モデルは 1 種類で bf16 固定(FP8 は bf16 が
-前提)、短冊タイリングは要らず、LoRA は持たない。色補正にもフラグは無い(常時適用、
-後述)。
+`--flashvsr-lora`、`--flashvsr-max-clip-frames` に相当するものは無い。モデルは 1 種類で
+bf16 固定(FP8 は bf16 が前提)、短冊タイリングは要らず、LoRA は持たず、VRAM が clip 長に
+依存しないので clip 上限も要らない。色補正にもフラグは無い(常時適用、後述)。
 
 ## 処理の詳細
 
@@ -192,7 +204,8 @@ fork の計測(RTX 5060 Ti、640×480 → 1280×960)では、両方で GPU ス�
 出す。FP8 が外れると DiT は bf16(約 12 GiB)で動き、**16 GB カードでは一次と同居
 できない**。この場合 jasna は警告を出して続行し、VRAM が足りなければ clip の処理が
 OOM で失敗する(worker は 1 回やり直し、再失敗で停止)。24 GB 以上のカードなら
-`--no-swiftvr-accel` でも動く。
+`--no-swiftvr-accel` でも動く。オフラインの `swiftvr` では SwiftVR が GPU を独占するので
+bf16 が正規の経路で、16 GB に収まる(「[オフライン 3 段](#オフライン-3-段--secondary-restoration-swiftvr)」)。
 
 ### 色補正
 
@@ -234,7 +247,8 @@ LAST チャンク 1 個になり、DiT への入力は常に 7 latent 分なの�
 - **frame-gen off を強制**(FlashVSR inline と同じ理由)。
 - **fp8-recon を自動有効化**(未指定時)。一次のピークを ~0.9〜1.7 GB 下げ、同時常駐の
   予算に収める。GPU が fp8 非対応なら TRT へフォールバック。
-- **SeedVR2 一次復元とは併用不可**(常駐 worker 2 つで 16 GB を超える。起動時エラー)。
+- **SeedVR2 一次復元とは併用不可**(常駐 worker 2 つで 16 GB を超える。起動時エラー。
+  オフラインの `swiftvr` なら併用できる)。
 - 同期実行。SwiftVR が律速なので、モザイクが多い区間はその速度になる(モザイクの
   無いフレームは一次のみで高速)。
 - VR モードと `--stream` は FlashVSR inline と同じく拒否しない。
@@ -243,6 +257,162 @@ LAST チャンク 1 個になり、DiT への入力は常に 7 latent 分なの�
   600 秒で打ち切る。
 - **同梱なし / サポーターモデルとは無関係**。SwiftVR は Apache-2.0 のサードパーティ
   モデルで、checkout、チェックポイント、venv は利用者が用意する。GUI には出ない。
+
+## オフライン 3 段(`--secondary-restoration swiftvr`)
+
+`swiftvr` は FlashVSR の `flashvsr` と同じオフライン 3 段で、各段を別プロセスで順に
+走らせ、SwiftVR の段に GPU を独占させる。inline と同じクロップが同じ関数を通るので
+出力は inline と一致し(「[オフラインの実測](#オフラインの実測)」)、違いは VRAM の要件、
+中間ファイル、再開の可否である。
+
+| 段 | 環境 | 内容 |
+|----|------|------|
+| 1 (dump) | jasna | decode + detect + 一次復元(BasicVSR++ または SeedVR2)。各 clip の 256px クロップ(inline と同じ切り出し view)+ マスク + 幾何をディスク上の **bundle** へ直列化。blend/encode は捨てる。 |
+| 2 (SwiftVR) | SwiftVR venv | 各 clip の 256px クロップを 256×scale px に復元し、色補正して bundle へ書き戻す(`jasna/restorer/swiftvr_phase2_driver.py`)。 |
+| 3 (reblend) | jasna | source を再デコードし、bundle から復元結果を再構成、view の配置で再 blend して最終出力を encode。 |
+
+Phase 1 と Phase 3 は FlashVSR と共通のコード(`jasna/restorer/flashvsr_offline.py`)で、
+`jasna --flashvsr-phase dump` / `reblend` のサブプロセスとして走る(内部名は `flashvsr` の
+まま)。Phase 2 の driver は SwiftVR venv の Python で動き、inline worker
+(`swiftvr_inline_worker.py`)を path で読んで、高速化の判定、モデル読込、warmup、
+`restore_clip()` の枚数検査付き呼び出し、GPU 上の色補正を共有する。wire が無いので BGR の
+反転も無い(bundle は RGB)。
+
+**bundle** の形式は FlashVSR と同じで、version 2 になった。Phase 1 は inline と同じ
+切り出し view(`--swiftvr-view-window`、既定 15)を作り、その配置を clip の幾何に
+`view_placements` として書く。Phase 3 は配置があれば view から元フレームへ直接合成する
+(inline の blend と同じ経路)。FlashVSR の bundle は配置が null で、従来どおり動く。
+Phase 3 は version 1 の bundle も読み、より新しい version は拒否する。
+
+### 使いどころ
+
+inline は SwiftVR を一次パイプラインと同居させる。FP8 で約 8 GiB、一次と合わせて 16 GB に
+収まるが、次の場合には組めない。オフラインはこれらのための経路である。
+
+1. FP8 が使えない GPU(RTX 30 系以前、compute capability 8.9 未満)。DiT が bf16 の
+   約 12.4 GiB になり、16 GB でも一次と同居できない。
+2. 12 GB 級の GPU。FP8 でも一次と合わせて 12 GB を超える(scale 4 はアプリ分だけで 11 GB
+   超、scale 2 も 1080p では境界)。
+3. SeedVR2 一次復元との併用。常駐 worker 2 つで 16 GB を超えるため、inline は起動時に
+   拒否する。
+
+オフラインで効くかどうかは SwiftVR 単体のピークで決まる。RTX 5080(16 GB、デスクトップ
+常駐約 2.0 GB)で、Phase 2 と同じ読込と warmup の後に 90 フレームの 256px クロップを
+3 clip 処理して測った(fork e7f186b、FP8 の DiT をブロック単位で読み込む版。それ以前の
+fork は読込時のピークが 10.4 GB に達し、12 GB 級では読み込めない)。allocated / reserved
+は torch の値、プロセスピークは `nvidia-smi` の値。
+
+| 構成 | 読込時ピーク | 処理中ピーク(allocated / reserved) | プロセスピーク(expandable あり) | 同(なし、Windows の代理) | 90 フレーム 1 clip |
+|---|---|---|---|---|---|
+| scale 4、FP8 + compile | 5.3 GiB | 7.8 / 8.2 GiB | 8.8 GB | 9.0 GB | 1.6 秒 |
+| scale 4、bf16 | 9.4 GiB | 12.4 / 12.6 GiB | 13.3 GB | 未測定 | 3.4 秒 |
+| scale 2、FP8 + compile | 5.3 GiB | 5.6 / 5.9 GiB | 6.4 GB | 6.5 GB | 0.4 秒 |
+| scale 2、bf16 | 9.4 GiB | 10.2 / 10.3 GiB | 10.9 GB | 未測定 | 0.8 秒 |
+
+12 GB 級を模擬して torch の割り当て上限を 10.5 GiB と 9.5 GiB に掛けた FP8 の走行は、
+scale 4 と scale 2 のどちらも上限 10.5 GiB で完走し、scale 4 は上限 9.5 GiB でも完走した
+(ピークは上限なしと同じ)。
+
+- **12 GB 級で FP8 可(RTX 4070、5070 など)**: scale 4 の FP8 が 8.8 GB で収まり、
+  デスクトップ常駐が 3 GB あっても届く。scale 2 は 6.4 GB。
+- **RTX 30 系 16 GB**: scale 4 の bf16 が 13.3 GB で収まる(`--no-swiftvr-accel` は不要。
+  driver が FP8 を外して bf16 に落ち、警告は出ない)。
+- **12 GB 級で FP8 不可(RTX 3060 12 GB など)**: scale 4 の bf16 は入らない。scale 2 の
+  bf16 が 10.9 GB で境界。
+- **SeedVR2 一次との併用**: Phase 1 に SeedVR2 worker、Phase 2 に SwiftVR と分かれるので
+  組める。
+
+inline の GPU 全体ピーク(同じ fork、RTX 5080、常駐約 1.85 GB 込み)は scale 2 で 480p
+10.5 GB / 1080p 11.4 GB、scale 4 で 12.8 / 14.0 GB。12 GB 級では、scale 4 はオフライン、
+scale 2 は inline を試して VRAM 逼迫(offloader の退避や worker の OOM 警告)が出るなら
+オフライン、が実測に沿う。
+
+### オフラインの挙動と制約
+
+- 起動時の拒否は FlashVSR のオフラインと同じ: `--stream`、`--frame-gen`、
+  `--retarget-high-fps`、`--segments`、VR モード(`--vr-mode auto` が VR を検出した場合を
+  含む)、フォルダ入力、画像入力。
+- `--max-clip-size` は利用者の指定(既定 90)のまま通る(FlashVSR オフラインの
+  `--flashvsr-max-clip-frames` に相当する上限は無い)。`--swiftvr-scale`、
+  `--swiftvr-view-window`、`--swiftvr-accel` は inline と同じ意味で効く。
+- **bf16 は正規の経路**。FP8 が使えない GPU では driver が FP8 を外して bf16 で走り、inline の
+  ような警告は出ない。
+- **SeedVR2 一次と併用可**。inline の fp8-recon 自動有効化は無く、Phase 1 の一次は
+  `--fp8-recon` を付けない限り標準の TRT 経路で走る(inline は同居の VRAM 予算のために自動で
+  有効にする)。inline と同じ一次にしたければ `--fp8-recon` を明示する。
+- encode は 2 回(Phase 1 の捨て出力と Phase 3 の最終)で、Phase 3 で source を再デコード
+  する。この固定費は FlashVSR と同じで、SwiftVR は二次の処理時間が短いぶん割合が大きい
+  (「[オフラインの実測](#オフラインの実測)」)。
+- **段階再開**。`--swiftvr-bundle-dir` で bundle を永続化すると、失敗した走行を同じコマンドで
+  再実行したとき Phase 2 は完了済みの clip を飛ばす(Phase 1 は再実行される)。Phase 2 で
+  clip の途中に VRAM が尽きると driver は 1 回やり直し、再失敗なら非ゼロで終了して bundle を
+  残す。
+- **ディスク容量**。bundle は Phase 2 の非圧縮の復元クロップが支配し、1 フレーム
+  3 × (256 × scale)² byte(scale 4 で 3 MiB、scale 2 で 0.75 MiB)。目安(scale 4 で
+  モザイクを含む 1 分あたり約 8 GB)、`/tmp` が tmpfs の場合の注意、Phase 1 前の警告と
+  Phase 2 前の容量検査は [FlashVSR のディスク容量](flashvsr.md#ディスク容量)と同じで、
+  案内文のフラグ名が `--swiftvr-bundle-dir` になる。
+- Phase 2 driver は Linux で `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` を設定する
+  (inline worker と同じ。fork e7f186b では FP8 のピークは 0.2 GB しか変わらないが、bf16 の
+  12.4 GiB を 16 GB に収める余裕を残す)。Windows では `PYTHONUTF8=1`。
+- frozen build では driver も `<dist>/jasna/restorer/` に実ファイルとして複製される。
+
+### オフラインの実測
+
+Linux、RTX 5080 16 GB、fork e7f186b。inline は同じ jasna と fork で同じ日に取り直した
+(前掲の inline の表と誤差の範囲)。GPU 全体ピークはデスクトップ常駐(約 1.9 GB)込みの
+`nvidia-smi` 0.5 秒ポーリング、段ごとのピークと時間はプロセス単位の値。既定の clip 90、
+色補正 wavelet、view 平滑化 15。出力フレーム数は全走行で入力と一致した。
+
+| 素材 | scale | inline 壁時計 / GPU 全体ピーク | オフライン壁時計 / GPU 全体ピーク | Phase 1 / 2 / 3 のプロセスピーク | Phase 1 / 2 / 3 の時間 |
+|------|-------|------|------|------|------|
+| 480p | 2 | 44.4 秒 / 10.3 GB | **62.8 秒 / 8.0 GB** | 2.9 / 6.4 / 0.5 GB | 27.3 / 27.9 / 2.1 秒 |
+| 480p | 4 | 101.3 秒 / 12.6 GB | **118.0 秒 / 10.4 GB** | 2.9 / 8.8 / 0.5 GB | 27.3 / 80.7 / 4.7 秒 |
+| 1080p | 2 | 54.7 秒 / 11.1 GB | **95.0 秒 / 8.0 GB** | 4.0 / 6.4 / 1.0 GB | 42.0 / 38.4 / 9.5 秒 |
+| 1080p | 4 | 137.5 秒 / 13.8 GB | **172.9 秒 / 10.4 GB** | 4.0 / 8.8 / 1.0 GB | 41.5 / 113.9 / 12.2 秒 |
+| 480p | 4、bf16(`--no-swiftvr-accel`) | (inline は OOM) | **186.6 秒 / 14.9 GB** | 2.9 / 13.3 / 0.5 GB | 27.4 / 149.7 / 4.3 秒 |
+
+- GPU 全体ピークは Phase 2(SwiftVR 単体)で決まり、前掲の単体の表と一致する。Phase 1 は
+  一次のみの走行と同じで、Phase 3 は軽い。
+- 壁時計の差は Phase 1 の捨て encode と Phase 3 の再 decode と encode の固定費で、SwiftVR の
+  処理時間が短いぶん inline との比は FlashVSR より大きい。
+- **等価性ゲート**(inline 出力とオフライン出力を decode して `ffmpeg` の psnr フィルタで
+  フレームごとに比較)。既定の encode(HEVC NVENC)では 480p で平均 46.22 dB
+  (最小 42.16 dB)、1080p で 47.97〜48.85 dB
+  (最小 42.07〜44.02 dB)だったが、この値は encode ノイズの
+  床である。同じ素材で FP8 と bf16 のオフライン出力どうし(復元は本当に違う)も
+  46.29 dB、FlashVSR の tiny と tiny-long どうしも 46.36 dB
+  で区別がつかず、モザイクの無いフレームは inline とオフラインで bit 一致する
+  (1490 / 4930 フレーム)。差を見るには encode を
+  外す必要があるので、`--encoder-settings tune=lossless,spatial_aq=0,temporal-aq=0`(NVENC のロスレス。
+  既定の適応量子化はロスレスと併用できないので外す)で 480p の scale 2 を取り直した:
+  - inline 対オフライン(FP8): 平均 65.31 dB、最小 53.17 dB、完全一致 2221 / 4930 フレーム
+  - オフラインの bf16 対 FP8(対照。復元が違うので差が出るはず): 平均 69.87 dB、最小 60.69 dB、完全一致 2221 / 4930 フレーム
+  - inline 対オフラインの bf16: 平均 65.31 dB、最小 53.30 dB、完全一致 2221 / 4930 フレーム
+  - inline 対オフライン(Phase 1 に `--fp8-recon` を明示): 全 4930 フレームが bit 一致(PSNR inf)
+  inline との残差は一次復元の違いだった。inline は同居の VRAM 予算のために `--fp8-recon` を
+  自動で有効にするが、Phase 1 は一次だけで走るので付けない。Phase 1 に `--fp8-recon` を明示
+  すると全 4930 フレームが inline と bit 一致する。SwiftVR の段は同じクロップに対して
+  決定的で(再開の試験でも bit 一致)、対照の bf16 は FP8 から 69.87 dB 離れて区別できる。
+- **bf16**(`--no-swiftvr-accel`、scale 4、480p): driver は `accel: off` で bf16 のまま完走
+  した。FP8 出力との PSNR は平均 46.29 dB(最小 42.12 dB)で、fork の
+  FP8 対 bf16 の実測(約 47 dB)と同水準。
+- **再開**: Phase 2 の途中(3 clip 完了時点)で driver を kill すると、走行は
+  `SwiftVR run failed. Bundle kept for resume at:` と `--swiftvr-bundle-dir` の案内を出して
+  非ゼロで終わった。同じコマンドで再実行すると Phase 2 は `done: 54 restored, 3 already present` で完走し、出力は
+  中断なしの走行と全 4930 フレームが bit 一致(PSNR inf)。この機体は MPS + Exclusive_Process で、client を kill した直後は新しい CUDA
+  コンテキストが `cudaErrorDevicesUnavailable` で拒否されるため、再実行は GPU が受け付ける
+  まで待ってから行った(kill から 5 秒。jasna 側の制約ではない)。
+- **SeedVR2 一次との併用**: 480p の 20 秒(500 フレーム)の素材で
+  `--restoration-model-name seedvr2` + `swiftvr`(scale 2)が起動時に拒否されず完走
+  (57.1 秒、GPU 全体ピーク 12.6 GB。Phase 1 は jasna 1.2 GB +
+  SeedVR2 worker 9.8 GB、Phase 2 は 6.4 GB)。同じ素材で `swiftvr-inline` は起動時に `cannot be combined` で拒否された。
+- **短い clip**: 480p の bundle は 57 clip で最短 2 フレーム(2 フレーム以下 4 個、view なし 0 個)、1080p は 58 clip で最短 2 フレーム(2 フレーム以下 1 個、view なし 0 個)。1 フレームの clip は view を持たず、Phase 3 は従来の経路で
+  合成する(ユニットテストで担保)。
+- **FlashVSR の回帰**: `flashvsr`(scale 2、`--flashvsr-accel`)のオフラインが version 2 の
+  bundle(配置は全 clip で null: 57 / 57)で従来どおり完走した
+  (144.0 秒、4930 フレーム。FlashVSR inline の旧出力との PSNR 平均
+  46.36 dB は、tiny と tiny-long の違いによる)。
 
 ## 実測
 
@@ -349,8 +519,8 @@ jasna の restorer から実 worker を起動した場合(乱数クロップ、�
 
 ## 実装
 
-- `jasna/restorer/swiftvr_common.py`: `--swiftvr-*` の登録とパスの解決(torch を
-  import しない)。
+- `jasna/restorer/swiftvr_common.py`: `--swiftvr-*` の登録、パスの解決、オフライン Phase 2
+  のコマンド(torch を import しない)。
 - `jasna/restorer/swiftvr_inline_secondary_restorer.py`: 同期 `SecondaryRestorer`。
   worker の起動とハンドシェイク、wire の入出力、RGB と BGR の反転、keep window の切り出し。
   view 平滑化の窓幅を `view_smoothing_window` 属性で申告する。FlashVSR inline restorer
@@ -359,6 +529,16 @@ jasna の restorer から実 worker を起動した場合(乱数クロップ、�
   lada も import しない(lada-ex にそのまま持ち込める)。高速化の判定、モデル読込、
   warmup、clip ごとの `restore_clip()` と色補正。色補正の primitive は
   `flashvsr_inline_worker.py` を path 読み込みで共有する。
+- `jasna/restorer/swiftvr_phase2_driver.py`: オフライン Phase 2 の driver(SwiftVR venv)。
+  jasna を import せず、隣の worker を path で読んで高速化の判定、モデル読込、warmup、
+  `restore_clip()` の枚数検査付き呼び出し、GPU 上の色補正を共有する。bundle の clip を順に
+  読み、完了済みは飛ばす。
+- `jasna/restorer/flashvsr_offline.py`: FlashVSR と共用のオフライン orchestrator。engine
+  レコード(`OfflineEngine`)でパス解決とフラグ名、scale、Phase 1 の clip 上限(FlashVSR
+  のみ)と view の窓幅(SwiftVR のみ)、Phase 2 のコマンド(`swiftvr_common.swiftvr_phase2_command()`)
+  を差し替える。Phase 1 の dump hook は `RestorationPipeline.view_smoothing_window` を
+  設定値に差し替えて view を作り、bundle version 2 の `view_placements` として書く。Phase 3
+  は配置があれば view の経路で blend する。
 - `jasna/tracking/crop_view.py`: 切り出し view の幾何(配置の計算、平滑化、
   クランプ、view への再サンプル、blend のサンプル)。`restorer/restoration_pipeline.py`
   が二次 restorer の `view_smoothing_window` を見て一次段の末尾で view を作り、
@@ -367,10 +547,13 @@ jasna の restorer から実 worker を起動した場合(乱数クロップ、�
   同じ機構を足せる)。
 - `jasna/session_config.py` / `session_factory.py` / `main.py`: 設定フィールド、
   restorer の生成、起動時検査(fp8-recon 自動有効化、frame-gen と SeedVR2 一次の拒否)。
-- `scripts/build_nuitka.py`: worker を実ファイルとして `<dist>/jasna/restorer/` に複製する
-  (FlashVSR worker と並べて置く。色補正の共有のため)。
+- `scripts/build_nuitka.py`: worker と Phase 2 driver を実ファイルとして
+  `<dist>/jasna/restorer/` に複製する(FlashVSR worker と並べて置く。driver は worker を、
+  worker は FlashVSR worker を path で読む)。
 - テスト: `tests/test_swiftvr_inline.py`(stub worker で wire、フラグ、ハンドシェイク、
-  色補正の GPU 版と FlashVSR 版の一致)、`tests/test_main.py`(choices と既定値)、
+  色補正の GPU 版と FlashVSR 版の一致)、`tests/test_swiftvr_offline.py`(両 engine の
+  起動時検査、Phase 2 のコマンド、bundle version 2 の往復と version 検査、Phase 1 hook の
+  view、Phase 3 の view 合成が inline 経路と一致すること、driver)、`tests/test_main.py`(choices と既定値)、
   `tests/test_crop_view.py`(view の幾何: 配置が元の格子なら従来経路と一致、平滑化した
   view の往復、クランプの被覆)、`test_restoration_pipeline.py` と `test_blend_buffer.py`
   の view 経路。
@@ -398,3 +581,6 @@ Windows では未検証である。想定される差は次のとおり。
   README)。
 - `--swiftvr-python` の既定は `<repo>/.venv/Scripts/python.exe`。
 - view 平滑化は jasna 側の GPU 処理だけなので、Windows 固有の要素は無い。
+- オフラインの Phase 2 driver は `<repo>\.venv\Scripts\python.exe` で起動され、`PYTHONUTF8=1`
+  を渡す。`expandable_segments` が無いぶん Phase 2 のプロセスピークは Linux の代理測定で
+  FP8 +0.2 GB(scale 4 で 9.0 GB、scale 2 で 6.5 GB)。

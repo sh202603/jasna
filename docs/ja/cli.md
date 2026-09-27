@@ -65,7 +65,7 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 
 | オプション | デフォルト | 説明 |
 | ------ | ------- | ----- |
-| `--secondary-restoration` | `none` | `unet-4x`、`tvai`、または `rtx-super-res`。詳しくは[モデル](models.md)。*(+modi)* さらに `flashvsr`（オフライン 3 段パス）と `flashvsr-inline`（単一パス）。いずれも `--flashvsr-repo` が必要。詳細: [flashvsr.md](flashvsr.md)。`swiftvr-inline`（単一パス、FlashVSR より高速）は `--swiftvr-repo` が必要。詳細: [swiftvr.md](swiftvr.md)。 |
+| `--secondary-restoration` | `none` | `unet-4x`、`tvai`、または `rtx-super-res`。詳しくは[モデル](models.md)。*(+modi)* さらに `flashvsr`（オフライン 3 段パス）と `flashvsr-inline`（単一パス）。いずれも `--flashvsr-repo` が必要。詳細: [flashvsr.md](flashvsr.md)。`swiftvr`（オフライン 3 段パス）と `swiftvr-inline`（単一パス、FlashVSR より高速）は `--swiftvr-repo` が必要。詳細: [swiftvr.md](swiftvr.md)。 |
 | `--rtx-scale` | `4` | RTX Super Res の拡大倍率（`2` または `4`）。 |
 | `--rtx-quality` | `high` | `low`～`ultra`。 |
 | `--rtx-denoise` | `medium` | `none` で無効。 |
@@ -85,12 +85,14 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 | `--flashvsr-accel` | off | *(+modi)* 両モード共通。fork の高速化（FP8 と融合カーネル、約 1.4 倍速）を使う。RTX 40 系以降が必要で、それ以外は自動で標準の処理に戻る。詳細: [flashvsr.md](flashvsr.md#高速化--flashvsr-accel)。 |
 | `--flashvsr-lora` | なし | *(+modi)* inline 専用。FlashVSR 用の Lada LoRA（`lada_flashvsr_secondary_lora_v1.pt`。パスを含まないファイル名は `model_weights` から探す）を使い、FlashVSR の過鮮鋭を抑える。`--flashvsr-accel` と併用できる。オフラインでは使えない。詳細: [flashvsr.md](flashvsr.md#lora--flashvsr-lora)。 |
 | `--flashvsr-max-clip-frames`、`--flashvsr-unload-dit`、`--flashvsr-tiled-vae`、`--flashvsr-bundle-dir`、`--flashvsr-keep-bundle` | `--help` 参照 | *(+modi)* オフラインモードのメモリ/ディスク調整。詳細: [flashvsr.md](flashvsr.md)。 |
-| `--swiftvr-repo` | — | *(+modi)* SwiftVR checkout のパス。`swiftvr-inline` で必須。fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR)（`restore_clip()` を持つ）が必要。 |
+| `--swiftvr-repo` | — | *(+modi)* SwiftVR checkout のパス。`swiftvr` と `swiftvr-inline` で必須。fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR)（`restore_clip()` を持つ）が必要。 |
 | `--swiftvr-python` | `<repo>/.venv/bin/python` | *(+modi)* SwiftVR venv の Python（`uv sync` が作る。Linux では基底 Python に開発ヘッダが要る）。 |
 | `--swiftvr-model-dir` | `<repo>/checkpoints` | *(+modi)* SwiftVR チェックポイントのディレクトリ。 |
 | `--swiftvr-scale` | `4` | *(+modi)* 処理倍率。`4` = モデルネイティブの 1024px、`2` = 512px（高速・低 VRAM）。出力解像度は変わりません。 |
 | `--swiftvr-view-window` | `15` | *(+modi)* SwiftVR に渡す切り出し（view）の位置と倍率を前後 N フレームの移動平均で平滑化する（`0` で無効）。一次復元のクロップは検出枠に追従して毎フレーム数 px ずれ、SwiftVR はそのずれに反応してディテールを描き直すので、これが scale 2 の揺れの主因だった。一次復元と blend の mask は変わらない。詳細: [swiftvr.md](swiftvr.md#切り出し-view-の平滑化--swiftvr-view-window)。 |
 | `--swiftvr-accel` | on | *(+modi)* FP8 DiT と torch.compile（`--no-swiftvr-accel` で無効）。RTX 40 系以降と動く Triton が必要で、使えない部品は起動時に外して警告する。詳細: [swiftvr.md](swiftvr.md#高速化--swiftvr-accel)。 |
+| `--swiftvr-bundle-dir` | temp | *(+modi)* `swiftvr`（オフライン）専用。中間 bundle をここに永続化する（失敗した段からの再開が可能になる）。詳細: [swiftvr.md](swiftvr.md#オフライン-3-段--secondary-restoration-swiftvr)。 |
+| `--swiftvr-keep-bundle` | off | *(+modi)* `swiftvr`（オフライン）専用。完了後も bundle を残す（`--swiftvr-bundle-dir` 指定時は暗黙的に有効）。 |
 
 ## SD 1.5 画像復元
 

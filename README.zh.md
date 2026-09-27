@@ -100,13 +100,13 @@ FlashVSR 自身峰值 12–16GB VRAM，无法与约 9GB 的一级流水线共存
 
 ### SwiftVR 二级修复（实验性）
 
-`--secondary-restoration swiftvr-inline` 与上者思路相同，但用 [SwiftVR](https://github.com/H-oliday/SwiftVR)（基于 Wan2.2 5B 的 one-step streaming diffusion VSR）替代 FlashVSR，且只有流水线内的单趟模式:
+`--secondary-restoration swiftvr-inline` 与上者思路相同，但用 [SwiftVR](https://github.com/H-oliday/SwiftVR)（基于 Wan2.2 5B 的 one-step streaming diffusion VSR）替代 FlashVSR，以流水线内的单趟模式运行:
 
 ```bash
 jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-inline --swiftvr-repo ~/SwiftVR
 ```
 
-默认以 FP8 + torch.compile 运行 DiT（`--no-swiftvr-accel` 关闭；需要 RTX 40 系列及更新的 GPU，否则回退到 bf16 并给出警告），使 SwiftVR 自身约 8GB，因此即使在模型原生的 1024px 下也无需分块即可与一级流水线在 16GB 显卡上共存（`--swiftvr-scale 2` 以 512px 处理，更快。scale 2 曾明显可见的时间抖动，主因是送入 SwiftVR 的裁切位置逐帧移动，默认开启的 `--swiftvr-view-window` 会将其平滑，之后 scale 2 在肉眼上与 scale 4 相当；默认仍为 scale 4）。在 RTX 5080 上，同一素材的整体运行比 FlashVSR inline 快约 2 倍（scale 2）到 4 倍（scale 4）。你需自备 fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) 的检出（需要其 `restore_clip()` API）、约 20GB 的检查点和 `uv sync` 的 venv。修复块与 FlashVSR 一样始终以一级输出为参考做颜色校正。不兼容 `--frame-gen` 和 SeedVR2 一级修复；暂无离线模式。详情: [docs/en/swiftvr.md](docs/en/swiftvr.md)。
+默认以 FP8 + torch.compile 运行 DiT（`--no-swiftvr-accel` 关闭；需要 RTX 40 系列及更新的 GPU，否则回退到 bf16 并给出警告），使 SwiftVR 自身约 8GB，因此即使在模型原生的 1024px 下也无需分块即可与一级流水线在 16GB 显卡上共存（`--swiftvr-scale 2` 以 512px 处理，更快。scale 2 曾明显可见的时间抖动，主因是送入 SwiftVR 的裁切位置逐帧移动，默认开启的 `--swiftvr-view-window` 会将其平滑，之后 scale 2 在肉眼上与 scale 4 相当；默认仍为 scale 4）。在 RTX 5080 上，同一素材的整体运行比 FlashVSR inline 快约 2 倍（scale 2）到 4 倍（scale 4）。你需自备 fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) 的检出（需要其 `restore_clip()` API）、约 20GB 的检查点和 `uv sync` 的 venv。修复块与 FlashVSR 一样始终以一级输出为参考做颜色校正。不兼容 `--frame-gen`。`--secondary-restoration swiftvr` 是离线三阶段版本（与 FlashVSR 的 `flashvsr` 相同的 bundle 机制），让 SwiftVR 独占 GPU 运行，适用于 12GB 显卡（scale 4 的 FP8 峰值不到 9GB）、不支持 FP8 的 GPU（bf16 可单独放入 16GB 显卡）以及与 SeedVR2 一级修复的组合，并可通过 `--swiftvr-bundle-dir` 从失败的阶段续跑。详情: [docs/en/swiftvr.md](docs/en/swiftvr.md)。
 
 ### TensorRT-RTX 风味（可选，加速引擎编译）
 
@@ -183,7 +183,7 @@ jasna --input input_folder --output output_folder
 - **[FP8 修复后端](docs/en/fp8_recon.md)** — cuDNN FP8 上采样阶段，降低峰值显存。
 - **[SeedVR2 一级修复](docs/en/seedvr2.md)** — 替换 BasicVSR++ 的 diffusion+LoRA 去马赛克。
 - **[FlashVSR 二级修复](docs/en/flashvsr.md)** — 离线/内联扩散 4x 放大。
-- **[SwiftVR 二级修复](docs/en/swiftvr.md)** — 内联扩散 4x 放大，比 FlashVSR 更快。
+- **[SwiftVR 二级修复](docs/en/swiftvr.md)** — 离线/内联扩散 4x 放大，比 FlashVSR 更快。
 - **[冻结构建](docs/en/frozen_build.md)** — 实验性 Nuitka 独立构建。
 - **[与上游的完整变更](docs/en/changes_vs_upstream.md)** — 本分支的全部差异。
 
