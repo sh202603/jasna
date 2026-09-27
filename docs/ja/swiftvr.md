@@ -213,7 +213,7 @@ SwiftVR が生成したクロップも、元になった一次復元結果から
 ブレンド後に復元領域と周囲の色調差として見える。そのため各出力クロップを常に
 **入力クロップ(一次出力)の bicubic 拡大**を参照に補正する。方式は FlashVSR と同じ
 wavelet 再構成(SwiftVR 出力の高周波を入力の低周波の上に載せる)で、関数も
-FlashVSR worker のものを path 読み込みで共有する。SwiftVR の出力は GPU 上にあるので、
+FlashVSR worker と同じもの(内蔵、bit 一致をテストで確認)である。SwiftVR の出力は GPU 上にあるので、
 補正は GPU 上でフレームごとに適用する(FlashVSR worker の host 往復版と数値は同じ)。
 
 CLI フラグは無い。A/B 検証専用に、環境変数 `JASNA_SWIFTVR_COLOR_FIX=adain|wavelet|none`
@@ -527,8 +527,9 @@ jasna の restorer から実 worker を起動した場合(乱数クロップ、�
   と同じ構造で、パッチ検査、高速化の環境変数、実行中の降格報告と respawn を持たない。
 - `jasna/restorer/swiftvr_inline_worker.py`: SwiftVR venv で動く worker。jasna も
   lada も import しない(lada-ex にそのまま持ち込める)。高速化の判定、モデル読込、
-  warmup、clip ごとの `restore_clip()` と色補正。色補正の primitive は
-  `flashvsr_inline_worker.py` を path 読み込みで共有する。
+  warmup、clip ごとの `restore_clip()` と色補正。色補正の primitive(wavelet / AdaIN)は
+  FlashVSR worker と同じ数式を内蔵する(両者が bit 一致することをテストで確認)。
+  lada-ex 側の複製と同一ファイルを保つため、path 読み込みでの共有はしない。
 - `jasna/restorer/swiftvr_phase2_driver.py`: オフライン Phase 2 の driver(SwiftVR venv)。
   jasna を import せず、隣の worker を path で読んで高速化の判定、モデル読込、warmup、
   `restore_clip()` の枚数検査付き呼び出し、GPU 上の色補正を共有する。bundle の clip を順に
@@ -548,8 +549,8 @@ jasna の restorer から実 worker を起動した場合(乱数クロップ、�
 - `jasna/session_config.py` / `session_factory.py` / `main.py`: 設定フィールド、
   restorer の生成、起動時検査(fp8-recon 自動有効化、frame-gen と SeedVR2 一次の拒否)。
 - `scripts/build_nuitka.py`: worker と Phase 2 driver を実ファイルとして
-  `<dist>/jasna/restorer/` に複製する(FlashVSR worker と並べて置く。driver は worker を、
-  worker は FlashVSR worker を path で読む)。
+  `<dist>/jasna/restorer/` に複製する(FlashVSR worker と並べて置く。driver は worker を
+  path で読む)。
 - テスト: `tests/test_swiftvr_inline.py`(stub worker で wire、フラグ、ハンドシェイク、
   色補正の GPU 版と FlashVSR 版の一致)、`tests/test_swiftvr_offline.py`(両 engine の
   起動時検査、Phase 2 のコマンド、bundle version 2 の往復と version 検査、Phase 1 hook の

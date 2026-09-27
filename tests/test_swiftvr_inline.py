@@ -31,7 +31,7 @@ from jasna.restorer.swiftvr_common import (
 from jasna.restorer.swiftvr_inline_secondary_restorer import SwiftvrInlineSecondaryRestorer
 # The worker module top-level is stdlib-only (numpy/torch/swiftvr are imported
 # inside main()), so these helpers import cleanly without a SwiftVR checkout.
-from jasna.restorer.swiftvr_inline_worker import _color_fix_frames_gpu, _color_fix_primitives
+from jasna.restorer.swiftvr_inline_worker import _color_fix_frames_gpu
 
 # A stub "worker": ready handshake, then echo each input frame as a solid
 # (256*scale)^2 frame of that frame's per-channel mean (preserves the wire
@@ -433,10 +433,18 @@ class TestColorFix:
         assert ours.dtype == torch.uint8 and tuple(ours.shape) == (3, 64, 64, 3)
         assert np.array_equal(ours.numpy(), ref_u8)
 
-    def test_primitives_come_from_flashvsr_worker(self):
+    @pytest.mark.parametrize("name", ["_adain", "_wavelet_reconstruct"])
+    def test_primitives_match_flashvsr_worker(self, name):
+        # The primitives are inlined (the worker file is kept byte-identical with
+        # lada-ex's, which has no FlashVSR worker to load them from); they must not
+        # drift from the FlashVSR worker's.
         import jasna.restorer.flashvsr_inline_worker as fw
-        prims = _color_fix_primitives()
-        assert prims.__file__ == fw.__file__
+        import jasna.restorer.swiftvr_inline_worker as sw
+
+        g = torch.Generator().manual_seed(1)
+        content = torch.rand((2, 3, 64, 64), generator=g)
+        style = torch.rand((2, 3, 64, 64), generator=g)
+        assert torch.equal(getattr(sw, name)(content, style), getattr(fw, name)(content, style))
 
     def test_constant_input_takes_reference_tone(self):
         out = torch.full((2, 32, 32, 3), 180, dtype=torch.uint8)
