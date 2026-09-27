@@ -350,7 +350,7 @@ process peak is `nvidia-smi`'s.
 | Configuration | Load peak | Run peak (allocated / reserved) | Process peak (expandable segments) | Same (without, Windows stand-in) | One 90-frame clip |
 |---|---|---|---|---|---|
 | scale 4, FP8 + compile | 5.3 GiB | 7.8 / 8.2 GiB | 8.8 GB | 9.0 GB | 1.6 s |
-| scale 4, bf16 | 9.4 GiB | 12.4 / 12.6 GiB | 13.3 GB | not measured | 3.4 s |
+| scale 4, bf16 | 9.4 GiB | 12.4 / 12.6 GiB | 13.3 GB | 14.0 GB (measured on Windows) | 3.4 s |
 | scale 2, FP8 + compile | 5.3 GiB | 5.6 / 5.9 GiB | 6.4 GB | 6.5 GB | 0.4 s |
 | scale 2, bf16 | 9.4 GiB | 10.2 / 10.3 GiB | 10.9 GB | not measured | 0.8 s |
 
@@ -362,7 +362,9 @@ capped at 10.5 GiB and at 9.5 GiB: scale 4 and scale 2 both completed under
   at 8.8 GB, with room for 3 GB of desktop residency. Scale 2 is 6.4 GB.
 - **RTX 30 series, 16 GB:** scale 4 in bf16 fits at 13.3 GB
   (`--no-swiftvr-accel` is not needed: the driver drops FP8 and falls back to
-  bf16 without a warning).
+  bf16 without a warning). On Windows (no `expandable_segments`) it is 14.0 GB
+  and completed at 15.4 GB including 1.4 GB of desktop residents. Above about
+  2 GB of residents it reaches the ceiling, so keep the desktop residents small.
 - **12 GB-class without FP8 (RTX 3060 12 GB and the like):** scale 4 in bf16
   does not fit; scale 2 in bf16 is borderline at 10.9 GB.
 - **SeedVR2 primary:** the SeedVR2 worker runs in Phase 1 and SwiftVR in
@@ -674,7 +676,8 @@ jasna's own design.
 
 Inline (`swiftvr-inline`) was verified on Windows 11 with an RTX 5060 Ti 16 GB
 (2026-09-27, jasna `32168df`, SwiftVR fork `e7f186b`). The offline 3-phase mode
-is unverified on Windows.
+(`swiftvr`) was verified on the same machine (same day, jasna `afe8d18`; see
+"[Offline 3-phase measurements](#offline-3-phase-measurements-windows)").
 
 - Setup is the same as on Linux. Triton comes as `triton-windows` through
   `uv sync`; neither a C++ compiler nor dev headers are needed. Acceleration
@@ -738,8 +741,40 @@ Output frame counts matched the input in every run):
   smoothing), side by side with FlashVSR inline on the same inputs, showed no
   problems.
 
-Expected for the offline 3-phase mode (unverified):
+### Offline 3-phase measurements (Windows)
+
+On the same machine and inputs, every offline 3-phase run completed with output
+frame counts matching the input.
 
 - The Phase 2 driver is started with `<repo>\.venv\Scripts\python.exe`
-  and `PYTHONUTF8=1`. Without `expandable_segments` its process peak is the
-  Linux stand-in's FP8 +0.2 GB (9.0 GB at scale 4, 6.5 GB at scale 2).
+  (`PYTHONUTF8=1`), and acceleration passed its checks and was enabled. Ready
+  took 6 to 18 s for the model load and 8 to 24 s for warmup.
+- Per-process VRAM from `nvidia-smi` is unavailable under WDDM, so the GPU-wide
+  value was split by phase interval, and each phase's peak is its increment over
+  the residents measured before the run.
+- **Phase 2's peak is within 0.2 GB of the Linux stand-in (no
+  `expandable_segments`)**: 9.2 GB at scale 4 in FP8 and 6.3 GB at scale 2 (the
+  same at 480p and 1080p). Scale 4 in bf16 is 14.0 GB.
+- The GPU-wide increment is 2.1 to 2.5 GB below inline, and the wall clock is
+  1.4 to 1.7 times inline's.
+- With a lossless encode and `--fp8-recon` passed to Phase 1, all 10661 frames
+  are bit-identical to inline (as on Linux). `tune=lossless` goes through without
+  an error.
+- Stopping the driver mid-Phase 2 keeps the bundle and prints the resume hint;
+  re-running the same command skips the finished clips, completes, and the output
+  is bit-identical to the uninterrupted run. The `cudaErrorDevicesUnavailable`
+  seen on Linux on an immediate re-run did not occur.
+- FlashVSR's offline mode (`flashvsr`) still completes as before (no regression).
+
+| Input | Configuration | Wall clock | Residents | GPU-wide peak | Phase 1 / 2 / 3 increment | Phase 1 / 2 / 3 time | Bundle |
+|-------|---------------|------------|-----------|---------------|---------------------------|----------------------|--------|
+| 480p | scale 4 | 913 s | 2.0 GB | 11.2 GB | 2.7 / 9.2 / 0.2 GB | 215 / 633 / 59 s | 30 GB |
+| 480p | scale 2 | 484 s | 1.9 GB | 8.2 GB | 2.8 / 6.3 / 0.3 GB | 224 / 224 / 33 s | 8.0 GB |
+| 480p | scale 4, `--no-swiftvr-accel` | 1392 s | 1.4 GB | 15.4 GB | 2.7 / 14.0 / 0 GB | 213 / 1120 / 54 s | — |
+| 1080p | scale 4 | 691 s | 0.4 GB | 9.6 GB | 3.2 / 9.2 / 0.7 GB | 159 / 490 / 38 s | 22 GB |
+| 1080p | scale 2 | 323 s | 0.4 GB | 6.7 GB | 3.2 / 6.3 / 0.7 GB | 150 / 147 / 22 s | 5.9 GB |
+| 480p | `flashvsr` scale 2, `--flashvsr-accel` | 962 s | 0.4 GB | 6.4 GB | 2.7 / 6.0 / 0.3 GB | 224 / 702 / 32 s | — |
+
+The residents dropped from 2.0 GB to 0.4 GB during the runs, so compare the
+increments. Scale 4 in FP8 on a 12 GB-class card (RTX 4070, 5070) comes to about
+11.2 GB with 2 GB of residents (the 480p scale 4 row is exactly that condition).
