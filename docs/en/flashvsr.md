@@ -49,7 +49,12 @@ under the FlashVSR virtualenv's Python — a standalone script with no jasna imp
 The **bundle** is a directory of numpy/JSON files (`manifest.json`, one
 `clip_<track>_<start>.npz` per clip plus a `_fvsr.npz` written by Phase 2). It is
 persistent when you pass `--flashvsr-bundle-dir`, so a run that fails partway can
-be resumed from the phase that failed (completed clips are skipped).
+be resumed from the phase that failed (completed clips are skipped). The bundle
+format is version 2: the clip geometry carries `view_placements` (the smoothed
+crop view placement the
+[SwiftVR offline mode](swiftvr.md#offline-3-phase-mode---secondary-restoration-swiftvr)
+uses; null for FlashVSR). Phase 3 also reads version 1 bundles and refuses newer
+versions.
 
 The geometry the blend needs (`scale_offsets`) is derived from the restored
 frame's actual size at blend time, so FlashVSR's output re-blends with **zero
