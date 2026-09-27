@@ -21,13 +21,20 @@ subprocess boundary). The bundle is persistent, so a failed run can be resumed
 from the phase that failed.
 
 The orchestrator ``run_flashvsr_offline`` is invoked from ``jasna.main`` when
-``--secondary-restoration flashvsr`` is selected; it spawns Phase 1 and Phase 3
-as ``jasna --flashvsr-phase {dump,reblend}`` subprocesses (dispatched in
-``jasna.__main__`` before the multiprocessing PID guard, mirroring
-``--compile-engines``) and Phase 2 as the standalone
-``flashvsr_phase2_driver.py`` run under the FlashVSR virtualenv's Python.
+``--secondary-restoration flashvsr`` (or ``swiftvr``) is selected; it spawns
+Phase 1 and Phase 3 as ``jasna --flashvsr-phase {dump,reblend}`` subprocesses
+(dispatched in ``jasna.__main__`` before the multiprocessing PID guard,
+mirroring ``--compile-engines``) and Phase 2 as a standalone driver run under
+the model's own virtualenv Python (``flashvsr_phase2_driver.py`` or
+``swiftvr_phase2_driver.py``).
 
-Design notes: ``FLASHVSR_OFFLINE_DESIGN_ja.md``.
+The SwiftVR engine reuses everything here except what ``OfflineEngine``
+parametrises: the path resolution and flag names, the scale, Phase 1's clip
+cap (FlashVSR only) and crop view window (SwiftVR only), and the Phase 2
+command. The ``--flashvsr-phase`` hook name, the ``_fvsr.npz`` suffix and the
+``[flashvsr]`` log prefix are internal names shared by both engines.
+
+Design notes: ``FLASHVSR_OFFLINE_DESIGN_ja.md``, ``SWIFTVR_OFFLINE_DESIGN_ja.md``.
 """
 
 from __future__ import annotations
@@ -39,8 +46,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 
@@ -56,7 +64,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 logger = logging.getLogger(__name__)
 
-BUNDLE_VERSION = 1
+# Bundle format version written to manifest.json. Version 2 adds the optional
+# per-frame ``view_placements`` to the clip geometry (the smoothed crop view a
+# geometry-sensitive engine such as SwiftVR sees, tracking.crop_view); Phase 3
+# reads version 1 bundles too (no placements: the legacy blend path) and
+# refuses newer versions, whose geometry it could not blend correctly.
+BUNDLE_VERSION = 2
 
 # Offline (Phase 2) only: tiny mode holds every latent frame, so Phase 1's clip
 # length is capped. 90 (= the primary's default) measured flat vs 32 on a 16 GB
@@ -75,9 +88,11 @@ DEFAULT_MAX_CLIP_FRAMES = 90
 #
 # The clip npz holds `primary_u8` (T,3,256,256 uint8 RGB CHW), `masks_packed`
 # (np.packbits of a (T,Hm,Wm) bool array), `mask_shape` (T,Hm,Wm), and `geom`
-# (a JSON string with all per-frame geometry needed to re-blend). All fields are
-# plain numpy/JSON so the Phase 2 driver can read/write the bundle without any
-# jasna import (it runs under a different virtualenv).
+# (a JSON string with all per-frame geometry needed to re-blend; since version
+# 2 also `view_placements`, T x 4 floats or null when the crops are in each
+# frame's own grid). All fields are plain numpy/JSON so the Phase 2 driver can
+# read/write the bundle without any jasna import (it runs under a different
+# virtualenv).
 # ---------------------------------------------------------------------------
 
 
@@ -114,6 +129,13 @@ def _geom_from_primary(pr: "PrimaryRestoreResult") -> dict[str, Any]:
         "crossfade_weights": (
             {str(k): float(v) for k, v in pr.crossfade_weights.items()}
             if pr.crossfade_weights is not None
+            else None
+        ),
+        # Version 2: the placement of the smoothed crop view the engine sees
+        # (None = own grid, blended through the legacy unpad + resize path).
+        "view_placements": (
+            [[float(v) for v in row] for row in pr.view_placements]
+            if pr.view_placements is not None
             else None
         ),
     }
@@ -188,17 +210,27 @@ def read_clip_masks(bundle_dir: Path, key: str) -> np.ndarray:
 _DUMPED_CLIPS: list[dict[str, Any]] = []
 
 
-def _install_dump_hook(bundle_dir: Path) -> None:
+def _install_dump_hook(bundle_dir: Path, view_window: int = 0) -> None:
     """Monkeypatch ``prepare_and_run_primary`` to serialize each clip.
 
     Mirrors the Phase-0 pilot dumper (``~/flashvsr-pilot/dump_primary_crops.py``)
     but writes the full bundle instead of PNGs. The hook returns the result
     unchanged so the (throwaway) rest of the pipeline runs normally.
+
+    ``view_window`` > 1 makes Phase 1 hand the engine the smoothed crop view an
+    inline run would (SwiftVR's ``--swiftvr-view-window``). The pipeline reads
+    the window from its secondary restorer, which Phase 1 runs without, so the
+    property is overridden to return the configured window; the same code as
+    inline then builds the view and its placements, which are dumped with the
+    geometry. The override is confined to this subprocess, like the hook.
     """
     import jasna.restorer.restoration_pipeline as rp
 
     Path(bundle_dir).mkdir(parents=True, exist_ok=True)
     _DUMPED_CLIPS.clear()
+    if int(view_window) > 1:
+        window = int(view_window)
+        rp.RestorationPipeline.view_smoothing_window = property(lambda self: window)
     orig = rp.RestorationPipeline.prepare_and_run_primary
 
     def patched(self, *args, **kwargs):  # type: ignore[no-untyped-def]
@@ -243,7 +275,16 @@ def _write_manifest(bundle_dir: Path, input_path: str) -> None:
 
 
 def read_manifest(bundle_dir: Path) -> dict[str, Any]:
-    return json.loads(manifest_path(bundle_dir).read_text())
+    manifest = json.loads(manifest_path(bundle_dir).read_text())
+    version = int(manifest.get("version", 1))
+    if version > BUNDLE_VERSION:
+        # A newer jasna may carry geometry this one cannot blend (version 1
+        # would have composited version 2's view grids as own grids, silently).
+        raise RuntimeError(
+            f"bundle at {bundle_dir} is version {version}, newer than this jasna's "
+            f"{BUNDLE_VERSION}; re-run with the jasna that wrote it or start a new bundle"
+        )
+    return manifest
 
 
 def _run_phase_dump(cfg: dict[str, Any]) -> None:
@@ -254,7 +295,7 @@ def _run_phase_dump(cfg: dict[str, Any]) -> None:
     restorer is forced to ``none`` and the output to a throwaway temp file.
     """
     bundle_dir = Path(cfg["bundle_dir"])
-    _install_dump_hook(bundle_dir)
+    _install_dump_hook(bundle_dir, int(cfg.get("view_window", 0)))
 
     sys.argv = ["jasna", *cfg["argv"]]
     from jasna.main import main as jasna_main
@@ -281,7 +322,9 @@ def _assemble_secondary_result(
     same window by the caller) become ``restored_frames`` with
     ``clip_keep_offset=ks``. ``scale_offsets`` derives pad/resize from the restored
     frames' actual size at blend time, so the upscaled crops (1024px at
-    ``--flashvsr-scale 4``, 512px at 2) need no geometry rewrite.
+    ``--flashvsr-scale 4``, 512px at 2) need no geometry rewrite. A version 2
+    bundle's ``view_placements`` (SwiftVR's smoothed crop view) are sliced the
+    same way; the blend takes its view path only when they are set.
     """
     from jasna.pipeline_items import SecondaryRestoreResult
 
@@ -289,6 +332,12 @@ def _assemble_secondary_result(
     ks = max(0, int(geom["keep_start"]))
     ke = min(frame_count, int(geom["keep_end"]))
     kept_count = ke - ks
+    placements = geom.get("view_placements")
+    view_placements = (
+        [tuple(float(v) for v in row) for row in placements[ks:ke]]
+        if placements is not None
+        else None
+    )
 
     return SecondaryRestoreResult(
         track_id=int(geom["track_id"]),
@@ -306,6 +355,7 @@ def _assemble_secondary_result(
         pad_offsets=[tuple(po) for po in geom["pad_offsets"][ks:ke]],
         resize_shapes=[tuple(rs) for rs in geom["resize_shapes"][ks:ke]],
         clip_keep_offset=ks,
+        view_placements=view_placements,
     )
 
 
@@ -600,31 +650,64 @@ def apply_flashvsr_accel_env(env: dict, accel: bool, repo: Path) -> None:
         )
 
 
-def _validate_flashvsr_args(args: "argparse.Namespace") -> tuple[Path, Path, Path, Path]:
-    """Validate the flashvsr-specific inputs; return resolved paths."""
-    from jasna.media.image_io import is_image_path
+def _validate_offline_flags(args: "argparse.Namespace", mode: str) -> None:
+    """The engine-independent constraints of the offline 3-phase path (no I/O).
 
+    ``mode`` is the ``--secondary-restoration`` value, for the messages.
+    """
+    flag = f"--secondary-restoration {mode}"
     if bool(getattr(args, "stream", False)):
-        raise ValueError("--secondary-restoration flashvsr is file-output only (not compatible with --stream)")
+        raise ValueError(f"{flag} is file-output only (not compatible with --stream)")
     if args.input is None or args.output is None:
-        raise ValueError("--secondary-restoration flashvsr requires --input and --output")
+        raise ValueError(f"{flag} requires --input and --output")
     if str(getattr(args, "frame_gen", "none")).lower() != "none":
         raise ValueError(
-            "--secondary-restoration flashvsr does not support --frame-gen yet "
-            "(run frame generation as a separate pass)"
+            f"{flag} does not support --frame-gen yet (run frame generation as a separate pass)"
         )
     if bool(getattr(args, "retarget_high_fps", False)):
         # Phase 1 would decode with the fps-retarget frame stride while Phase 3
         # re-reads every source frame, so the bundle's start_frame indices would
         # no longer match the reblend's frame counter.
-        raise ValueError(
-            "--secondary-restoration flashvsr does not support --retarget-high-fps"
-        )
+        raise ValueError(f"{flag} does not support --retarget-high-fps")
     if str(getattr(args, "segments", "") or "").strip():
-        raise ValueError(
-            "--secondary-restoration flashvsr does not support --segments smart rendering"
-        )
+        raise ValueError(f"{flag} does not support --segments smart rendering")
 
+
+def _validate_offline_input(args: "argparse.Namespace", mode: str) -> Path:
+    """The engine-independent input constraints; returns the input path."""
+    from jasna.media.image_io import is_image_path
+
+    flag = f"--secondary-restoration {mode}"
+    input_path = Path(str(args.input)).expanduser()
+    if not input_path.exists():
+        raise FileNotFoundError(str(input_path))
+    if input_path.is_dir():
+        raise ValueError(f"{flag} does not support folder input")
+    if is_image_path(input_path):
+        raise ValueError(f"{flag} is video-only (image input not supported)")
+
+    # The Phase 3 reblend pastes crops onto plain source frames with no VR
+    # projector, so any VR processing in Phase 1 would blend into the wrong
+    # geometry. "auto" is only rejected when it actually detects VR content.
+    vr_mode = str(getattr(args, "vr_mode", "off") or "off").strip().lower()
+    if vr_mode in ("sbs", "sbs-fisheye"):
+        raise ValueError(f"{flag} does not support VR processing (--vr-mode {vr_mode})")
+    if vr_mode == "auto":
+        from jasna.media import get_video_meta_data
+        from jasna.vr180 import resolve_vr_mode
+
+        resolution = resolve_vr_mode("auto", get_video_meta_data(str(input_path)), input_path)
+        if resolution.resolved != "off":
+            raise ValueError(
+                f"{flag} does not support VR processing, but "
+                f"--vr-mode auto detected VR content ({resolution.resolved}: {resolution.reason}). "
+                "Pass --vr-mode off to force flat processing."
+            )
+    return input_path
+
+
+def _resolve_flashvsr_paths(args: "argparse.Namespace") -> tuple[Path, Path, Path]:
+    """Validate the ``--flashvsr-*`` paths; return ``(repo, python, model_dir)``."""
     if not str(args.flashvsr_repo).strip():
         raise ValueError("--flashvsr-repo is required for --secondary-restoration flashvsr")
     repo = Path(str(args.flashvsr_repo)).expanduser()
@@ -644,35 +727,14 @@ def _validate_flashvsr_args(args: "argparse.Namespace") -> tuple[Path, Path, Pat
     model_dir = Path(model_arg).expanduser() if model_arg else repo / "models" / "FlashVSR-v1.1"
     if not model_dir.is_dir():
         raise FileNotFoundError(f"--flashvsr-model-dir not found: {model_dir}")
+    return repo, fv_python, model_dir
 
-    input_path = Path(str(args.input)).expanduser()
-    if not input_path.exists():
-        raise FileNotFoundError(str(input_path))
-    if input_path.is_dir():
-        raise ValueError("--secondary-restoration flashvsr does not support folder input")
-    if is_image_path(input_path):
-        raise ValueError("--secondary-restoration flashvsr is video-only (image input not supported)")
 
-    # The Phase 3 reblend pastes crops onto plain source frames with no VR
-    # projector, so any VR processing in Phase 1 would blend into the wrong
-    # geometry. "auto" is only rejected when it actually detects VR content.
-    vr_mode = str(getattr(args, "vr_mode", "off") or "off").strip().lower()
-    if vr_mode in ("sbs", "sbs-fisheye"):
-        raise ValueError(
-            f"--secondary-restoration flashvsr does not support VR processing (--vr-mode {vr_mode})"
-        )
-    if vr_mode == "auto":
-        from jasna.media import get_video_meta_data
-        from jasna.vr180 import resolve_vr_mode
-
-        resolution = resolve_vr_mode("auto", get_video_meta_data(str(input_path)), input_path)
-        if resolution.resolved != "off":
-            raise ValueError(
-                "--secondary-restoration flashvsr does not support VR processing, but "
-                f"--vr-mode auto detected VR content ({resolution.resolved}: {resolution.reason}). "
-                "Pass --vr-mode off to force flat processing."
-            )
-
+def _validate_flashvsr_args(args: "argparse.Namespace") -> tuple[Path, Path, Path, Path]:
+    """Validate the flashvsr-specific inputs; return resolved paths."""
+    _validate_offline_flags(args, "flashvsr")
+    repo, fv_python, model_dir = _resolve_flashvsr_paths(args)
+    input_path = _validate_offline_input(args, "flashvsr")
     return repo, fv_python, model_dir, input_path
 
 
@@ -724,7 +786,14 @@ def _fstype(path: Path) -> str | None:
         return None
 
 
-def _preflight_bundle_disk(bundle_dir: Path, input_path: Path, scale: int = 4) -> None:
+def _preflight_bundle_disk(
+    bundle_dir: Path,
+    input_path: Path,
+    scale: int = 4,
+    *,
+    display: str = "FlashVSR",
+    bundle_dir_flag: str = "--flashvsr-bundle-dir",
+) -> None:
     """Warn (before Phase 1) if the bundle lands on a RAM-backed / tight filesystem.
 
     Mosaic coverage is unknown here, so this only reports free space + a
@@ -746,9 +815,9 @@ def _preflight_bundle_disk(bundle_dir: Path, input_path: Path, scale: int = 4) -
     )
     if fstype == "tmpfs":
         print(
-            f"WARNING: FlashVSR bundle dir {bundle_dir} is on tmpfs (RAM-backed, "
+            f"WARNING: {display} bundle dir {bundle_dir} is on tmpfs (RAM-backed, "
             f"{free / _GIB:.0f} GiB free). A large bundle will exhaust RAM. Pass "
-            f"--flashvsr-bundle-dir <path on a real disk> for anything beyond a short clip."
+            f"{bundle_dir_flag} <path on a real disk> for anything beyond a short clip."
         )
     if total_frames and upper > free:
         print(
@@ -758,7 +827,13 @@ def _preflight_bundle_disk(bundle_dir: Path, input_path: Path, scale: int = 4) -
         )
 
 
-def _gate_phase2_disk(bundle_dir: Path, scale: int = 4) -> None:
+def _gate_phase2_disk(
+    bundle_dir: Path,
+    scale: int = 4,
+    *,
+    display: str = "FlashVSR",
+    bundle_dir_flag: str = "--flashvsr-bundle-dir",
+) -> None:
     """After Phase 1, before the expensive Phase 2: refuse to start if the exact
     remaining (256*scale)px output won't fit. The bundle is kept, so the user
     can free space / move it to a bigger disk and resume."""
@@ -775,48 +850,128 @@ def _gate_phase2_disk(bundle_dir: Path, scale: int = 4) -> None:
     )
     if needed * 1.03 > free:  # 3% headroom for npz/filesystem overhead
         raise RuntimeError(
-            f"Not enough disk for FlashVSR Phase 2: need ~{needed / _GIB:.0f} GiB of "
+            f"Not enough disk for {display} Phase 2: need ~{needed / _GIB:.0f} GiB of "
             f"{256 * int(scale)}px output "
             f"but only {free / _GIB:.0f} GiB is free at {bundle_dir}. Re-run with "
-            f"--flashvsr-bundle-dir <path on a bigger disk> (the current bundle is kept, so "
+            f"{bundle_dir_flag} <path on a bigger disk> (the current bundle is kept, so "
             f"completed clips are reused on resume)."
         )
 
 
-def run_flashvsr_offline(args: "argparse.Namespace") -> None:
-    """Orchestrate the 3-phase offline FlashVSR run (called from ``jasna.main``).
+@dataclass(frozen=True)
+class OfflineEngine:
+    """What differs between the offline engines (FlashVSR, SwiftVR).
+
+    Everything else in the 3-phase path is shared: Phase 1's argv rewrite and
+    dump hook, the bundle format, Phase 3, and the disk checks.
+    """
+
+    name: str                    # the --secondary-restoration value
+    display: str                 # user-facing name in messages
+    bundle_dir_flag: str         # --<engine>-bundle-dir, quoted in resume hints
+    bundle_dir: str              # that flag's value ("" = a temp dir)
+    keep_bundle: bool
+    scale: int                   # Phase 2 writes (256*scale)px crops
+    max_clip_frames: int | None  # cap on Phase 1's --max-clip-size (None = none)
+    view_window: int             # Phase 1's crop view window (0 = own grid)
+    input_path: Path
+    run_phase2: Callable[[Path], None]  # bundle_dir -> runs the Phase 2 driver
+
+
+def _flashvsr_engine(args: "argparse.Namespace") -> OfflineEngine:
+    _validate_offline_flags(args, "flashvsr")
+    repo, fv_python, model_dir = _resolve_flashvsr_paths(args)
+    input_path = _validate_offline_input(args, "flashvsr")
+    return OfflineEngine(
+        name="flashvsr",
+        display="FlashVSR",
+        bundle_dir_flag="--flashvsr-bundle-dir",
+        bundle_dir=str(getattr(args, "flashvsr_bundle_dir", "") or ""),
+        keep_bundle=bool(getattr(args, "flashvsr_keep_bundle", False)),
+        scale=int(getattr(args, "flashvsr_scale", 4)),
+        # tiny mode holds every latent frame, so the clip length is capped.
+        max_clip_frames=int(getattr(args, "flashvsr_max_clip_frames", DEFAULT_MAX_CLIP_FRAMES)),
+        view_window=0,
+        input_path=input_path,
+        run_phase2=lambda bundle_dir: _phase2_upscale(args, bundle_dir, repo, fv_python, model_dir),
+    )
+
+
+def _swiftvr_engine(args: "argparse.Namespace") -> OfflineEngine:
+    from jasna.restorer.swiftvr_common import resolve_swiftvr_paths, swiftvr_phase2_command
+
+    _validate_offline_flags(args, "swiftvr")
+    repo, sv_python, model_dir = resolve_swiftvr_paths(
+        str(getattr(args, "swiftvr_repo", "") or ""),
+        str(getattr(args, "swiftvr_python", "") or ""),
+        str(getattr(args, "swiftvr_model_dir", "") or ""),
+        mode="swiftvr",
+    )
+    input_path = _validate_offline_input(args, "swiftvr")
+    scale = int(getattr(args, "swiftvr_scale", 4))
+
+    def run_phase2(bundle_dir: Path) -> None:
+        cmd, env = swiftvr_phase2_command(args, bundle_dir, repo, sv_python, model_dir)
+        _run_checked(cmd, f"Phase 2 (SwiftVR {scale}x)", env=env, display="SwiftVR")
+
+    return OfflineEngine(
+        name="swiftvr",
+        display="SwiftVR",
+        bundle_dir_flag="--swiftvr-bundle-dir",
+        bundle_dir=str(getattr(args, "swiftvr_bundle_dir", "") or ""),
+        keep_bundle=bool(getattr(args, "swiftvr_keep_bundle", False)),
+        scale=scale,
+        # SwiftVR restores in fixed causal chunks: VRAM is flat in the clip length.
+        max_clip_frames=None,
+        # The same smoothed crop view the inline restorer asks for.
+        view_window=int(getattr(args, "swiftvr_view_window", 0)),
+        input_path=input_path,
+        run_phase2=run_phase2,
+    )
+
+
+_ENGINES: dict[str, Callable[["argparse.Namespace"], OfflineEngine]] = {
+    "flashvsr": _flashvsr_engine,
+    "swiftvr": _swiftvr_engine,
+}
+
+
+def run_flashvsr_offline(args: "argparse.Namespace", engine: str = "flashvsr") -> None:
+    """Orchestrate the 3-phase offline run (called from ``jasna.main``).
 
     Spawns Phase 1 (dump) and Phase 3 (reblend) as ``jasna --flashvsr-phase``
-    subprocesses and Phase 2 as the standalone driver under the FlashVSR Python.
-    Each phase runs to completion before the next starts, so their peak VRAM is
-    never live at the same time.
+    subprocesses and Phase 2 as the engine's standalone driver under its own
+    Python. Each phase runs to completion before the next starts, so their peak
+    VRAM is never live at the same time. ``engine`` selects FlashVSR or SwiftVR.
     """
-    repo, fv_python, model_dir, input_path = _validate_flashvsr_args(args)
+    if engine not in _ENGINES:
+        raise ValueError(f"unknown offline engine: {engine!r}")
+    eng = _ENGINES[engine](args)
     output_path = Path(str(args.output)).expanduser()
 
-    keep_bundle = bool(getattr(args, "flashvsr_keep_bundle", False))
-    bundle_arg = str(getattr(args, "flashvsr_bundle_dir", "") or "").strip()
-    if bundle_arg:
-        bundle_dir = Path(bundle_arg).expanduser()
+    if eng.bundle_dir.strip():
+        bundle_dir = Path(eng.bundle_dir).expanduser()
         bundle_dir.mkdir(parents=True, exist_ok=True)
         cleanup_bundle = False
     else:
-        bundle_dir = Path(tempfile.mkdtemp(prefix="jasna_flashvsr_"))
-        cleanup_bundle = not keep_bundle
+        bundle_dir = Path(tempfile.mkdtemp(prefix=f"jasna_{eng.name}_"))
+        cleanup_bundle = not eng.keep_bundle
 
-    max_clip_frames = int(getattr(args, "flashvsr_max_clip_frames", DEFAULT_MAX_CLIP_FRAMES))
-    scale = int(getattr(args, "flashvsr_scale", 4))
-    logger.info("[flashvsr] bundle dir: %s (keep=%s)", bundle_dir, keep_bundle or not cleanup_bundle)
+    logger.info("[flashvsr] %s bundle dir: %s (keep=%s)", eng.display, bundle_dir,
+                eng.keep_bundle or not cleanup_bundle)
 
     success = False
     try:
-        _preflight_bundle_disk(bundle_dir, input_path, scale)
-        _phase1_dump(args, bundle_dir, input_path, max_clip_frames)
-        _gate_phase2_disk(bundle_dir, scale)  # exact output estimate now that clips are known
-        _phase2_upscale(args, bundle_dir, repo, fv_python, model_dir)
-        _phase3_reblend(args, bundle_dir, input_path, output_path)
+        _preflight_bundle_disk(bundle_dir, eng.input_path, eng.scale,
+                               display=eng.display, bundle_dir_flag=eng.bundle_dir_flag)
+        _phase1_dump(bundle_dir, eng.input_path, max_clip_frames=eng.max_clip_frames,
+                     view_window=eng.view_window, display=eng.display)
+        # exact output estimate now that clips are known
+        _gate_phase2_disk(bundle_dir, eng.scale, display=eng.display, bundle_dir_flag=eng.bundle_dir_flag)
+        eng.run_phase2(bundle_dir)
+        _phase3_reblend(args, bundle_dir, eng.input_path, output_path, display=eng.display)
         success = True
-        print(f"FlashVSR offline restoration complete -> {output_path}")
+        print(f"{eng.display} offline restoration complete -> {output_path}")
     finally:
         # Only discard the bundle on success. On failure keep it (completed phases
         # are resumable) and tell the user how to resume from where it broke.
@@ -824,8 +979,8 @@ def run_flashvsr_offline(args: "argparse.Namespace") -> None:
             shutil.rmtree(bundle_dir, ignore_errors=True)
         elif not success:
             print(
-                f"FlashVSR run failed. Bundle kept for resume at: {bundle_dir}\n"
-                f"  Re-run the same command with: --flashvsr-bundle-dir {bundle_dir}"
+                f"{eng.display} run failed. Bundle kept for resume at: {bundle_dir}\n"
+                f"  Re-run the same command with: {eng.bundle_dir_flag} {bundle_dir}"
             )
 
 
@@ -840,19 +995,34 @@ def _jasna_phase_cmd(phase: str, cfg: dict[str, Any], bundle_dir: Path) -> list[
     return [sys.executable, "-m", "jasna", "--flashvsr-phase", phase, str(json_path)]
 
 
-def _run_checked(cmd: list[str], phase_name: str, env: dict[str, str] | None = None) -> None:
+def _run_checked(
+    cmd: list[str], phase_name: str, env: dict[str, str] | None = None, *, display: str = "FlashVSR"
+) -> None:
     logger.info("[flashvsr] %s: %s", phase_name, " ".join(cmd))
     result = subprocess.run(cmd, env=env)
     if result.returncode != 0:
-        raise RuntimeError(f"FlashVSR {phase_name} failed (exit code {result.returncode})")
+        raise RuntimeError(f"{display} {phase_name} failed (exit code {result.returncode})")
 
 
-def _phase1_dump(args: "argparse.Namespace", bundle_dir: Path, input_path: Path, max_clip_frames: int) -> None:
+def _phase1_dump(
+    bundle_dir: Path,
+    input_path: Path,
+    *,
+    max_clip_frames: int | None,
+    view_window: int = 0,
+    display: str = "FlashVSR",
+) -> None:
     temp_output = str(bundle_dir / "phase1_throwaway.mkv")
     argv = _rewrite_argv_for_dump(sys.argv[1:], temp_output)
-    argv = _cap_max_clip_size(argv, max_clip_frames)
-    cfg = {"bundle_dir": str(bundle_dir), "input": str(input_path), "argv": argv}
-    _run_checked(_jasna_phase_cmd("dump", cfg, bundle_dir), "Phase 1 (primary + dump)")
+    if max_clip_frames is not None:
+        argv = _cap_max_clip_size(argv, max_clip_frames)
+    cfg = {
+        "bundle_dir": str(bundle_dir),
+        "input": str(input_path),
+        "argv": argv,
+        "view_window": int(view_window),
+    }
+    _run_checked(_jasna_phase_cmd("dump", cfg, bundle_dir), "Phase 1 (primary + dump)", display=display)
     # The throwaway encode output is not needed downstream.
     try:
         Path(temp_output).unlink(missing_ok=True)
@@ -912,6 +1082,8 @@ def _phase3_reblend(
     bundle_dir: Path,
     input_path: Path,
     output_path: Path,
+    *,
+    display: str = "FlashVSR",
 ) -> None:
     from jasna.media import parse_encoder_settings, validate_encoder_settings
 
@@ -937,7 +1109,7 @@ def _phase3_reblend(
         "decode_backend": _resolve(str(getattr(args, "decode_backend", "inherit"))),
         "encode_backend": _resolve(str(getattr(args, "encode_backend", "inherit"))),
     }
-    _run_checked(_jasna_phase_cmd("reblend", cfg, bundle_dir), "Phase 3 (reblend + encode)")
+    _run_checked(_jasna_phase_cmd("reblend", cfg, bundle_dir), "Phase 3 (reblend + encode)", display=display)
 
 
 # ---------------------------------------------------------------------------

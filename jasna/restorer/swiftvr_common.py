@@ -1,9 +1,11 @@
 """Import-light helpers shared by the SwiftVR secondary restoration paths.
 
-Argument registration (``--swiftvr-*``) and path resolution for
-``--secondary-restoration swiftvr-inline``. Deliberately free of torch so
-``jasna.main.build_parser`` and the startup checks stay fast; the restorer
-itself lives in ``swiftvr_inline_secondary_restorer.py``.
+Argument registration (``--swiftvr-*``), path resolution and the offline
+Phase 2 command for ``--secondary-restoration swiftvr`` (offline 3-phase, run
+by ``flashvsr_offline.run_flashvsr_offline`` with the SwiftVR engine) and
+``swiftvr-inline``. Deliberately free of torch so ``jasna.main.build_parser``
+and the startup checks stay fast; the inline restorer itself lives in
+``swiftvr_inline_secondary_restorer.py``.
 
 SwiftVR (one-step streaming diffusion VSR, Wan2.2-TI2V-5B backbone) is not
 bundled: the user supplies a checkout of the fork ``sh202603/SwiftVR`` (branch
@@ -68,8 +70,9 @@ def resolve_swiftvr_paths(
 ) -> tuple[Path, Path, Path]:
     """Validate the ``--swiftvr-*`` inputs; return ``(repo, python, model_dir)``.
 
-    Used by the session factory (inline) so the checks and their messages live
-    in one place.
+    Used by the session factory (inline) and the offline orchestrator so the
+    checks and their messages live in one place; ``mode`` names the
+    ``--secondary-restoration`` value in them.
     """
     flag = f"--secondary-restoration {mode}"
     if not str(repo or "").strip():
@@ -101,6 +104,55 @@ def resolve_swiftvr_paths(
     return repo_path, py, md
 
 
+def swiftvr_phase2_command(
+    args: "argparse.Namespace", bundle_dir: Path, repo: Path, sv_python: Path, model_dir: Path
+) -> tuple[list[str], dict[str, str]]:
+    """The offline Phase 2 command and environment.
+
+    Runs ``swiftvr_phase2_driver.py`` under the SwiftVR venv's Python with the
+    same contract as the inline restorer's worker command: ``--swiftvr-accel``
+    passes both acceleration parts (the driver drops whichever its GPU or
+    Triton cannot run), color correction is always on (driver default: wavelet)
+    with ``JASNA_SWIFTVR_COLOR_FIX`` as the verification-only override, and the
+    venv imports its own package rather than jasna's ``PYTHONPATH``.
+    """
+    from jasna.restorer import bundled_script_path
+
+    driver = bundled_script_path("swiftvr_phase2_driver.py")
+    cmd = [
+        str(sv_python), str(driver),
+        "--bundle-dir", str(bundle_dir),
+        "--repo", str(repo),
+        "--model-dir", str(model_dir),
+        "--device", str(args.device),
+        "--scale", str(int(getattr(args, "swiftvr_scale", 4))),
+    ]
+    if bool(getattr(args, "swiftvr_accel", True)):
+        cmd += ["--fp8-dit", "--torch-compile"]
+    color_fix = os.environ.get("JASNA_SWIFTVR_COLOR_FIX")
+    if color_fix:
+        if color_fix not in ("adain", "wavelet", "none"):
+            raise ValueError(
+                "[swiftvr] JASNA_SWIFTVR_COLOR_FIX must be adain|wavelet|none, "
+                f"got {color_fix!r}"
+            )
+        cmd += ["--color-fix-method", color_fix]
+
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+    env.setdefault("TQDM_DISABLE", "1")
+    if os.name == "nt":
+        # expandable_segments is not supported on Windows; force UTF-8 so a
+        # non-ASCII log line cannot raise on the cp932 text layer.
+        env["PYTHONUTF8"] = "1"
+    else:
+        # Same allocator discipline as the inline worker: with the fork's
+        # block-wise FP8 load it changes the peak by ~0.2 GB only, but it keeps
+        # the bf16 path's 12.4 GiB inside a 16 GB card.
+        env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    return cmd, env
+
+
 def add_swiftvr_arguments(group: "argparse._ArgumentGroup") -> None:
     """Register the ``--swiftvr-*`` flags (names mirror the ``--flashvsr-*`` set)."""
     import argparse
@@ -109,8 +161,8 @@ def add_swiftvr_arguments(group: "argparse._ArgumentGroup") -> None:
         "--swiftvr-repo",
         type=str,
         default="",
-        help="Path to the SwiftVR checkout (required for --secondary-restoration swiftvr-inline). "
-             f"Use the fork {SWIFTVR_FORK_URL} (branch modi): jasna needs its "
+        help="Path to the SwiftVR checkout (required for --secondary-restoration swiftvr and "
+             f"swiftvr-inline). Use the fork {SWIFTVR_FORK_URL} (branch modi): jasna needs its "
              "SwiftVRPipeline.restore_clip().",
     )
     group.add_argument(
@@ -158,7 +210,21 @@ def add_swiftvr_arguments(group: "argparse._ArgumentGroup") -> None:
         help="Run the SwiftVR DiT with FP8 linears and torch.compile (default: %(default)s). "
              "Needs an RTX 40 series or newer GPU and a working Triton; the worker checks "
              "both before loading the model and falls back to plain bf16 for whatever is "
-             "unavailable (with a warning). bf16 peaks ~12 GiB and does not co-reside with "
-             "the primary pipeline on a 16 GB card. The output differs slightly from bf16 "
-             "(about 47 dB PSNR).",
+             "unavailable (with a warning). bf16 peaks ~12 GiB: it does not co-reside with "
+             "the primary pipeline on a 16 GB card (swiftvr-inline), but fits alone in the "
+             "offline swiftvr mode. The output differs slightly from bf16 (about 47 dB PSNR).",
+    )
+    group.add_argument(
+        "--swiftvr-bundle-dir",
+        type=str,
+        default="",
+        help="swiftvr (offline) only: persist the intermediate bundle here (default: a temp "
+             "dir removed on completion). A persisted bundle lets a failed run resume from "
+             "the phase that failed.",
+    )
+    group.add_argument(
+        "--swiftvr-keep-bundle",
+        action="store_true",
+        help="swiftvr (offline) only: keep the bundle dir after completion (implied by "
+             "--swiftvr-bundle-dir).",
     )

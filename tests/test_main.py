@@ -186,6 +186,19 @@ class TestBuildParser:
         assert args.swiftvr_scale == 4
         assert args.swiftvr_accel is True  # acceleration is the default
         assert args.swiftvr_view_window == 15  # the crop view is smoothed by default
+        assert args.swiftvr_bundle_dir == ""
+        assert args.swiftvr_keep_bundle is False
+
+    def test_swiftvr_offline_choice_parses(self):
+        args = build_parser().parse_args([
+            "--input", "a.mp4", "--output", "b.mp4",
+            "--secondary-restoration", "swiftvr",
+            "--swiftvr-repo", "/opt/SwiftVR",
+            "--swiftvr-bundle-dir", "/data/bundle", "--swiftvr-keep-bundle",
+        ])
+        assert args.secondary_restoration == "swiftvr"
+        assert args.swiftvr_bundle_dir == "/data/bundle"
+        assert args.swiftvr_keep_bundle is True
 
     def test_swiftvr_scale_and_accel_flags(self):
         args = build_parser().parse_args([
@@ -372,6 +385,19 @@ class TestSecondaryRestorers:
             ]))
         # The offline orchestrator runs instead of the normal pipeline.
         mock_offline.assert_called_once()
+        assert mock_offline.call_args.kwargs["engine"] == "flashvsr"
+        pipeline_cls.assert_not_called()
+
+    def test_swiftvr_secondary_dispatches_offline(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        with patch("jasna.restorer.flashvsr_offline.run_flashvsr_offline") as mock_offline:
+            pipeline_cls = _run_main(_base_argv(inp, out, rest, det, [
+                "--secondary-restoration", "swiftvr",
+                "--swiftvr-repo", str(tmp_path / "repo"),
+            ]))
+        # Same orchestrator as flashvsr, with the SwiftVR engine; no pipeline here.
+        mock_offline.assert_called_once()
+        assert mock_offline.call_args.kwargs["engine"] == "swiftvr"
         pipeline_cls.assert_not_called()
 
     def test_flashvsr_inline_choice_parses(self):

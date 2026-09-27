@@ -483,6 +483,8 @@ class TestOrchestrator:
         assert dump["argv"][dump["argv"].index("--secondary-restoration") + 1] == "none"
         # max-clip-size capped (inserted since not present)
         assert "--max-clip-size" in dump["argv"]
+        # FlashVSR sees each frame's own crop grid (the view window is SwiftVR's)
+        assert dump["view_window"] == 0
 
     def _phase2_cmd(self, args, monkeypatch, env_value=None):
         calls = []
@@ -537,9 +539,9 @@ class TestOrchestrator:
             patch("jasna.restorer.flashvsr_offline.subprocess.run",
                   side_effect=lambda cmd, env=None: MagicMock(returncode=0)),
             patch("jasna.restorer.flashvsr_offline._preflight_bundle_disk",
-                  side_effect=lambda b, i, sc: seen.setdefault("pre", sc)),
+                  side_effect=lambda b, i, sc, **kw: seen.setdefault("pre", sc)),
             patch("jasna.restorer.flashvsr_offline._gate_phase2_disk",
-                  side_effect=lambda b, sc: seen.setdefault("gate", sc)),
+                  side_effect=lambda b, sc, **kw: seen.setdefault("gate", sc)),
             patch.object(sys, "argv", ["jasna", "--input", args.input, "--output", args.output]),
         ):
             fo.run_flashvsr_offline(args)

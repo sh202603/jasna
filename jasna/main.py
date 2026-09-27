@@ -285,13 +285,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default="none",
         choices=["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr", "flashvsr-inline",
-                 "swiftvr-inline"],
+                 "swiftvr", "swiftvr-inline"],
         help=CLI_HELP["secondary_restoration"]
              + ' "flashvsr" runs an offline 3-phase pass; "flashvsr-inline" runs FlashVSR '
              'inline in the streaming pipeline (no intermediate files, needs a patched '
              'FlashVSR repo). Both need --flashvsr-repo. See the "FlashVSR" group for '
-             'its options. "swiftvr-inline" runs SwiftVR inline (faster than FlashVSR, FP8 '
-             'by default); needs --swiftvr-repo, see the "SwiftVR" group.',
+             'its options. "swiftvr" runs the same offline 3-phase pass with SwiftVR '
+             '(for GPUs where it cannot co-reside with the primary: 12 GB cards, no FP8, '
+             'the SeedVR2 primary); "swiftvr-inline" runs SwiftVR inline (faster than '
+             'FlashVSR, FP8 by default). Both need --swiftvr-repo, see the "SwiftVR" group.',
     )
 
     seedvr2 = parser.add_argument_group("SeedVR2 (primary restoration, experimental)")
@@ -811,18 +813,20 @@ def main() -> None:
     from jasna._frozen import patch_frozen_torch
     patch_frozen_torch()
 
-    # FlashVSR runs as an offline 3-phase pass (each phase its own subprocess so
-    # their peak VRAM never overlaps). Dispatch here, before the heavy torch /
-    # pipeline imports — the orchestrator only spawns subprocesses.
+    # The offline FlashVSR / SwiftVR modes run as a 3-phase pass (each phase its
+    # own subprocess so their peak VRAM never overlaps). Dispatch here, before
+    # the heavy torch / pipeline imports — the orchestrator only spawns
+    # subprocesses.
     if str(getattr(args, "flashvsr_lora", "") or "").strip() \
             and str(args.secondary_restoration).lower() != "flashvsr-inline":
         # Checked before the offline dispatch below: its phases re-run jasna with
         # the same argv, where a later check would surface as a phase failure.
         raise ValueError("--flashvsr-lora is supported with --secondary-restoration flashvsr-inline only")
 
-    if str(args.secondary_restoration).lower() == "flashvsr":
+    offline_engine = str(args.secondary_restoration).lower()
+    if offline_engine in ("flashvsr", "swiftvr"):
         from jasna.restorer.flashvsr_offline import run_flashvsr_offline
-        run_flashvsr_offline(args)
+        run_flashvsr_offline(args, engine=offline_engine)
         _run_post_export_action()
         return
 
@@ -1104,7 +1108,7 @@ def main() -> None:
             raise ValueError(
                 "--restoration-model-name seedvr2 cannot be combined with --secondary-restoration "
                 f"{secondary_name} (the two resident workers exceed a 16 GB card; use the offline "
-                "'flashvsr' mode, whose phases never co-reside)"
+                "'flashvsr' or 'swiftvr' mode, whose phases never co-reside)"
             )
         if secondary_name == "tvai":
             seedvr2_log.warning(
