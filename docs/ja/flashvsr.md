@@ -46,7 +46,10 @@ Phase 1 / Phase 3 は `jasna --flashvsr-phase {dump,reblend}` のサブプロセ
 **bundle** は numpy/JSON ファイルのディレクトリ(`manifest.json`、clip ごとの
 `clip_<track>_<start>.npz` と Phase 2 が書く `_fvsr.npz`)。`--flashvsr-bundle-dir`
 を指定すると永続化され、途中で失敗した実行を失敗した段から再開できる(完了済み
-clip はスキップ)。
+clip はスキップ)。bundle の形式は version 2 で、clip の幾何に `view_placements`
+([SwiftVR のオフライン](swiftvr.md#オフライン-3-段--secondary-restoration-swiftvr)が使う
+切り出し view の配置。FlashVSR では null)を持つ。Phase 3 は version 1 の bundle も読み、
+より新しい version は拒否する。
 
 blend に必要な幾何(`scale_offsets`)は blend 時に復元フレームの実寸から導出される
 ので、FlashVSR の出力はどちらの scale でも**メタデータ改変ゼロ**で再 blend できる。
