@@ -307,7 +307,7 @@ fork は読込時のピークが 10.4 GB に達し、12 GB 級では読み込め
 | 構成 | 読込時ピーク | 処理中ピーク(allocated / reserved) | プロセスピーク(expandable あり) | 同(なし、Windows の代理) | 90 フレーム 1 clip |
 |---|---|---|---|---|---|
 | scale 4、FP8 + compile | 5.3 GiB | 7.8 / 8.2 GiB | 8.8 GB | 9.0 GB | 1.6 秒 |
-| scale 4、bf16 | 9.4 GiB | 12.4 / 12.6 GiB | 13.3 GB | 未測定 | 3.4 秒 |
+| scale 4、bf16 | 9.4 GiB | 12.4 / 12.6 GiB | 13.3 GB | 14.0 GB(Windows 実測) | 3.4 秒 |
 | scale 2、FP8 + compile | 5.3 GiB | 5.6 / 5.9 GiB | 6.4 GB | 6.5 GB | 0.4 秒 |
 | scale 2、bf16 | 9.4 GiB | 10.2 / 10.3 GiB | 10.9 GB | 未測定 | 0.8 秒 |
 
@@ -318,7 +318,9 @@ scale 4 と scale 2 のどちらも上限 10.5 GiB で完走し、scale 4 は上
 - **12 GB 級で FP8 可(RTX 4070、5070 など)**: scale 4 の FP8 が 8.8 GB で収まり、
   デスクトップ常駐が 3 GB あっても届く。scale 2 は 6.4 GB。
 - **RTX 30 系 16 GB**: scale 4 の bf16 が 13.3 GB で収まる(`--no-swiftvr-accel` は不要。
-  driver が FP8 を外して bf16 に落ち、警告は出ない)。
+  driver が FP8 を外して bf16 に落ち、警告は出ない)。Windows(`expandable_segments` なし)
+  では 14.0 GB で、デスクトップ常駐 1.4 GB 込み 15.4 GB で完走した。常駐が 2 GB を超えると
+  天井に届くので、常駐を小さくして走らせる。
 - **12 GB 級で FP8 不可(RTX 3060 12 GB など)**: scale 4 の bf16 は入らない。scale 2 の
   bf16 が 10.9 GB で境界。
 - **SeedVR2 一次との併用**: Phase 1 に SeedVR2 worker、Phase 2 に SwiftVR と分かれるので
@@ -577,7 +579,8 @@ jasna 側の設計である。
 ## Windows での注意事項
 
 inline(`swiftvr-inline`)は Windows 11、RTX 5060 Ti 16 GB で検証した(2026-09-27、
-jasna `32168df`、SwiftVR fork `e7f186b`)。オフライン 3 段は Windows では未検証である。
+jasna `32168df`、SwiftVR fork `e7f186b`)。オフライン 3 段(`swiftvr`)も同じ機械で検証した
+(同日、jasna `afe8d18`。「[オフライン 3 段の実測](#オフライン-3-段の実測windows)」)。
 
 - セットアップは Linux と同じ。Triton は `triton-windows` が `uv sync` で入り、
   C++ コンパイラも開発ヘッダも要らない。高速化(FP8 DiT、torch.compile)は判定を通って
@@ -632,8 +635,34 @@ GB は MiB / 1024。出力フレーム数は全走行で入力と一致した):
 - 目視(利用者): scale 4、scale 2(view 平滑化の有無)の出力を FlashVSR inline の
   同素材出力と並べて確認し、問題は無かった。
 
-オフライン 3 段の想定(未検証):
+### オフライン 3 段の実測(Windows)
 
-- Phase 2 driver は `<repo>\.venv\Scripts\python.exe` で起動され、`PYTHONUTF8=1`
-  を渡す。`expandable_segments` が無いぶん Phase 2 のプロセスピークは Linux の代理測定で
-  FP8 +0.2 GB(scale 4 で 9.0 GB、scale 2 で 6.5 GB)。
+同じ機械と素材で、オフライン 3 段の全項目が完走し、出力フレーム数は入力と一致した。
+
+- Phase 2 driver は `<repo>\.venv\Scripts\python.exe` で起動され(`PYTHONUTF8=1`)、
+  高速化は判定を通って有効になった。ready は model load 6〜18 秒、warmup 8〜24 秒。
+- `nvidia-smi` のプロセス別の VRAM は WDDM では取れないので、GPU 全体の値を段の区間で
+  切り分けて、走行開始前の常駐を引いた増分を各段のピークとした。
+- **Phase 2 のピークは Linux の代理測定(`expandable_segments` なし)と 0.2 GB 以内**:
+  FP8 の scale 4 で 9.2 GB、scale 2 で 6.3 GB(480p と 1080p で同じ)。bf16 の scale 4 は
+  14.0 GB。
+- GPU 全体の増分は inline より 2.1〜2.5 GB 小さく、壁時計は inline の 1.4〜1.7 倍。
+- ロスレス encode で Phase 1 に `--fp8-recon` を明示すると、inline と全 10661 フレームが
+  bit 一致した(Linux と同じ)。`tune=lossless` はエラーなく通る。
+- Phase 2 の途中で driver を止めると bundle が残って再開の案内が出て、同じコマンドの
+  再実行で済んだ clip を飛ばして完走し、出力は中断なしと bit 一致した。直後の再実行でも
+  Linux で見た `cudaErrorDevicesUnavailable` は出なかった。
+- FlashVSR のオフライン(`flashvsr`)も従来どおり完走した(回帰なし)。
+
+| 素材 | 構成 | 壁時計 | 常駐 | GPU 全体ピーク | Phase 1 / 2 / 3 増分 | Phase 1 / 2 / 3 時間 | bundle |
+|------|------|--------|------|----------------|----------------------|----------------------|--------|
+| 480p | scale 4 | 913 秒 | 2.0 GB | 11.2 GB | 2.7 / 9.2 / 0.2 GB | 215 / 633 / 59 秒 | 30 GB |
+| 480p | scale 2 | 484 秒 | 1.9 GB | 8.2 GB | 2.8 / 6.3 / 0.3 GB | 224 / 224 / 33 秒 | 8.0 GB |
+| 480p | scale 4、`--no-swiftvr-accel` | 1392 秒 | 1.4 GB | 15.4 GB | 2.7 / 14.0 / 0 GB | 213 / 1120 / 54 秒 | — |
+| 1080p | scale 4 | 691 秒 | 0.4 GB | 9.6 GB | 3.2 / 9.2 / 0.7 GB | 159 / 490 / 38 秒 | 22 GB |
+| 1080p | scale 2 | 323 秒 | 0.4 GB | 6.7 GB | 3.2 / 6.3 / 0.7 GB | 150 / 147 / 22 秒 | 5.9 GB |
+| 480p | `flashvsr` scale 2、`--flashvsr-accel` | 962 秒 | 0.4 GB | 6.4 GB | 2.7 / 6.0 / 0.3 GB | 224 / 702 / 32 秒 | — |
+
+常駐は検証中に 2.0 GB から 0.4 GB まで下がったので、比べるときは増分を使う。
+12 GB 級(RTX 4070、5070)で scale 4 の FP8 を走らせる場合、常駐 2 GB 込みで約 11.2 GB
+(480p scale 4 の行がちょうどこの条件)になる。
