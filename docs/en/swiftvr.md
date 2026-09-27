@@ -231,7 +231,9 @@ is unavailable and reports why in jasna's log. Without FP8 the DiT runs in bf16
 (~12 GiB), which **does not co-reside with the primary on a 16 GB card**: jasna
 warns and continues, and if VRAM runs out a clip fails with an out-of-memory
 error (the worker retries it once, then stops). With 24 GB or more,
-`--no-swiftvr-accel` also runs. In the offline `swiftvr` mode SwiftVR has the
+`--no-swiftvr-accel` also runs. On Windows a 16 GB card was measured to
+complete instead of running out of memory (about 2x slower, with VRAM at the
+limit; see "[Notes for Windows](#notes-for-windows)"). In the offline `swiftvr` mode SwiftVR has the
 GPU to itself, so bf16 is a regular path there and fits 16 GB
 ("[Offline 3-phase mode](#offline-3-phase-mode---secondary-restoration-swiftvr)").
 
@@ -670,16 +672,74 @@ jasna's own design.
 
 ## Notes for Windows
 
-Unverified on Windows. Expected differences:
+Inline (`swiftvr-inline`) was verified on Windows 11 with an RTX 5060 Ti 16 GB
+(2026-09-27, jasna `32168df`, SwiftVR fork `e7f186b`). The offline 3-phase mode
+is unverified on Windows.
 
-- `expandable_segments` is unavailable, so the worker's reserved VRAM runs
-  above Linux; the fork's FP8 figure (8.0 GiB) was measured on Windows, though,
-  so no large gap is expected.
-- Triton comes as `triton-windows` through `uv sync`; no C++ compiler is needed
-  (fork README).
-- `--swiftvr-python` defaults to `<repo>/.venv/Scripts/python.exe`.
+- Setup is the same as on Linux. Triton comes as `triton-windows` through
+  `uv sync`; neither a C++ compiler nor dev headers are needed. Acceleration
+  (FP8 DiT, torch.compile) passed its checks and was enabled.
+  `--swiftvr-python` defaults to `<repo>/.venv/Scripts/python.exe`.
+- Worker startup took 5 to 6 s of model load and 11 to 12 s of warmup (with the
+  checkpoints in the page cache). The first time only, compiling Triton's probe
+  kernel prints one line, `remark: ... instructions in function`, on the
+  worker's stderr. It is harmless and gone once the kernel cache is warm.
+- **It fits 16 GB.** Without `expandable_segments`, the whole-GPU peak at 1080p
+  scale 4 was 13.2 GB (including 1.5 GB of desktop residents, out of 15.9 GB),
+  leaving 2.7 GB of headroom. More resident usage raises it by as much (14.2 GB
+  in a run with 2.5 GB resident).
+- **`--no-swiftvr-accel` (bf16) completed instead of stopping with an
+  out-of-memory error** (480p, scale 4), unlike on Linux. It took about 1.9x
+  the accelerated wall time, and the whole-GPU peak of 15.6 GB sat at the
+  card's limit (15.9 GB). Whether the Windows driver's CUDA Sysmem Fallback
+  (on by default) spilled the shortfall to system RAM, or the primary's small
+  VRAM at 480p just left enough room, was not isolated. With Sysmem Fallback
+  disabled or on larger inputs it can still run out of memory, so on a 16 GB
+  card without acceleration use the offline `swiftvr` mode.
+- In PowerShell, set the test-only variable `JASNA_SWIFTVR_COLOR_FIX` with
+  `$env:JASNA_SWIFTVR_COLOR_FIX="none"` and clear it after the run with
+  `Remove-Item Env:JASNA_SWIFTVR_COLOR_FIX` (left in the shell it applies to
+  every later run). In Git Bash, `JASNA_SWIFTVR_COLOR_FIX=none jasna ...`
+  passes it for one command.
 - View smoothing is GPU work on jasna's side only, so nothing about it is
-  Windows-specific.
-- The offline Phase 2 driver is started with `<repo>\.venv\Scripts\python.exe`
+  Windows-specific. Its cost was within noise, as on Linux.
+
+Measurements (Windows 11, RTX 5060 Ti 16 GB. The inputs differ from Linux, with
+10661 frames at 480p and 6242 at 1080p, so do not compare wall times with the
+Linux table above. The whole-GPU peak is the maximum of `nvidia-smi` polled
+every 0.5 s and includes 1.4 to 1.6 GB of desktop residents. GB is MiB / 1024.
+Output frame counts matched the input in every run):
+
+| Input | Configuration | Wall time | Whole-GPU peak |
+|-------|---------------|-----------|----------------|
+| 480p | primary only | 114 s | 3.7 GB |
+| 480p | `swiftvr-inline` scale 4 | 671 s | 12.8 GB |
+| 480p | `swiftvr-inline` scale 2 | 280 s | 9.8 GB |
+| 480p | `swiftvr-inline` scale 4, color fix none | 613 s | 13.0 GB |
+| 480p | `swiftvr-inline` scale 4, `--no-swiftvr-accel` | 1287 s | 15.6 GB |
+| 1080p | `swiftvr-inline` scale 4 | 477 s | 13.2 GB |
+| 1080p | `swiftvr-inline` scale 2 | 189 s | 10.4 GB |
+| 1080p | `swiftvr-inline` scale 2, `--swiftvr-view-window 0` | 197 s | 10.4 GB |
+| 1080p | `flashvsr-inline` scale 2 (earlier run) | 463 s | 11.0 GB |
+| 1080p | `flashvsr-inline` scale 4 tiles 1 (earlier run) | 1555 s | 15.5 GB |
+
+- Against FlashVSR inline on the same machine at 1080p, scale 2 is about 2.4x
+  and scale 4 about 3.3x faster.
+- Color correction costs about 9.5% of wall time (671 s vs 613 s), more than
+  Linux's 4.6% and in line with FlashVSR's Windows figure (about 10%).
+- The `--no-swiftvr-accel` row was measured with 2.9 GB of desktop residents,
+  the FlashVSR rows with 3.1 GB (scale 2) and 1.3 GB (scale 4).
+- Color drift (480p, against the primary-only output, measured every 10th frame
+  over a shared mask of the pixels the uncorrected output changed; the mask
+  differs from the Linux gate, so do not compare absolute values): per-channel
+  median |Δmean| went from 3.98 uncorrected to 0.71 with wavelet at scale 4 and
+  0.66 at scale 2 (pass; wavelet is below uncorrected in over 94% of frames).
+- Visual check (user): the scale 4 and scale 2 outputs (with and without view
+  smoothing), side by side with FlashVSR inline on the same inputs, showed no
+  problems.
+
+Expected for the offline 3-phase mode (unverified):
+
+- The Phase 2 driver is started with `<repo>\.venv\Scripts\python.exe`
   and `PYTHONUTF8=1`. Without `expandable_segments` its process peak is the
   Linux stand-in's FP8 +0.2 GB (9.0 GB at scale 4, 6.5 GB at scale 2).
