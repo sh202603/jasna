@@ -204,7 +204,9 @@ fork の計測(RTX 5060 Ti、640×480 → 1280×960)では、両方で GPU ス�
 出す。FP8 が外れると DiT は bf16(約 12 GiB)で動き、**16 GB カードでは一次と同居
 できない**。この場合 jasna は警告を出して続行し、VRAM が足りなければ clip の処理が
 OOM で失敗する(worker は 1 回やり直し、再失敗で停止)。24 GB 以上のカードなら
-`--no-swiftvr-accel` でも動く。オフラインの `swiftvr` では SwiftVR が GPU を独占するので
+`--no-swiftvr-accel` でも動く。Windows の 16 GB カードでは OOM にならず完走した実測がある
+(約 2 倍遅く、VRAM は上限に張り付く。「[Windows での注意事項](#windows-での注意事項)」)。
+オフラインの `swiftvr` では SwiftVR が GPU を独占するので
 bf16 が正規の経路で、16 GB に収まる(「[オフライン 3 段](#オフライン-3-段--secondary-restoration-swiftvr)」)。
 
 ### 色補正
@@ -574,14 +576,64 @@ jasna 側の設計である。
 
 ## Windows での注意事項
 
-Windows では未検証である。想定される差は次のとおり。
+inline(`swiftvr-inline`)は Windows 11、RTX 5060 Ti 16 GB で検証した(2026-09-27、
+jasna `32168df`、SwiftVR fork `e7f186b`)。オフライン 3 段は Windows では未検証である。
 
-- `expandable_segments` が使えないので worker の reserved が Linux より増えるが、
-  SwiftVR fork の FP8 の実測(8.0 GiB)は Windows 機のものなので、大きな差は出ない見込み。
-- Triton は `triton-windows` が `uv sync` で入り、C++ コンパイラは要らない(fork の
-  README)。
-- `--swiftvr-python` の既定は `<repo>/.venv/Scripts/python.exe`。
-- view 平滑化は jasna 側の GPU 処理だけなので、Windows 固有の要素は無い。
-- オフラインの Phase 2 driver は `<repo>\.venv\Scripts\python.exe` で起動され、`PYTHONUTF8=1`
+- セットアップは Linux と同じ。Triton は `triton-windows` が `uv sync` で入り、
+  C++ コンパイラも開発ヘッダも要らない。高速化(FP8 DiT、torch.compile)は判定を通って
+  有効になった。`--swiftvr-python` の既定は `<repo>/.venv/Scripts/python.exe`。
+- worker の起動は model load 5〜6 秒、warmup 11〜12 秒(チェックポイントがページ
+  キャッシュに乗った状態)。初回だけ、Triton の事前検査カーネルのコンパイルで
+  `remark: ... instructions in function` という 1 行が worker の stderr から出る。無害で、
+  カーネルキャッシュが温まった後は出ない。
+- **16 GB に収まる**。`expandable_segments` が使えなくても、GPU 全体のピークは
+  1080p scale 4 で 13.2 GB(デスクトップ常駐 1.5 GB を含む。搭載 15.9 GB)で、天井まで
+  2.7 GB 残る。常駐が多い環境ではその分だけ上がる(常駐 2.5 GB の走行では 14.2 GB)。
+- **`--no-swiftvr-accel`(bf16)は OOM で止まらず完走した**(480p、scale 4)。Linux と
+  異なる。壁時計は高速化ありの約 1.9 倍、GPU 全体のピークは 15.6 GB で搭載量(15.9 GB)の
+  上限に張り付いた。Windows ドライバの CUDA Sysmem Fallback(既定で有効)が不足分を
+  システム RAM へ逃がしたか、480p では一次の VRAM が小さく辛うじて収まったかは
+  切り分けていない。Sysmem Fallback を無効にした環境や大きい素材では OOM になり得るので、
+  16 GB カードで高速化が使えない場合はオフラインの `swiftvr` を使う。
+- 検証用の環境変数 `JASNA_SWIFTVR_COLOR_FIX` は、PowerShell では
+  `$env:JASNA_SWIFTVR_COLOR_FIX="none"` で設定し、走行後に
+  `Remove-Item Env:JASNA_SWIFTVR_COLOR_FIX` で消す(シェルに残すと以後の走行すべてに効く)。
+  Git Bash なら `JASNA_SWIFTVR_COLOR_FIX=none jasna ...` とコマンド単位で渡せる。
+- view 平滑化は jasna 側の GPU 処理だけなので、Windows 固有の要素は無い。コストは
+  Linux と同じく誤差の範囲だった。
+
+実測(Windows 11、RTX 5060 Ti 16 GB。素材は Linux と異なり 480p が 10661 フレーム、
+1080p が 6242 フレームなので、壁時計は上の Linux の表と比較しない。GPU 全体のピークは
+`nvidia-smi` の 0.5 秒ポーリングの最大値で、デスクトップ常駐 1.4〜1.6 GB を含む。
+GB は MiB / 1024。出力フレーム数は全走行で入力と一致した):
+
+| 素材 | 構成 | 壁時計 | GPU 全体ピーク |
+|------|------|--------|----------------|
+| 480p | 一次のみ | 114 秒 | 3.7 GB |
+| 480p | `swiftvr-inline` scale 4 | 671 秒 | 12.8 GB |
+| 480p | `swiftvr-inline` scale 2 | 280 秒 | 9.8 GB |
+| 480p | `swiftvr-inline` scale 4、色補正 none | 613 秒 | 13.0 GB |
+| 480p | `swiftvr-inline` scale 4、`--no-swiftvr-accel` | 1287 秒 | 15.6 GB |
+| 1080p | `swiftvr-inline` scale 4 | 477 秒 | 13.2 GB |
+| 1080p | `swiftvr-inline` scale 2 | 189 秒 | 10.4 GB |
+| 1080p | `swiftvr-inline` scale 2、`--swiftvr-view-window 0` | 197 秒 | 10.4 GB |
+| 1080p | `flashvsr-inline` scale 2(以前の実測) | 463 秒 | 11.0 GB |
+| 1080p | `flashvsr-inline` scale 4 tiles 1(以前の実測) | 1555 秒 | 15.5 GB |
+
+- 同機の FlashVSR inline に対して、1080p で scale 2 は約 2.4 倍、scale 4 は約 3.3 倍速い。
+- 色補正のコストは壁時計の約 9.5%(671 秒 対 613 秒)。Linux の 4.6% より大きく、
+  FlashVSR の Windows 実測(約 10%)と同程度。
+- `--no-swiftvr-accel` の行はデスクトップ常駐 2.9 GB、FlashVSR の行は scale 2 が 3.1 GB、
+  scale 4 が 1.3 GB の状態で測った。
+- 色ずれ(480p、一次のみ出力比。「補正なし」出力が変えた画素を共通のマスクにして
+  10 フレームごとに測った。Linux のゲートとマスクの定義が違うので絶対値は比べない):
+  チャネル毎 median |Δmean| は補正なし 3.98 → wavelet scale 4 0.71、scale 2 0.66
+  (合格。94% 以上のフレームで wavelet が補正なしを下回る)。
+- 目視(利用者): scale 4、scale 2(view 平滑化の有無)の出力を FlashVSR inline の
+  同素材出力と並べて確認し、問題は無かった。
+
+オフライン 3 段の想定(未検証):
+
+- Phase 2 driver は `<repo>\.venv\Scripts\python.exe` で起動され、`PYTHONUTF8=1`
   を渡す。`expandable_segments` が無いぶん Phase 2 のプロセスピークは Linux の代理測定で
   FP8 +0.2 GB(scale 4 で 9.0 GB、scale 2 で 6.5 GB)。
