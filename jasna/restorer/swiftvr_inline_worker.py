@@ -31,6 +31,12 @@ Linux that means the base Python's dev headers). Whatever fails is switched
 off with a reason in the handshake; there is no runtime demotion, since
 SwiftVR's FP8 replaces the DiT linears in place and has no fallback path.
 
+The offline Phase 2 driver (``swiftvr_phase2_driver.py``) loads this file by
+path and reuses its model handling (``_decide_accel``, ``_load_pipeline``,
+``_warmup``, ``_restore_checked``, ``_color_fix_frames_gpu``), so an offline
+clip goes through the same functions as an inline one. Keep the top level
+stdlib-only for that.
+
 Wire protocol (parent = jasna venv, child = this):
   parent -> child : header ``{"seq","n","h","w"}\\n`` (UTF-8) then n*h*w*3 raw
                     uint8 BGR bytes  (the 256px primary crops, HWC)
@@ -233,8 +239,7 @@ def _decide_accel(want_fp8: bool, want_compile: bool, device) -> tuple[bool, boo
         cap = torch.cuda.get_device_capability(torch.device(device))
         log.append(
             f"fp8_dit disabled: needs compute capability 8.9+ (RTX 40 series or newer), this GPU "
-            f"is {cap[0]}.{cap[1]}; the DiT runs in bf16 (~12 GiB, which does not co-reside with "
-            "the primary pipeline on a 16 GB card)."
+            f"is {cap[0]}.{cap[1]}; the DiT runs in bf16 (~12 GiB)."
         )
         fp8 = False
     if fp8 or comp:
@@ -253,6 +258,45 @@ def _decide_accel(want_fp8: bool, want_compile: bool, device) -> tuple[bool, boo
     if parts:
         log.append("enabled " + ", ".join(parts) + ".")
     return fp8, comp, parts, log
+
+
+def _load_pipeline(model_dir: str, device, *, fp8: bool, torch_compile: bool, quiet: bool = True):
+    """Load ``SwiftVRPipeline`` onto ``device`` the way both SwiftVR paths do:
+    bf16 weights, the auto attention backend, the acceleration parts as decided
+    by ``_decide_accel`` and cuDNN benchmark off (the fork's bit-identical
+    runs). ``quiet`` silences diffusers' warning about the fork's deliberate
+    whole-DiT bf16 cast."""
+    from swiftvr import SwiftVRPipeline
+
+    if quiet:
+        try:
+            from diffusers.utils import logging as diffusers_logging
+            diffusers_logging.set_verbosity_error()
+        except Exception:
+            pass
+    return SwiftVRPipeline.from_pretrained(model_dir).to(
+        device, dtype="bfloat16", attention_backend="auto", torch_compile=torch_compile,
+        cudnn_benchmark=False, fp8_dit=fp8)
+
+
+def _warmup(pipe, torch, device, scale: int, clip_len: int, color_fix_method: str) -> None:
+    """Warm up at the shape every clip has (256px crops): 2*clip_len+5 frames
+    split into FIRST (clip_len+4), MIDDLE (clip_len) and LAST (1), which under
+    torch.compile builds all four DiT graphs (clip_len//4+1 and clip_len//4
+    latents, with and without the window shift). Random pixels, not zeros:
+    FP8's activation scale is an abs-max. The color fix runs once too, so its
+    kernels are resident before the first clip."""
+    warm_n = 2 * clip_len + 5
+    warm = torch.randint(0, 256, (warm_n, 256, 256, 3), dtype=torch.uint8, device=device)
+    warm_out = pipe.restore_clip(warm, upscale=scale, clip_len=clip_len)
+    if tuple(warm_out.shape) != (warm_n, 256 * scale, 256 * scale, 3):
+        raise RuntimeError(f"warmup produced {tuple(warm_out.shape)}, expected {(warm_n, 256 * scale, 256 * scale, 3)}")
+    if color_fix_method != "none":
+        _color_fix_frames_gpu(warm_out, warm, color_fix_method)
+    del warm, warm_out
+    if str(device).startswith("cuda"):
+        torch.cuda.synchronize(device)
+        torch.cuda.empty_cache()
 
 
 def _restore_checked(pipe, torch, lq, scale: int, clip_len: int):
@@ -292,16 +336,6 @@ def main() -> None:
     sys.path.insert(0, args.repo)
     import numpy as np
     import torch
-    from swiftvr import SwiftVRPipeline
-
-    if not args.verbose:
-        # The fork's to() casts the whole DiT to bf16 on purpose; diffusers'
-        # "modules that should be kept in float32" warning about it is noise.
-        try:
-            from diffusers.utils import logging as diffusers_logging
-            diffusers_logging.set_verbosity_error()
-        except Exception:
-            pass
 
     device = args.device
     if device == "auto":
@@ -310,36 +344,27 @@ def main() -> None:
         torch.cuda.set_device(device)
 
     fp8, comp, accel_parts, accel_log = _decide_accel(args.fp8_dit, args.torch_compile, device)
+    if args.fp8_dit and not fp8:
+        # Inline only: the worker shares the GPU with the primary pipeline. The
+        # offline Phase 2 driver runs the same decision, and there bf16 is the
+        # regular path (the SwiftVR phase has the GPU to itself).
+        accel_log.append(
+            "the bf16 DiT does not co-reside with the primary pipeline on a 16 GB card; "
+            "the offline mode (--secondary-restoration swiftvr) runs it alone."
+        )
     for line in accel_log:
         print(f"[swiftvr-worker] accel: {line}", file=sys.stderr, flush=True)
 
     t0 = time.perf_counter()
-    pipe = SwiftVRPipeline.from_pretrained(args.model_dir).to(
-        device, dtype="bfloat16", attention_backend="auto", torch_compile=comp,
-        cudnn_benchmark=False, fp8_dit=fp8)
+    pipe = _load_pipeline(args.model_dir, device, fp8=fp8, torch_compile=comp, quiet=not args.verbose)
     t_load = time.perf_counter() - t0
 
     scale = int(args.scale)
     clip_len = int(args.clip_len)
     color_fix_method = args.color_fix_method
 
-    # Warm up at the shape every clip has (256px crops): 2*clip_len+5 frames
-    # split into FIRST (clip_len+4), MIDDLE (clip_len) and LAST (1), which
-    # under torch.compile builds all four DiT graphs (clip_len//4+1 and
-    # clip_len//4 latents, with and without the window shift). Random pixels,
-    # not zeros: FP8's activation scale is an abs-max.
     t1 = time.perf_counter()
-    warm_n = 2 * clip_len + 5
-    warm = torch.randint(0, 256, (warm_n, 256, 256, 3), dtype=torch.uint8, device=device)
-    warm_out = pipe.restore_clip(warm, upscale=scale, clip_len=clip_len)
-    if tuple(warm_out.shape) != (warm_n, 256 * scale, 256 * scale, 3):
-        raise RuntimeError(f"warmup produced {tuple(warm_out.shape)}, expected {(warm_n, 256 * scale, 256 * scale, 3)}")
-    if color_fix_method != "none":
-        _color_fix_frames_gpu(warm_out, warm, color_fix_method)
-    del warm, warm_out
-    if str(device).startswith("cuda"):
-        torch.cuda.synchronize(device)
-        torch.cuda.empty_cache()
+    _warmup(pipe, torch, device, scale, clip_len, color_fix_method)
     print(f"[swiftvr-worker] ready: model load {t_load:.1f}s, warmup {time.perf_counter() - t1:.1f}s "
           f"(scale {scale}, clip_len {clip_len}, accel: {', '.join(accel_parts) or 'off'})",
           file=sys.stderr, flush=True)
