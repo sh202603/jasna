@@ -51,7 +51,9 @@ restoration. A secondary model upscales the restored crop to 512x512 or
   Quality is okay. Some videos may flicker, so test on a short clip first.
   *(+modi)* `--rtx-strength` (0.0–1.0) dials every RTX pass back toward the
   unprocessed picture, and `--rtx-highbitrate` switches to the clean-source
-  upscale models; both are experimental and need an A/B. See [cli.md](cli.md).
+  upscale models. Both are opt-in; a visual check on the 1080p test clip
+  found no artifacts, but whether they look better depends on the source.
+  See [cli.md](cli.md).
 - **TVAI**: better than RTX Super Resolution and comparable to unet-4x, but
   very slow. Requires [Topaz Video](https://www.topazlabs.com/topaz-video),
   which is paid and Windows-only. Recommended model: `iris-2`.

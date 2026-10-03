@@ -71,7 +71,7 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 | `--rtx-denoise` | `medium` | `none` disables. |
 | `--rtx-deblur` | `none` | `none` disables. |
 | `--rtx-strength` | `1.0` | *(+modi)* Strength of every RTX pass (upscale, denoise, deblur), `0.0`–`1.0`; lower blends toward the unprocessed picture. Needs `nvidia-vfx` 0.2.0.0+. |
-| `--rtx-highbitrate` | off | *(+modi)* Use the RTX upscale models tuned for clean, high-bitrate sources (`HIGHBITRATE_*`, no compression-artifact suppression). Experimental; A/B on a short clip. |
+| `--rtx-highbitrate` | off | *(+modi)* Use the RTX upscale models tuned for clean, high-bitrate sources (`HIGHBITRATE_*`, no compression-artifact suppression). Opt-in; visually clean on the test clip, effect is source-dependent. |
 | `--tvai-ffmpeg-path` | Topaz default install path | Path to Topaz Video `ffmpeg.exe`. |
 | `--tvai-model` | `iris-2` | e.g. `iris-2`, `prob-4`, `iris-3`. |
 | `--tvai-scale` | `4` | Output size is `256*scale`; `1` = no scale. |

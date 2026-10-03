@@ -71,7 +71,7 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 | `--rtx-denoise` | `medium` | `none` で無効。 |
 | `--rtx-deblur` | `none` | `none` で無効。 |
 | `--rtx-strength` | `1.0` | *(+modi)* RTX の各パス（拡大、ノイズ除去、ブレ除去）の効果の強さ。`0.0`〜`1.0`、低いほど未処理の画に近づく。`nvidia-vfx` 0.2.0.0 以降が必要。 |
-| `--rtx-highbitrate` | オフ | *(+modi)* 高ビットレートのクリーンなソース向け RTX 拡大モデル（`HIGHBITRATE_*`、圧縮アーティファクト抑制なし）を使う。実験的。短いクリップで A/B を。 |
+| `--rtx-highbitrate` | オフ | *(+modi)* 高ビットレートのクリーンなソース向け RTX 拡大モデル（`HIGHBITRATE_*`、圧縮アーティファクト抑制なし）を使う。オプトイン。テストクリップの目視では問題なし、効果は素材依存。 |
 | `--tvai-ffmpeg-path` | Topaz のデフォルトインストールパス | Topaz Video の `ffmpeg.exe` のパス。 |
 | `--tvai-model` | `iris-2` | 例: `iris-2`、`prob-4`、`iris-3`。 |
 | `--tvai-scale` | `4` | 出力サイズは `256*scale`。`1` = 拡大なし。 |
