@@ -159,7 +159,7 @@ delvewheel は DLL をハッシュ付き名で `av.libs\` に同梱するため�
 
 ## 5. jasna 本体のインストール
 
-v0.8.1 で GPU スタックは extras に分割された（`nvidia` = NVIDIA スタック、`amd` = ROCm 用）。NVIDIA ビルドでは `nvidia` extra が `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx` を入れる。これらは標準の PyPI には存在しないため、**PyTorch の wheel インデックスを `--extra-index-url` で指定し、さらに 2 つのフラグが必要**:
+v0.8.1 で GPU スタックは extras に分割された（`nvidia` = NVIDIA スタック、`amd` = ROCm 用）。NVIDIA ビルドでは `nvidia` extra が `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx==0.2.0.0` を入れる。これらは標準の PyPI には存在しないため、**PyTorch の wheel インデックスを `--extra-index-url` で指定し、さらに 2 つのフラグが必要**:
 
 ```powershell
 cd $Workspace\jasna
@@ -178,6 +178,8 @@ uv pip install -e .[dev,nvidia] `
 - `--prerelease=allow`: `torch-tensorrt` の推移依存 `nvidia-cuda-runtime-cu13==0.0.0a0` がプレリリース版のため必要
 
 `[dev]` で `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja` が入る。`[nvidia]` で GPU スタック（torch cu130 / TensorRT / torch-tensorrt / nvidia-vfx。v0.8.1 で必須依存から分割）が入る — **指定を忘れると torch が入らず起動しない**。
+
+**注: `nvidia-vfx` は 2026-10-03 から 0.2.0.0（VFX SDK 1.3.0）に固定している。** PyPI 上のエントリは殻で、上記インストール中に `pypi.nvidia.com` から実 wheel（Windows x64 は 436 MB）を取ってくる。0.2.0.0 は `--frame-gen-backend rtx`（[frame_generation.md](frame_generation.md)）の `VideoFrameGeneration` effect を追加し、同梱 TensorRT をなくし、torch の CUDA 13 ランタイムと並んで自前の `cudart64_12.dll` を持つ。固定より前に作った venv には 0.1.0.1 が入っているので `uv pip install nvidia-vfx==0.2.0.0` で更新する。**0.2.0.0 wheel の動作確認は現時点で Linux のみ**。Windows の DLL ロード順（`nvvfx/_lib_loader.py` は同梱 DLL をディレクトリ走査で見つける方式になり、`jasna\packaging\windows_dll_paths.py` はそのディレクトリを登録済み）と cudart 12/13 の共存は Windows での実走が未済。
 
 **オプション: torchcodec バックエンド。** 実験的な torchcodec のデコード/エンコード経路（`--video-backend torchcodec`/`auto`）を使う場合は、`torchcodec` extra を追加し、同じフラグで `.[dev,nvidia,torchcodec]` を入れる:
 
