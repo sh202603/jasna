@@ -137,8 +137,16 @@ when the size changes, so a folder batch of mixed resolutions shares one generat
 by eye; no ghosting, edge breakup or false shot-change blending was seen in the RTX output (PSNR between the
 two outputs 47.6 dB, so they are close but not identical).
 
-**Not yet verified**: the Windows wheel of 0.2.0.0, and the exact SDK error on Turing/Ampere (jasna's own
-capability check fires first).
+**Windows results (2026-10-03, RTX 5080, driver 616.92, Windows 11)**: the 0.2.0.0 Windows wheel (436 MB,
+fetched from pypi.nvidia.com by `uv pip install nvidia-vfx==0.2.0.0`) runs the same code unchanged. The unit
+test that exercises the real SDK passes; `jasna-framegen --factor 2x` on the 1080p test clip takes 4.3 s with
+`rtx` against 23.5 s with `rife` (the local `rife.pth` is a TorchScript checkpoint with a baked-in float32
+warp grid, so RIFE fell back to fp32). Both outputs are 599 frames at 60 fps with a PSNR of 47.8 dB between
+them (in line with 47.6 dB on Linux). The full pipeline (rtx-super-res with `--rtx-strength 0.6
+--rtx-highbitrate` plus 2x `rtx`) also completes at 599 frames / 60 fps, and combining with `--fp8-recon`
+showed no cuDNN contention.
+
+**Not yet verified**: the exact SDK error on Turing/Ampere (jasna's own capability check fires first).
 
 ---
 
