@@ -107,7 +107,9 @@ effect ロード後の追加 VRAM: 1080p `medium` +0.55 GB（`high` +1.24 GB、R
 
 **目視確認（2026-10-03、Linux）**: 1080p テストクリップの 2x 出力を `rtx` と `rife` で見比べ、RTX 側に残像、エッジの破綻、シーン切替の誤ブレンドは見られなかった（両出力間の PSNR は 47.6 dB で、近いが同一ではない）。
 
-**未確認**: 0.2.0.0 の Windows wheel、Turing/Ampere で SDK が返す正確なエラー（jasna 側の capability 判定が先に効く）。
+**Windows の実測（2026-10-03、RTX 5080、ドライバ 616.92、Windows 11）**: 0.2.0.0 の Windows wheel（436 MB、`uv pip install nvidia-vfx==0.2.0.0` で pypi.nvidia.com から取得）で同一コードがそのまま動く。実 SDK を呼ぶユニットテストが合格し、1080p テストクリップの `jasna-framegen --factor 2x` は `rtx` 4.3 秒、`rife` 23.5 秒（この環境の `rife.pth` は warp grid が float32 で焼き込まれた TorchScript のため fp32 fallback）。出力はどちらも 599 枚 60 fps で、両出力間の PSNR は 47.8 dB（Linux の 47.6 dB と同水準）。フルパイプライン（rtx-super-res + `--rtx-strength 0.6 --rtx-highbitrate` + 2x `rtx`）も 599 枚 60 fps で完走し、`--fp8-recon` との併用でも cuDNN の取り合いは起きなかった。
+
+**未確認**: Turing/Ampere で SDK が返す正確なエラー（jasna 側の capability 判定が先に効く）。
 
 ---
 

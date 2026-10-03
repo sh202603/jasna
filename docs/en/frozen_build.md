@@ -43,7 +43,7 @@ Three pitfalls the script handles — keep them in mind when touching it:
 
 1. **Stdlib on Nuitka's no-auto-inclusion list.** Nuitka only bundles stdlib modules that *compiled* code imports. Imports made at runtime by the flat-copied packages (e.g. torch importing `unittest.mock` and `uuid`) are invisible to it, and a large blacklist (`unittest`, `uuid`, `logging`, `socket`, `ssl`, ...) is never auto-included. The script therefore includes everything on that list that exists on the platform, minus obvious junk (see `STDLIB_INCLUDE_SKIP`).
 2. **`python3.dll`.** Nuitka ships `python313.dll` but not the stable-ABI forwarder `python3.dll`. Extensions built against the limited API (e.g. psutil's `_psutil_windows.pyd`) link `python3.dll` and fail to load without it. The script copies it from the base CPython installation.
-3. **Non-Python files of the compiled package.** `--include-package=jasna` compiles `.py` modules only — data files and scripts inside `jasna\` are silently dropped. The script therefore copies them explicitly: `jasna\media\yuv_to_rgb.fatbin` (the GPU YUV→RGB kernel, read from the dist root when frozen — without it every decode fails on the first frame), the FlashVSR worker/driver scripts into `jasna\restorer\` (they are handed as real `.py` files to the external FlashVSR venv's Python), and the logo files into `assets\`.
+3. **Non-Python files of the compiled package.** `--include-package=jasna` compiles `.py` modules only — data files and scripts inside `jasna\` are silently dropped. The script therefore copies them explicitly: every `jasna\media\*.fatbin` (the precompiled CUDA kernels — resize/normalize, YUV↔RGB, CAS, LUT, denoise — read from the dist root when frozen; without them every decode fails on the first frame), the FlashVSR worker/driver scripts into `jasna\restorer\` (they are handed as real `.py` files to the external FlashVSR venv's Python), and the logo files into `assets\`.
 
 TensorRT engines (`*.engine`, `*_sub_engines\`) are **deliberately not bundled**: they are specific to the GPU and TensorRT version and are regenerated into `model_weights\` on the end user's first run (the usual 15–60 min first-run compilation).
 
@@ -54,7 +54,7 @@ dist_nuitka\jasna\
 ├── jasna.exe               # main entry point (args → CLI, no args → GUI)
 ├── jasna-framegen.exe      # standalone frame-generation CLI (copy of jasna.exe)
 ├── python313.dll, python3.dll, vcruntime140*.dll
-├── yuv_to_rgb.fatbin       # GPU YUV→RGB kernel (read from the dist root when frozen)
+├── *.fatbin                # precompiled CUDA kernels (read from the dist root when frozen)
 ├── torch\, torchvision\, tensorrt_libs\, torchcodec\, nvvfx\, ...
 ├── numpy.libs\, scipy.libs\, av.libs\    # must stay at the root (DLL search contract)
 ├── *.dist-info\            # kept for importlib.metadata version lookups
@@ -91,6 +91,6 @@ The first processing run also exercises the engine-compilation subprocess path (
 - **`Error: No CUDA device` although the GPU works** — this message can be misleading: `os_utils.check_supported_gpu()` swallows `ImportError`, so a torch import failure inside the frozen app (typically a missing stdlib module) is reported as "no CUDA". Check for a genuinely missing module first (see next item) before suspecting the GPU stack.
 - **`ModuleNotFoundError: <stdlib module>`** — the module is on Nuitka's no-auto-inclusion list and got skipped. Remove it from `STDLIB_INCLUDE_SKIP` (or extend the include logic) in `scripts\build_nuitka.py` and rebuild; only jasna recompiles, so this is quick.
 - **`ImportError: DLL load failed while importing <ext>`** — inspect the extension's imports (e.g. with `pefile`). If it links `python3.dll`, the forwarder is missing from the dist root. Otherwise a dependent DLL is not on the frozen app's search path (dist root, `torch\lib`, `*.libs`, `tools\`, System32).
-- **`Missing precompiled YUV conversion kernel`** — `yuv_to_rgb.fatbin` is missing from the dist root; rerun the bundle steps (`--skip-nuitka` suffices).
+- **`Missing precompiled CUDA kernel`** — a `*.fatbin` file is missing from the dist root; rerun the bundle steps (`--skip-nuitka` suffices).
 - **torchcodec backend fails to load while the native backend works** — the FFmpeg 8 shared DLLs are not resolvable: either the build bundled a static ffmpeg (no DLLs in `tools\`) or `tools\` is missing. Bundle a shared-build ffmpeg or put FFmpeg 8 DLLs on `PATH`.
 - **Silent wrong behavior after changing the nofollow logic** — check `build\nuitka\report.xml`: the script warns if any module was compiled from site-packages (it should never happen; third-party code must be copied, not compiled — `cv2` and friends break when compiled).

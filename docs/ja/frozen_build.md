@@ -74,7 +74,7 @@ upstream はパッケージングを PyInstaller から Nuitka へ切り替え�
    スクリプトはベースの CPython インストールからコピーする。
 3. **コンパイル対象パッケージ内の非 Python ファイル**：`--include-package=jasna` がコンパイルするのは `.py` モジュールだけで、`jasna\` 内のデータファイルやスクリプトは黙って脱落する。
    そこでスクリプトが明示的にコピーする。
-   対象は、`jasna\media\yuv_to_rgb.fatbin`（GPU の YUV→RGB カーネル。凍結時は配布物ルートから読まれ、欠けるとすべてのデコードが最初のフレームで失敗する）、`jasna\restorer\` 配下の FlashVSR worker と driver のスクリプト（外部の FlashVSR venv の Python に実ファイルとして渡される）、`assets\` のロゴファイルである。
+   対象は、`jasna\media\*.fatbin` 全部（事前コンパイル済み CUDA カーネル。リサイズ/正規化、YUV↔RGB、CAS、LUT、デノイズ。凍結時は配布物ルートから読まれ、欠けるとすべてのデコードが最初のフレームで失敗する）、`jasna\restorer\` 配下の FlashVSR worker と driver のスクリプト（外部の FlashVSR venv の Python に実ファイルとして渡される）、`assets\` のロゴファイルである。
 
 TensorRT エンジン（`*.engine` と `*_sub_engines\`）は意図的に同梱しない。
 エンジンは GPU と TensorRT のバージョンに固有であり、配布先の初回起動時に `model_weights\` へ再生成されるからである（初回のみ 15 分から 60 分程度のコンパイルが走る）。
@@ -86,7 +86,7 @@ dist_nuitka\jasna\
 ├── jasna.exe               # メインのエントリポイント（引数あり → CLI、なし → GUI）
 ├── jasna-framegen.exe      # スタンドアロンのフレーム生成 CLI（jasna.exe のコピー）
 ├── python313.dll, python3.dll, vcruntime140*.dll
-├── yuv_to_rgb.fatbin       # GPU の YUV→RGB カーネル（凍結時はルートから読まれる）
+├── *.fatbin                # 事前コンパイル済み CUDA カーネル（凍結時はルートから読まれる）
 ├── torch\, torchvision\, tensorrt_libs\, torchcodec\, nvvfx\, ...
 ├── numpy.libs\, scipy.libs\, av.libs\    # ルート直下に置く必要がある（DLL 探索の前提）
 ├── *.dist-info\            # importlib.metadata のバージョン照会用に残す
@@ -140,7 +140,7 @@ cd dist_nuitka\jasna
 - **`ImportError: DLL load failed while importing <拡張>`**：その拡張の依存 DLL を調べる（`pefile` などを使う）。
   `python3.dll` にリンクしていれば、フォワーダが配布物ルートにないのが原因である。
   そうでなければ、依存 DLL が凍結アプリの探索パス（配布物ルート、`torch\lib`、`*.libs`、`tools\`、System32）にない。
-- **`Missing precompiled YUV conversion kernel`**：配布物ルートに `yuv_to_rgb.fatbin` がない。
+- **`Missing precompiled CUDA kernel`**：配布物ルートに `*.fatbin` が足りない。
   同梱手順をやり直す（`--skip-nuitka` で足りる）。
 - **native バックエンドは動くのに torchcodec バックエンドがロードに失敗する**：FFmpeg 8 の shared DLL が解決できていない。
   ビルド時に static ビルドの ffmpeg を同梱した（`tools\` に DLL がない）か、`tools\` 自体がない。
