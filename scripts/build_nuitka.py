@@ -40,7 +40,7 @@ DIST = ROOT / "dist_nuitka" / "jasna"  # dist_nuitka/ is already gitignored
 
 REQUIRED_WEIGHTS = [
     "lada_mosaic_restoration_model_generic_v1.2.pth",
-    "rfdetr-v5.onnx",
+    "rfdetr-v6.onnx",
     "lada_mosaic_detection_model_v4_fast.pt",
 ]
 
@@ -374,9 +374,11 @@ def copy_weights_and_assets(bundle_rife: bool) -> None:
 
 
 def copy_frozen_runtime_files() -> None:
-    # GPU YUV->RGB kernel: media/yuv_to_rgb.py reads it from the dist root when
-    # frozen (the compiled jasna package carries no data files).
-    shutil.copy2(ROOT / "jasna" / "media" / "yuv_to_rgb.fatbin", DIST / "yuv_to_rgb.fatbin")
+    # Precompiled CUDA kernels: media/cuda_kernel.py reads every .fatbin from
+    # the dist root when frozen (the compiled jasna package carries no data
+    # files).
+    for fatbin in sorted((ROOT / "jasna" / "media").glob("*.fatbin")):
+        shutil.copy2(fatbin, DIST / fatbin.name)
     # FlashVSR / SwiftVR / SeedVR2 pass these as real script files to their
     # external venv's Python; when frozen they are resolved under
     # <dist>/jasna/restorer/ (see _resolve_worker_script / the phase-2 driver
