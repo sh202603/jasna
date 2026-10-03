@@ -61,6 +61,8 @@ def _session_config_from_args(
         rtx_quality=str(args.rtx_quality).lower(),
         rtx_denoise=str(args.rtx_denoise).lower(),
         rtx_deblur=str(args.rtx_deblur).lower(),
+        rtx_strength=float(args.rtx_strength),
+        rtx_highbitrate=bool(args.rtx_highbitrate),
         vr_mode=str(args.vr_mode),
         codec=codec,
         encoder_settings=encoder_settings,
@@ -448,6 +450,21 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["none", "low", "medium", "high", "ultra"],
         help="RTX Super Res deblur level, none to disable (default: %(default)s)",
     )
+    rtx.add_argument(
+        "--rtx-strength",
+        type=float,
+        default=1.0,
+        help="Strength of every RTX Super Res pass (upscale, denoise, deblur), 0.0-1.0; lower values blend "
+             "toward the unprocessed picture. Needs nvidia-vfx 0.2.0.0+ (default: %(default)s)",
+    )
+    rtx.add_argument(
+        "--rtx-highbitrate",
+        default=False,
+        action="store_true",
+        help="Use the RTX Super Res upscale models tuned for clean, high-bitrate sources (HIGHBITRATE_*). "
+             "They skip compression-artifact suppression, which may keep more detail on the restored frames. "
+             "Experimental (default: off)",
+    )
 
     tvai = parser.add_argument_group("Topaz Video")
     tvai.add_argument(
@@ -670,14 +687,23 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default="rife",
         choices=["rife", "rtx"],
-        help='Frame generation backend: "rife" (neural, works now) or "rtx" (NVIDIA RTX Video Frame Generation, '
-             'pending an nvidia-vfx release that ships the effect) (default: %(default)s)',
+        help='Frame generation backend: "rife" (RIFE in PyTorch, any supported GPU, needs rife.pth) or '
+             '"rtx" (NVIDIA RTX Video Frame Generation via nvidia-vfx 0.2.0.0+, RTX 40 series or newer, '
+             'no weights, about 10x faster than RIFE) (default: %(default)s)',
     )
     encoding.add_argument(
         "--frame-gen-model-path",
         type=str,
         default="",
-        help='Optional path to RIFE weights. If not set, uses "<model_weights>/rife.pth".',
+        help='Optional path to RIFE weights. If not set, uses "<model_weights>/rife.pth". RIFE backend only.',
+    )
+    encoding.add_argument(
+        "--frame-gen-rtx-mode",
+        type=str,
+        default="medium",
+        choices=["low", "medium", "high"],
+        help='Quality mode of RTX Video Frame Generation ("rtx" backend only). "high" is about 6x slower than '
+             '"medium" for a marginal gain (default: %(default)s)',
     )
 
     post_export = parser.add_argument_group("Post-export action")
@@ -1200,6 +1226,7 @@ def main() -> None:
                 device=session.device,
                 model_path=fg_model_path,
                 fp16=bool(args.fp16),
+                rtx_mode=str(args.frame_gen_rtx_mode).lower(),
             )
 
         def _make_pipeline(vid_input: Path, out_path: Path) -> Pipeline:

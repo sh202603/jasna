@@ -88,6 +88,8 @@ def _fake_section_widgets() -> dict:
         "rtx_quality": _FakeWidget("Ultra"),
         "rtx_denoise": _FakeWidget("None"),
         "rtx_deblur": _FakeWidget("Low"),
+        "rtx_strength": _FakeWidget(0.449),
+        "rtx_highbitrate": _FakeWidget(1),
         "image_restore_steps": _FakeWidget(30),
         "image_restore_strength": _FakeWidget(0.55),
         "image_restore_freeu": _FakeWidget(0),
@@ -100,6 +102,7 @@ def _fake_section_widgets() -> dict:
         "retarget_high_fps": _FakeWidget(1),
         "frame_gen": _FakeWidget("2x"),
         "frame_gen_backend": _FakeWidget("RIFE"),
+        "frame_gen_rtx_mode": _FakeWidget("High"),
         "frame_gen_model_path": _FakeWidget(" /weights/rife.pth "),
         "video_backend": _FakeWidget("TorchCodec"),
         "fmp4": _FakeWidget(1),
@@ -141,6 +144,9 @@ def test_sections_collect_internal_values_without_translation_lookups() -> None:
     assert values["tvai_scale"] == 2
     assert values["tvai_denoise"] is True
     assert values["rtx_quality"] == "ultra"
+    assert values["rtx_strength"] == 0.45
+    assert values["rtx_highbitrate"] is True
+    assert values["frame_gen_rtx_mode"] == "high"
     assert values["image_restore_seed"] == 0
     assert values["lut_path"] == "/luts/a.cube"
     assert values["enable_crossfade"] is False

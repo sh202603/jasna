@@ -238,7 +238,7 @@ class SecondarySection:
 
         # RTX deblur
         rtx_deblur_row = ctk.CTkFrame(rtx_inner, fg_color="transparent")
-        rtx_deblur_row.pack(fill="x")
+        rtx_deblur_row.pack(fill="x", pady=(0, 8))
         ctk.CTkLabel(rtx_deblur_row, text=t("rtx_deblur"), text_color=Colors.TEXT_PRIMARY).pack(side="left")
         rtx_deblur_tip = ctk.CTkLabel(rtx_deblur_row, text="ⓘ", text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_TINY), cursor="hand2")
         rtx_deblur_tip.pack(side="left", padx=4)
@@ -251,6 +251,44 @@ class SecondarySection:
         )
         self._widgets["rtx_deblur"].pack(side="right")
         self._widgets["rtx_deblur"].set("None")
+
+        # RTX clean-source (HIGHBITRATE_*) upscale models, nvidia-vfx >= 0.2.0.0
+        rtx_hb_row = ctk.CTkFrame(rtx_inner, fg_color="transparent")
+        rtx_hb_row.pack(fill="x", pady=(0, 8))
+        ctk.CTkLabel(rtx_hb_row, text=t("rtx_highbitrate"), text_color=Colors.TEXT_PRIMARY).pack(side="left")
+        rtx_hb_tip = ctk.CTkLabel(rtx_hb_row, text="ⓘ", text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_TINY), cursor="hand2")
+        rtx_hb_tip.pack(side="left", padx=4)
+        Tooltip(rtx_hb_tip, get_tooltip("rtx_highbitrate"))
+        self._widgets["rtx_highbitrate"] = ctk.BooleanVar(value=False)
+        ctk.CTkSwitch(
+            rtx_hb_row,
+            text="",
+            variable=self._widgets["rtx_highbitrate"],
+            fg_color=Colors.BG_PANEL,
+            progress_color=Colors.PRIMARY,
+            button_color=Colors.TEXT_PRIMARY,
+            width=42,
+        ).pack(side="right")
+
+        # RTX strength (applies to every RTX pass)
+        rtx_strength_row = ctk.CTkFrame(rtx_inner, fg_color="transparent")
+        rtx_strength_row.pack(fill="x")
+        ctk.CTkLabel(rtx_strength_row, text=t("rtx_strength"), text_color=Colors.TEXT_PRIMARY).pack(side="left")
+        rtx_strength_tip = ctk.CTkLabel(rtx_strength_row, text="ⓘ", text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_TINY), cursor="hand2")
+        rtx_strength_tip.pack(side="left", padx=4)
+        Tooltip(rtx_strength_tip, get_tooltip("rtx_strength"))
+        self._widgets["rtx_strength_val"] = create_slider_value_label(
+            rtx_strength_row, "1.00", 4, Colors.BG_CARD
+        )
+        self._widgets["rtx_strength_val"].pack(side="right")
+        self._widgets["rtx_strength"] = ctk.CTkSlider(
+            rtx_strength_row, from_=0.0, to=1.0, number_of_steps=20,
+            fg_color=Colors.BG_PANEL, progress_color=Colors.PRIMARY, button_color=Colors.PRIMARY,
+            width=160,
+            command=lambda v: self._widgets["rtx_strength_val"].configure(text=f"{v:.2f}")
+        )
+        self._widgets["rtx_strength"].pack(side="right", padx=(0, 8))
+        self._widgets["rtx_strength"].set(1.0)
 
     def _browse_tvai_ffmpeg(self):
         filepath = filedialog.askopenfilename(
@@ -287,6 +325,10 @@ class SecondarySection:
         self._widgets["rtx_quality"].set(preset.rtx_quality.capitalize())
         self._widgets["rtx_denoise"].set(preset.rtx_denoise.capitalize())
         self._widgets["rtx_deblur"].set(preset.rtx_deblur.capitalize())
+        self._widgets["rtx_highbitrate"].set(bool(getattr(preset, "rtx_highbitrate", False)))
+        _rtx_strength = float(getattr(preset, "rtx_strength", 1.0))
+        self._widgets["rtx_strength"].set(_rtx_strength)
+        self._widgets["rtx_strength_val"].configure(text=f"{_rtx_strength:.2f}")
 
         self._on_secondary_changed()
 
@@ -302,4 +344,6 @@ class SecondarySection:
             "rtx_quality": self._widgets["rtx_quality"].get().lower(),
             "rtx_denoise": self._widgets["rtx_denoise"].get().lower(),
             "rtx_deblur": self._widgets["rtx_deblur"].get().lower(),
+            "rtx_strength": round(float(self._widgets["rtx_strength"].get()), 2),
+            "rtx_highbitrate": bool(self._widgets["rtx_highbitrate"].get()),
         }

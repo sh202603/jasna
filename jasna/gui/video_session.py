@@ -47,6 +47,8 @@ def video_session_key(settings: AppSettings) -> tuple:
             settings.rtx_quality,
             settings.rtx_denoise,
             settings.rtx_deblur,
+            settings.rtx_strength,
+            settings.rtx_highbitrate,
         )
     return key
 
@@ -98,6 +100,8 @@ def video_session_config(
         rtx_quality=settings.rtx_quality.lower(),
         rtx_denoise=settings.rtx_denoise.lower(),
         rtx_deblur=settings.rtx_deblur.lower(),
+        rtx_strength=float(settings.rtx_strength),
+        rtx_highbitrate=bool(settings.rtx_highbitrate),
         vr_mode=settings.vr_mode,
         vr_projection=settings.vr_projection,
         codec=codec,

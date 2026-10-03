@@ -148,6 +148,8 @@ class AppSettings:
     rtx_quality: str = "high"  # low, medium, high, ultra
     rtx_denoise: str = "medium"  # none, low, medium, high, ultra
     rtx_deblur: str = "none"  # none, low, medium, high, ultra
+    rtx_strength: float = 1.0  # 0.0-1.0, applies to every RTX pass (nvidia-vfx >= 0.2.0.0)
+    rtx_highbitrate: bool = False  # HIGHBITRATE_* clean-source upscale models
     
     # Detection
     detection_model: str = "rfdetr-v6"  # RF-DETR, Lada YOLO, or ZeLeFans VR YOLO registry name
@@ -175,8 +177,9 @@ class AppSettings:
     retarget_high_fps: bool = False
     fmp4: bool = False
     frame_gen: str = "none"  # none, 2x, 4x (frame-rate up-conversion, file-output only)
-    frame_gen_backend: str = "rife"  # rife, rtx (rtx pending nvidia-vfx release)
+    frame_gen_backend: str = "rife"  # rife, rtx (RTX Video Frame Generation; Ada/RTX 40 or newer)
     frame_gen_model_path: str = ""  # optional RIFE weights; empty = <model_weights>/rife.pth
+    frame_gen_rtx_mode: str = "medium"  # low, medium, high (rtx backend only)
     video_backend: str = "native"  # native, auto, torchcodec (experimental)
 
     # Post-export action

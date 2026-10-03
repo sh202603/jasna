@@ -63,6 +63,10 @@ class SessionConfig:
     fmp4: bool = False
     sharpen_strength: float = 0.0
     tvai_denoise: bool = False
+    # RTX Super Res extras (nvidia-vfx >= 0.2.0.0): effect strength for every
+    # RTX pass and the HIGHBITRATE_* (clean-source) upscale model family.
+    rtx_strength: float = 1.0
+    rtx_highbitrate: bool = False
     flashvsr_repo: str = ""
     flashvsr_python: str = ""
     flashvsr_model_dir: str = ""

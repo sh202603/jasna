@@ -56,7 +56,7 @@ Jasna 是免费的。支持者会获得一个密钥，用于解锁为本项目�
 jasna --input input.mp4 --output output.mkv --frame-gen 2x
 ```
 
-后端通过 `--frame-gen-backend {rife,rtx}` 选择（`rife` 为默认且当前可用；`rtx` 等待 NVIDIA 的 `nvidia-vfx` 发布）。详情: [docs/en/frame_generation.md](docs/en/frame_generation.md)。
+后端通过 `--frame-gen-backend {rife,rtx}` 选择：`rife`（默认）是 PyTorch 上的 RIFE，所有受支持的 GPU 均可用；`rtx` 是通过 `nvidia-vfx` 0.2.0.0 及以上版本调用的 NVIDIA RTX Video Frame Generation，无需权重、快约 10 倍，但仅限 RTX 40 系列及更新显卡。详情: [docs/en/frame_generation.md](docs/en/frame_generation.md)。
 
 ### 视频后端（实验性）
 

@@ -29,14 +29,19 @@ class _Quality:
     DEBLUR_MEDIUM = "deblur_medium"
     DEBLUR_HIGH = "deblur_high"
     DEBLUR_ULTRA = "deblur_ultra"
+    HIGHBITRATE_LOW = "highbitrate_low"
+    HIGHBITRATE_MEDIUM = "highbitrate_medium"
+    HIGHBITRATE_HIGH = "highbitrate_high"
+    HIGHBITRATE_ULTRA = "highbitrate_ultra"
 
 
 class _MockVideoSuperRes:
     QualityLevel = _Quality
 
-    def __init__(self, *, device, quality):
+    def __init__(self, *, device, quality, strength=1.0):
         self.device_id = device
         self.quality = quality
+        self.strength = strength
         self.output_width = 0
         self.output_height = 0
 
@@ -64,7 +69,7 @@ from jasna.restorer.rtx_superres_secondary_restorer import (
 )
 
 
-def _make_restorer(*, scale=4, quality="high", denoise="medium", deblur=None):
+def _make_restorer(*, scale=4, quality="high", denoise="medium", deblur=None, **kwargs):
     with patch("torch.cuda.current_stream") as mock_stream:
         mock_stream.return_value.cuda_stream = 12345
         return RtxSuperresSecondaryRestorer(
@@ -73,6 +78,7 @@ def _make_restorer(*, scale=4, quality="high", denoise="medium", deblur=None):
             quality=quality,
             denoise=denoise,
             deblur=deblur,
+            **kwargs,
         )
 
 
@@ -144,6 +150,16 @@ class TestResolveHelpers:
         with pytest.raises(KeyError):
             _resolve_quality("invalid")
 
+    def test_resolve_quality_highbitrate_family(self):
+        from nvvfx import VideoSuperRes
+        q = VideoSuperRes.QualityLevel
+        assert _resolve_quality("low", highbitrate=True) == q.HIGHBITRATE_LOW
+        assert _resolve_quality("medium", highbitrate=True) == q.HIGHBITRATE_MEDIUM
+        assert _resolve_quality("HIGH", highbitrate=True) == q.HIGHBITRATE_HIGH
+        assert _resolve_quality("ultra", highbitrate=True) == q.HIGHBITRATE_ULTRA
+        # The flag only switches the upscale family; off keeps the standard models.
+        assert _resolve_quality("high", highbitrate=False) == q.HIGH
+
     def test_resolve_denoise(self):
         from nvvfx import VideoSuperRes
         assert _resolve_denoise("low") == VideoSuperRes.QualityLevel.DENOISE_LOW
@@ -187,6 +203,41 @@ class TestRtxSuperresInit:
         restorer = _make_restorer(scale=4, quality="high", denoise="none", deblur="none")
         assert restorer._denoise is None
         assert restorer._deblur is None
+
+    def test_defaults_do_not_pass_strength_to_sdk(self):
+        # strength=1.0 is the SDK default and the keyword only exists from
+        # nvidia-vfx 0.2.0.0 on, so the default config must not forward it.
+        if "_MockVideoSuperRes" not in type(_make_restorer()._sr).__name__:
+            pytest.skip("real nvvfx in use; mock-only assertion")
+        from jasna.restorer import rtx_superres_secondary_restorer as mod
+        with patch.object(mod, "_make_effect", wraps=mod._make_effect) as spy, \
+                patch.object(sys.modules["nvvfx"], "VideoSuperRes") as cls:
+            cls.QualityLevel = _Quality
+            _make_restorer()
+            for call in cls.call_args_list:
+                assert "strength" not in call.kwargs
+            assert spy.call_count == 2  # upscale + denoise
+
+    def test_strength_applies_to_every_pass(self):
+        restorer = _make_restorer(denoise="medium", deblur="low", strength=0.4)
+        assert restorer.strength == 0.4
+        assert restorer._sr.strength == 0.4
+        assert restorer._denoise.strength == 0.4
+        assert restorer._deblur.strength == 0.4
+
+    @pytest.mark.parametrize("bad", [-0.1, 1.5])
+    def test_strength_out_of_range_rejected(self, bad):
+        with pytest.raises(ValueError, match="strength"):
+            _make_restorer(strength=bad)
+
+    def test_highbitrate_switches_upscale_model_only(self):
+        from nvvfx import VideoSuperRes
+        q = VideoSuperRes.QualityLevel
+        restorer = _make_restorer(quality="high", denoise="medium", deblur="low", highbitrate=True)
+        assert restorer.highbitrate is True
+        assert restorer._sr.quality == q.HIGHBITRATE_HIGH
+        assert restorer._denoise.quality == q.DENOISE_MEDIUM
+        assert restorer._deblur.quality == q.DEBLUR_LOW
 
     def test_custom_input_size(self):
         with patch("torch.cuda.current_stream") as mock_stream:

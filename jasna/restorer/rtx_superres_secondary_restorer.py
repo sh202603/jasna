@@ -14,14 +14,16 @@ logger = logging.getLogger(__name__)
 def _preload_tensorrt_runtime() -> None:
     """Pin the pip ``tensorrt`` runtime before nvvfx loads its bundled copy.
 
-    nvvfx bundles an older TensorRT (libnvinfer.so.10 == 10.9) and loads it with
-    ``RTLD_GLOBAL`` (see nvvfx/_lib_loader.py). Because both share the soname
-    ``libnvinfer.so.10``, ELF symbol resolution uses whichever entered the global
-    scope first. If nvvfx wins, torch-tensorrt binds to 10.9 and fails to
-    deserialize jasna's 10.16-built engines ("Serialized Engine Version" mismatch).
-    Loading tensorrt_libs' 10.16 RTLD_GLOBAL first makes its symbols win. The
-    Windows build does the equivalent via DLL load ordering; this is the Linux
-    counterpart.
+    nvidia-vfx <= 0.1.0.1 bundled an older TensorRT (libnvinfer.so.10 == 10.9)
+    and loaded it with ``RTLD_GLOBAL`` (see nvvfx/_lib_loader.py). Because both
+    share the soname ``libnvinfer.so.10``, ELF symbol resolution uses whichever
+    entered the global scope first. If nvvfx won, torch-tensorrt bound to 10.9
+    and failed to deserialize jasna's 10.16-built engines ("Serialized Engine
+    Version" mismatch). Loading tensorrt_libs' 10.16 RTLD_GLOBAL first makes its
+    symbols win. nvidia-vfx 0.2.0.0 (the pinned version) no longer ships
+    TensorRT at all, so this is now a harmless no-op kept for older venvs and
+    for parity with upstream, which has the same function. The Windows build
+    does the equivalent via DLL load ordering; this is the Linux counterpart.
     """
     if sys.platform == "win32":
         return  # Windows handles ordering via windows_dll_paths / tensorrt_libs import
@@ -49,14 +51,23 @@ DENOISE_CHOICES = ["none", "low", "medium", "high", "ultra"]
 DEBLUR_CHOICES = ["none", "low", "medium", "high", "ultra"]
 
 
-def _resolve_quality(name: str):
+def _resolve_quality(name: str, *, highbitrate: bool = False):
+    """Map a level name to the upscale model.
+
+    The standard models (LOW..ULTRA) are trained on compressed video and
+    suppress compression artifacts while upscaling. The HIGHBITRATE_* family
+    skips that suppression for clean sources; BasicVSR++ output has no
+    compression noise, so ``highbitrate=True`` may preserve more detail.
+    """
     from nvvfx import VideoSuperRes
-    return {
-        "low": VideoSuperRes.QualityLevel.LOW,
-        "medium": VideoSuperRes.QualityLevel.MEDIUM,
-        "high": VideoSuperRes.QualityLevel.HIGH,
-        "ultra": VideoSuperRes.QualityLevel.ULTRA,
+    q = VideoSuperRes.QualityLevel
+    standard, clean = {
+        "low": (q.LOW, q.HIGHBITRATE_LOW),
+        "medium": (q.MEDIUM, q.HIGHBITRATE_MEDIUM),
+        "high": (q.HIGH, q.HIGHBITRATE_HIGH),
+        "ultra": (q.ULTRA, q.HIGHBITRATE_ULTRA),
     }[name.lower()]
+    return clean if highbitrate else standard
 
 
 def _resolve_denoise(name: str):
@@ -79,6 +90,23 @@ def _resolve_deblur(name: str):
     }[name.lower()]
 
 
+def _make_effect(VideoSuperRes, *, gpu: int, quality, strength: float, output_size: int):
+    """Construct, size and load one VideoSuperRes pass.
+
+    ``strength`` is only forwarded when it differs from the SDK default (1.0):
+    the keyword exists from nvidia-vfx 0.2.0.0 on, so the default configuration
+    keeps working on a venv that still has 0.1.0.1.
+    """
+    kwargs = {"device": gpu, "quality": quality}
+    if strength != 1.0:
+        kwargs["strength"] = float(strength)
+    effect = VideoSuperRes(**kwargs)
+    effect.output_width = output_size
+    effect.output_height = output_size
+    effect.load()
+    return effect
+
+
 class RtxSuperresSecondaryRestorer:
     name = "rtx-super-res"
     num_workers = 1
@@ -93,43 +121,53 @@ class RtxSuperresSecondaryRestorer:
         quality: str = "high",
         denoise: Optional[str] = "medium",
         deblur: Optional[str] = None,
+        strength: float = 1.0,
+        highbitrate: bool = False,
         input_size: int = RTX_SUPERRES_INPUT_SIZE,
     ) -> None:
         from nvvfx import VideoSuperRes
 
         if input_size < 1:
             raise ValueError("input_size must be positive")
+        if not 0.0 <= float(strength) <= 1.0:
+            raise ValueError(f"strength must be in [0.0, 1.0], got {strength}")
         output_size = input_size * scale
 
         self.device = torch.device(device)
         self.input_size = int(input_size)
         self.output_size = int(output_size)
+        self.strength = float(strength)
+        self.highbitrate = bool(highbitrate)
         gpu = self.device.index or 0
         self._stream_ptr = torch.cuda.current_stream(self.device).cuda_stream
 
-        self._sr = VideoSuperRes(device=gpu, quality=_resolve_quality(quality))
-        self._sr.output_width = output_size
-        self._sr.output_height = output_size
-        self._sr.load()
+        # The same strength applies to every pass: it is "how strong is the RTX
+        # chain", not a per-pass knob.
+        self._sr = _make_effect(
+            VideoSuperRes, gpu=gpu,
+            quality=_resolve_quality(quality, highbitrate=self.highbitrate),
+            strength=self.strength, output_size=output_size,
+        )
 
         self._denoise = None
         if denoise is not None and denoise.lower() != "none":
-            self._denoise = VideoSuperRes(device=gpu, quality=_resolve_denoise(denoise))
-            self._denoise.output_width = output_size
-            self._denoise.output_height = output_size
-            self._denoise.load()
+            self._denoise = _make_effect(
+                VideoSuperRes, gpu=gpu, quality=_resolve_denoise(denoise),
+                strength=self.strength, output_size=output_size,
+            )
 
         self._deblur = None
         if deblur is not None and deblur.lower() != "none":
-            self._deblur = VideoSuperRes(device=gpu, quality=_resolve_deblur(deblur))
-            self._deblur.output_width = output_size
-            self._deblur.output_height = output_size
-            self._deblur.load()
+            self._deblur = _make_effect(
+                VideoSuperRes, gpu=gpu, quality=_resolve_deblur(deblur),
+                strength=self.strength, output_size=output_size,
+            )
 
-        logger.info("RtxSuperresSecondaryRestorer: scale=%dx quality=%s denoise=%s deblur=%s (%dx%d -> %dx%d)",
-                     scale, quality, denoise, deblur,
-                     self.input_size, self.input_size,
-                     output_size, output_size)
+        logger.info(
+            "RtxSuperresSecondaryRestorer: scale=%dx quality=%s%s denoise=%s deblur=%s strength=%.2f (%dx%d -> %dx%d)",
+            scale, quality, " (highbitrate)" if self.highbitrate else "", denoise, deblur, self.strength,
+            self.input_size, self.input_size, output_size, output_size,
+        )
 
     def restore(self, frames: torch.Tensor, *, keep_start: int, keep_end: int) -> list[torch.Tensor]:
         t = int(frames.shape[0])

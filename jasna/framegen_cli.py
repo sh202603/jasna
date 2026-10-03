@@ -1,16 +1,17 @@
-"""Standalone frame-generation (RIFE frame interpolation) CLI: ``jasna-framegen``.
+"""Standalone frame-generation (frame interpolation) CLI: ``jasna-framegen``.
 
 Pass 2 of a two-pass workflow. Pass 1 (the official jasna binary) removes mosaics
 and optionally upscales, producing a near-lossless intermediate video. This CLI
-then applies *only* RIFE frame-rate up-conversion (2x/4x) to that already-restored
-video: it runs no mosaic detection and no BasicVSR++ restoration.
+then applies *only* frame-rate up-conversion (2x/4x, RIFE or RTX Video Frame
+Generation) to that already-restored video: it runs no mosaic detection and no
+BasicVSR++ restoration.
 
 Why a separate entry point instead of the existing ``--frame-gen`` flag: the main
 pipeline always runs detection + restoration, so feeding it an already-restored
 video wastes the whole restore pass and risks re-mangling clean frames on a false
 detection. This CLI is a thin driver over jasna's protection-free media + framegen
 modules (NVDEC decode, NVENC encode + mkvmerge/ffmpeg mux, ``FrameGenWriter``, the
-RIFE backend). It imports nothing from ``jasna.pipeline`` or ``jasna.protection``.
+frame-gen backends). It imports nothing from ``jasna.pipeline`` or ``jasna.protection``.
 """
 
 from __future__ import annotations
@@ -66,9 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jasna-framegen",
         description=(
-            "Pass 2: RIFE frame-rate up-conversion (2x/4x) on an already-restored video. "
-            "No mosaic detection, no restoration. Reuses jasna's NVDEC/NVENC + mkvmerge "
-            "pipeline; audio and color metadata are carried over from the input."
+            "Pass 2: frame-rate up-conversion (2x/4x, RIFE or RTX Video Frame Generation) on an "
+            "already-restored video. No mosaic detection, no restoration. Reuses jasna's NVDEC/NVENC + "
+            "mkvmerge pipeline; audio and color metadata are carried over from the input."
         ),
     )
     parser.add_argument(
@@ -102,15 +103,23 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default="rife",
         choices=["rife", "rtx"],
-        help='Frame-gen backend: "rife" (neural, works now) or "rtx" (NVIDIA RTX Video '
-             "Frame Generation, pending an nvidia-vfx release that ships the effect) "
-             "(default: %(default)s).",
+        help='Frame-gen backend: "rife" (RIFE in PyTorch, any supported GPU, needs rife.pth) or "rtx" '
+             "(NVIDIA RTX Video Frame Generation via nvidia-vfx 0.2.0.0+, RTX 40 series or newer, no "
+             "weights, about 10x faster than RIFE) (default: %(default)s).",
     )
     parser.add_argument(
         "--model-path",
         type=str,
         default="",
-        help='Optional path to RIFE weights. If not set, uses "<model_weights>/rife.pth".',
+        help='Optional path to RIFE weights. If not set, uses "<model_weights>/rife.pth". RIFE backend only.',
+    )
+    parser.add_argument(
+        "--rtx-mode",
+        type=str,
+        default="medium",
+        choices=["low", "medium", "high"],
+        help='Quality mode of RTX Video Frame Generation ("rtx" backend only). "high" is about 6x slower '
+             'than "medium" for a marginal gain (default: %(default)s).',
     )
     parser.add_argument(
         "--fp16",
@@ -456,6 +465,7 @@ def main() -> None:
         # only closed when it was actually created.
         generator = build_frame_generator(
             args.backend, device=device, model_path=fg_model_path, fp16=fp16,
+            rtx_mode=str(args.rtx_mode).lower(),
         )
         try:
             for i, (vid, out_path) in enumerate(jobs, start=1):

@@ -70,6 +70,8 @@ def test_cli_defaults_map_to_expected_config() -> None:
     assert config.rtx_quality == "high"
     assert config.rtx_denoise == "medium"
     assert config.rtx_deblur == "none"
+    assert config.rtx_strength == 1.0
+    assert config.rtx_highbitrate is False
     assert config.vr_mode == "auto"
     assert config.codec == "hevc"
     assert config.encoder_settings == {}

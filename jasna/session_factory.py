@@ -67,6 +67,8 @@ def _build_secondary_restorer(config: SessionConfig, device: "torch.device"):
             quality=config.rtx_quality,
             denoise=None if config.rtx_denoise == "none" else config.rtx_denoise,
             deblur=None if config.rtx_deblur == "none" else config.rtx_deblur,
+            strength=float(config.rtx_strength),
+            highbitrate=bool(config.rtx_highbitrate),
         )
     if config.secondary_restoration == "flashvsr-inline":
         from jasna.restorer.flashvsr_inline_secondary_restorer import FlashvsrInlineSecondaryRestorer

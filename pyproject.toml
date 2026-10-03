@@ -44,7 +44,7 @@ nvidia = [
   "torchvision==0.27.0+cu130",
   "tensorrt==10.16.1.11",
   "torch-tensorrt==2.12.0",
-  "nvidia-vfx",
+  "nvidia-vfx==0.2.0.0",
   # The VALI decode backend needs the corruption-tolerant fork (~/k-drive/vali,
   # DecodeSingleSurfaceAsyncDetailed); with the stock PyPI wheel the reader
   # falls back to PyAV at open time. Release builds install the fork wheel from
@@ -65,7 +65,7 @@ nvidia-rtx = [
   # RTX builds strongly typed, so fp16 must live in the ONNX graph itself;
   # used by jasna.trt._convert_onnx_bytes_to_fp16.
   "onnxconverter-common>=1.14",
-  "nvidia-vfx",
+  "nvidia-vfx==0.2.0.0",
   "python_vali==4.8.8",
 ]
 amd = [

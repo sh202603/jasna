@@ -66,6 +66,8 @@ def test_video_session_key_includes_active_secondary_knobs() -> None:
 
     rtx = replace(AppSettings(), secondary_restoration="rtx-super-res")
     assert video_session_key(replace(rtx, rtx_quality="low")) != video_session_key(rtx)
+    assert video_session_key(replace(rtx, rtx_strength=0.5)) != video_session_key(rtx)
+    assert video_session_key(replace(rtx, rtx_highbitrate=True)) != video_session_key(rtx)
     assert video_session_key(replace(rtx, tvai_scale=2)) == video_session_key(rtx)
 
 

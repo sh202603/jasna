@@ -56,7 +56,7 @@ These features are exclusive to the `+modi` fork. See [docs/en/changes_vs_upstre
 jasna --input input.mp4 --output output.mkv --frame-gen 2x
 ```
 
-Backend via `--frame-gen-backend {rife,rtx}` (`rife` is the default and available now; `rtx` is pending NVIDIA's `nvidia-vfx` release).
+Backend via `--frame-gen-backend {rife,rtx}`: `rife` (default) is RIFE in PyTorch and runs on every supported GPU; `rtx` is NVIDIA RTX Video Frame Generation through `nvidia-vfx` 0.2.0.0+, with no weights to supply and about 10x faster, but RTX 40 series or newer only. Details: [docs/en/frame_generation.md](docs/en/frame_generation.md).
 
 A standalone `jasna-framegen` command applies **only** frame generation to an already-restored video (no detection/restoration) — handy for a two-pass workflow (restore first, e.g. with the official binary, then up-convert). It also supports folder input/output with an `--output-pattern` naming template (videos only):
 

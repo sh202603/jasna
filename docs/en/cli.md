@@ -70,6 +70,8 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 | `--rtx-quality` | `high` | `low`–`ultra`. |
 | `--rtx-denoise` | `medium` | `none` disables. |
 | `--rtx-deblur` | `none` | `none` disables. |
+| `--rtx-strength` | `1.0` | *(+modi)* Strength of every RTX pass (upscale, denoise, deblur), `0.0`–`1.0`; lower blends toward the unprocessed picture. Needs `nvidia-vfx` 0.2.0.0+. |
+| `--rtx-highbitrate` | off | *(+modi)* Use the RTX upscale models tuned for clean, high-bitrate sources (`HIGHBITRATE_*`, no compression-artifact suppression). Experimental; A/B on a short clip. |
 | `--tvai-ffmpeg-path` | Topaz default install path | Path to Topaz Video `ffmpeg.exe`. |
 | `--tvai-model` | `iris-2` | e.g. `iris-2`, `prob-4`, `iris-3`. |
 | `--tvai-scale` | `4` | Output size is `256*scale`; `1` = no scale. |
@@ -125,8 +127,9 @@ Still images route here automatically; `--restoration-model-name` is video-only.
 | `--retarget-high-fps` | off | 60 → 30 FPS (and 59.94 → 29.97) by processing every second frame. Other rates unchanged; audio timing preserved. |
 | `--fmp4` | off | Play `.mp4`/`.mov` output while it is still being made; it also survives an interrupted job. Not available with `--stream` or `--segments`. See [Advanced processing](advanced_processing.md). |
 | `--frame-gen` | `none` | *(+modi)* AI frame interpolation to `2x`/`4x` the output frame rate (RIFE). File output only. See [frame_generation.md](frame_generation.md). |
-| `--frame-gen-backend` | `rife` | *(+modi)* `rife` works today; `rtx` awaits an nvidia-vfx release. |
-| `--frame-gen-model-path` | `model_weights/rife.pth` | *(+modi)* Optional RIFE weights path (TorchScript `.pth` recommended). |
+| `--frame-gen-backend` | `rife` | *(+modi)* `rife` (RIFE in PyTorch, any supported GPU, needs `rife.pth`) or `rtx` (NVIDIA RTX Video Frame Generation via `nvidia-vfx` 0.2.0.0+, RTX 40 series or newer, no weights, ~10x faster). |
+| `--frame-gen-model-path` | `model_weights/rife.pth` | *(+modi)* Optional RIFE weights path (TorchScript `.pth` recommended). RIFE only. |
+| `--frame-gen-rtx-mode` | `medium` | *(+modi)* RTX Video Frame Generation quality mode, `low`/`medium`/`high`. `high` is ~6x slower than `medium` for a marginal gain. |
 | `--video-backend` | `native` | *(+modi, experimental)* `native`, `auto`, or `torchcodec`. See [torchcodec_backend.md](torchcodec_backend.md). |
 | `--decode-backend` / `--encode-backend` | `inherit` | *(+modi)* Override the backend per side; `torchcodec` encode is 8-bit only and must be forced. |
 | `--segments` | — | Restore only selected ranges, e.g. `10-25,01:10-01:30.5`. Cannot be combined with `--stream`, `--retarget-high-fps`, or `--fmp4`. See [Segments](segments.md). |

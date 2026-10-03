@@ -142,6 +142,23 @@ class TestBuildParser:
         assert args.rtx_quality == "high"
         assert args.rtx_denoise == "medium"
         assert args.rtx_deblur == "none"
+        assert args.rtx_strength == 1.0
+        assert args.rtx_highbitrate is False
+
+    def test_frame_gen_defaults_and_rtx_mode(self):
+        args = build_parser().parse_args(["--input", "a.mp4", "--output", "b.mp4"])
+        assert args.frame_gen == "none"
+        assert args.frame_gen_backend == "rife"
+        assert args.frame_gen_rtx_mode == "medium"
+        args = build_parser().parse_args([
+            "--input", "a.mp4", "--output", "b.mp4",
+            "--frame-gen", "2x", "--frame-gen-backend", "rtx", "--frame-gen-rtx-mode", "high",
+            "--rtx-strength", "0.5", "--rtx-highbitrate",
+        ])
+        assert args.frame_gen_backend == "rtx"
+        assert args.frame_gen_rtx_mode == "high"
+        assert args.rtx_strength == 0.5
+        assert args.rtx_highbitrate is True
 
     def test_flashvsr_choice_and_defaults(self):
         args = build_parser().parse_args([

@@ -196,6 +196,21 @@ class EncodingSection:
         self._widgets["frame_gen_backend"].pack(side="right", padx=(0, 8))
         self._widgets["frame_gen_backend"].set("RIFE")
 
+        # RTX Video Frame Generation quality mode (rtx backend only)
+        fg_rtx_mode_label = ctk.CTkLabel(row_fg, text=t("frame_gen_rtx_mode"), text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_NORMAL))
+        fg_rtx_mode_label.pack(side="left", padx=(Sizing.PADDING_SMALL, 0))
+        fg_rtx_mode_tip = ctk.CTkLabel(row_fg, text="ⓘ", text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_TINY), cursor="hand2")
+        fg_rtx_mode_tip.pack(side="left", padx=4)
+        Tooltip(fg_rtx_mode_tip, get_tooltip("frame_gen_rtx_mode"))
+        self._widgets["frame_gen_rtx_mode"] = ctk.CTkOptionMenu(
+            row_fg, values=["Low", "Medium", "High"],
+            fg_color=Colors.BG_CARD, button_color=Colors.BG_CARD,
+            button_hover_color=Colors.BORDER_LIGHT, dropdown_fg_color=Colors.BG_CARD,
+            text_color=Colors.TEXT_PRIMARY, width=90
+        )
+        self._widgets["frame_gen_rtx_mode"].pack(side="right", padx=(0, 8))
+        self._widgets["frame_gen_rtx_mode"].set("Medium")
+
         # Frame gen model path (optional RIFE weights; empty = model_weights/rife.pth)
         fg_model_row = ctk.CTkFrame(inner, fg_color="transparent")
         fg_model_row.pack(fill="x", pady=(0, Sizing.PADDING_SMALL))
@@ -393,6 +408,7 @@ class EncodingSection:
         _fg = getattr(preset, "frame_gen", "none").lower()
         self._widgets["frame_gen"].set("Off" if _fg == "none" else _fg)
         self._widgets["frame_gen_backend"].set(getattr(preset, "frame_gen_backend", "rife").upper())
+        self._widgets["frame_gen_rtx_mode"].set((getattr(preset, "frame_gen_rtx_mode", "medium") or "medium").capitalize())
         self._widgets["frame_gen_model_path"].delete(0, "end")
         self._widgets["frame_gen_model_path"].insert(0, getattr(preset, "frame_gen_model_path", "") or "")
         _backend_display = {"native": "Native", "auto": "Auto", "torchcodec": "TorchCodec"}
@@ -414,6 +430,7 @@ class EncodingSection:
             "fmp4": self._widgets["fmp4"].get() == 1,
             "frame_gen": ("none" if self._widgets["frame_gen"].get() == "Off" else self._widgets["frame_gen"].get().lower()),
             "frame_gen_backend": self._widgets["frame_gen_backend"].get().lower(),
+            "frame_gen_rtx_mode": self._widgets["frame_gen_rtx_mode"].get().lower(),
             "frame_gen_model_path": self._widgets["frame_gen_model_path"].get().strip(),
             "video_backend": self._widgets["video_backend"].get().lower(),
             "lut_path": self._widgets["lut_path"].get().strip(),

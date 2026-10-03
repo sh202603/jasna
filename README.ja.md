@@ -56,7 +56,7 @@ Jasna は無料です。支援者には、このプロジェクト用に訓練�
 jasna --input input.mp4 --output output.mkv --frame-gen 2x
 ```
 
-バックエンドは `--frame-gen-backend {rife,rtx}` で選択（`rife` が既定で現在利用可能。`rtx` は NVIDIA の `nvidia-vfx` リリース待ち）。
+バックエンドは `--frame-gen-backend {rife,rtx}` で選択。`rife`（既定）は PyTorch 上の RIFE で対応 GPU 全般で動きます。`rtx` は `nvidia-vfx` 0.2.0.0 以降の NVIDIA RTX Video Frame Generation で、重み不要かつ約 10 倍速ですが RTX 40 シリーズ以降限定です。詳細: [docs/ja/frame_generation.md](docs/ja/frame_generation.md)。
 
 スタンドアロンの `jasna-framegen` コマンドは、**復元済み動画にフレーム生成だけ**を適用します（検出・復元なし）。2パス運用（先に復元、例えば公式バイナリで → 後からアップコンバート）に便利です。フォルダ入出力と `--output-pattern` 命名テンプレートにも対応（動画のみ）:
 

@@ -460,6 +460,7 @@ class Processor:
                 device=s.device,
                 model_path=fg_model_path,
                 fp16=settings.fp16_mode,
+                rtx_mode=str(getattr(settings, "frame_gen_rtx_mode", "medium") or "medium").lower(),
             )
         from jasna.media.backend import VideoBackend
         video_backend = VideoBackend(str(getattr(settings, "video_backend", "native") or "native").lower())

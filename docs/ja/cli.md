@@ -70,6 +70,8 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 | `--rtx-quality` | `high` | `low`～`ultra`。 |
 | `--rtx-denoise` | `medium` | `none` で無効。 |
 | `--rtx-deblur` | `none` | `none` で無効。 |
+| `--rtx-strength` | `1.0` | *(+modi)* RTX の各パス（拡大、ノイズ除去、ブレ除去）の効果の強さ。`0.0`〜`1.0`、低いほど未処理の画に近づく。`nvidia-vfx` 0.2.0.0 以降が必要。 |
+| `--rtx-highbitrate` | オフ | *(+modi)* 高ビットレートのクリーンなソース向け RTX 拡大モデル（`HIGHBITRATE_*`、圧縮アーティファクト抑制なし）を使う。実験的。短いクリップで A/B を。 |
 | `--tvai-ffmpeg-path` | Topaz のデフォルトインストールパス | Topaz Video の `ffmpeg.exe` のパス。 |
 | `--tvai-model` | `iris-2` | 例: `iris-2`、`prob-4`、`iris-3`。 |
 | `--tvai-scale` | `4` | 出力サイズは `256*scale`。`1` = 拡大なし。 |
@@ -125,8 +127,9 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 | `--retarget-high-fps` | オフ | 1 フレームおきに処理して 60 → 30 FPS（および 59.94 → 29.97）に変換。他のレートは変更せず、音声のタイミングは維持されます。 |
 | `--fmp4` | オフ | 作成中の `.mp4` / `.mov` 出力をそのまま再生できます。中断してもファイルは再生可能なままです。`--stream` および `--segments` とは併用できません。詳しくは[高度な処理](advanced_processing.md)。 |
 | `--frame-gen` | `none` | *(+modi)* AI フレーム補間で出力フレームレートを `2x`/`4x` に（RIFE）。ファイル出力のみ。詳細: [frame_generation.md](frame_generation.md)。 |
-| `--frame-gen-backend` | `rife` | *(+modi)* `rife` は現在利用可能。`rtx` は nvidia-vfx のリリース待ち。 |
-| `--frame-gen-model-path` | `model_weights/rife.pth` | *(+modi)* RIFE 重みの任意パス（TorchScript `.pth` 推奨）。 |
+| `--frame-gen-backend` | `rife` | *(+modi)* `rife`（PyTorch 上の RIFE、対応 GPU 全般、`rife.pth` が必要）または `rtx`（`nvidia-vfx` 0.2.0.0 以降の NVIDIA RTX Video Frame Generation、RTX 40 シリーズ以降限定、重み不要、約 10 倍速）。 |
+| `--frame-gen-model-path` | `model_weights/rife.pth` | *(+modi)* RIFE 重みの任意パス（TorchScript `.pth` 推奨）。RIFE 専用。 |
+| `--frame-gen-rtx-mode` | `medium` | *(+modi)* RTX Video Frame Generation の品質モード。`low`/`medium`/`high`。`high` は `medium` の約 6 倍遅く、改善はわずか。 |
 | `--video-backend` | `native` | *(+modi、実験的)* `native`、`auto`、`torchcodec`。詳細: [torchcodec_backend.md](torchcodec_backend.md)。 |
 | `--decode-backend` / `--encode-backend` | `inherit` | *(+modi)* デコード側・エンコード側を個別に上書き。`torchcodec` エンコードは 8bit 専用で強制指定時のみ。 |
 | `--segments` | — | 選択した範囲だけを復元します。例: `10-25,01:10-01:30.5`。`--stream`、`--retarget-high-fps`、`--fmp4` とは併用できません。詳しくは[区間](segments.md)。 |

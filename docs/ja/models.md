@@ -50,6 +50,9 @@ Jasna は各モザイク領域の 256x256 クロップを復元します。そ�
 - **RTX Super Resolution**: 非常に高速で無料、追加のものは不要です。
   品質はまずまずです。一部の動画ではフリッカーが出る場合があるため、
   まず短いクリップで試してください。
+  *(+modi)* `--rtx-strength`（0.0〜1.0）は RTX の各パスの効き目を未処理の画の側へ
+  戻し、`--rtx-highbitrate` はクリーンソース向けの拡大モデルに切り替えます。
+  どちらも実験的で A/B が必要です。詳しくは [cli.md](cli.md)。
 - **TVAI**: RTX Super Resolution より高品質で unet-4x と同程度ですが、
   非常に遅いです。[Topaz Video](https://www.topazlabs.com/topaz-video)
   が必要です。有料で Windows のみです。推奨モデル: `iris-2`。
