@@ -133,8 +133,12 @@ takes 2.3 s wall clock with `rtx` against 5.8 s with `rife` (decode, encode and 
 The effect accepts any frame size (no multiple-of-64 padding as with RIFE) and is re-loaded in about 15 ms
 when the size changes, so a folder batch of mixed resolutions shares one generator.
 
-**Not yet verified**: visual A/B against RIFE (ghosting, edge breakup, false shot-change triggers), the
-Windows wheel of 0.2.0.0, and the exact SDK error on Turing/Ampere (jasna's own capability check fires first).
+**Visual check (2026-10-03, Linux)**: the 2x outputs of `rtx` and `rife` on the 1080p test clip were compared
+by eye; no ghosting, edge breakup or false shot-change blending was seen in the RTX output (PSNR between the
+two outputs 47.6 dB, so they are close but not identical).
+
+**Not yet verified**: the Windows wheel of 0.2.0.0, and the exact SDK error on Turing/Ampere (jasna's own
+capability check fires first).
 
 ---
 
