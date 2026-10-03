@@ -159,7 +159,7 @@ delvewheel vendors the DLLs under hash-mangled names in `av.libs\`, so at runtim
 
 ## 5. Install jasna itself
 
-Since v0.8.1 the GPU stack is split into extras (`nvidia` = the NVIDIA stack, `amd` = the ROCm one). For an NVIDIA build the `nvidia` extra pulls in `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx`, which are not on the default PyPI index. Point uv at the PyTorch wheel index with `--extra-index-url` and add two more flags:
+Since v0.8.1 the GPU stack is split into extras (`nvidia` = the NVIDIA stack, `amd` = the ROCm one). For an NVIDIA build the `nvidia` extra pulls in `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx==0.2.0.0`, which are not on the default PyPI index. Point uv at the PyTorch wheel index with `--extra-index-url` and add two more flags:
 
 ```powershell
 cd $Workspace\jasna
@@ -178,6 +178,8 @@ Why each flag:
 - `--prerelease=allow`: the transitive dependency `nvidia-cuda-runtime-cu13==0.0.0a0` is a prerelease
 
 The `[dev]` extra installs `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja`. The `[nvidia]` extra installs the GPU stack (torch cu130 / TensorRT / torch-tensorrt / nvidia-vfx; split out of the required dependencies in v0.8.1) — **omitting it leaves you without torch and the app will not start**.
+
+**Note: `nvidia-vfx` is pinned to 0.2.0.0 (VFX SDK 1.3.0) since 2026-10-03.** The PyPI entry is a stub that downloads the real wheel (436 MB for Windows x64) from `pypi.nvidia.com` during the install above. 0.2.0.0 adds the `VideoFrameGeneration` effect behind `--frame-gen-backend rtx` ([frame_generation.md](frame_generation.md)), drops the bundled TensorRT, and ships its own `cudart64_12.dll` next to torch's CUDA 13 runtime. A venv created before the pin has 0.1.0.1; upgrade it with `uv pip install nvidia-vfx==0.2.0.0`. **The 0.2.0.0 wheel has so far only been exercised on Linux**; the Windows DLL load order (`nvvfx/_lib_loader.py` now discovers the bundled DLLs by directory scan, which `jasna\packaging\windows_dll_paths.py` already registers) and the cudart 12/13 coexistence still need a run on Windows.
 
 **Optional: the torchcodec backend.** To use the experimental torchcodec decode/encode path (`--video-backend torchcodec`/`auto`), add the `torchcodec` extra and install `.[dev,nvidia,torchcodec]` with the same flags:
 
