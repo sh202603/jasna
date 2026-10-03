@@ -92,7 +92,7 @@ PyPI のバイナリ wheel は十分新しい nv-codec-headers でビルドさ�
 
 ## 5. jasna 本体のインストール
 
-v0.8.1 で GPU スタックは extras に分割されました（`nvidia` = NVIDIA スタック、`amd` = ROCm 用）。NVIDIA ビルドでは `nvidia` extra が `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx` を入れますが、これらは既定の PyPI にありません。uv を PyTorch cu130 インデックスに向け、フラグを 2 つ追加します:
+v0.8.1 で GPU スタックは extras に分割されました（`nvidia` = NVIDIA スタック、`amd` = ROCm 用）。NVIDIA ビルドでは `nvidia` extra が `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx==0.2.0.0` を入れますが、これらは既定の PyPI にありません。uv を PyTorch cu130 インデックスに向け、フラグを 2 つ追加します:
 
 ```bash
 cd "$WORKSPACE/jasna"
@@ -109,6 +109,8 @@ uv pip install -e .[dev,nvidia] \
 - `--prerelease=allow`：推移依存（`nvidia-cuda-runtime-cu13`）がプレリリース。
 
 `[dev]` extra は `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja` を入れます。`[nvidia]` extra は GPU スタック（torch cu130 / TensorRT / torch-tensorrt / nvidia-vfx。v0.8.1 で必須依存から分割）を入れます — **指定を忘れると torch が入らず起動しません**。
+
+**注: `nvidia-vfx` は 2026-10-03 から 0.2.0.0（VFX SDK 1.3.0）に固定しています。** PyPI 上のエントリは 4 KB の殻で、上記インストール中に `pypi.nvidia.com` から実 wheel（443 MB）を取ってくるため、追加のインデックス指定は要りません。0.2.0.0 は `--frame-gen-backend rtx`（[frame_generation.md](frame_generation.md)）が使う `VideoFrameGeneration` effect を追加し、TensorRT を同梱しなくなりました（旧付録 B.2 の衝突は起こり得なくなった）。固定より前に作った venv には 0.1.0.1 が入っているので、`uv pip install nvidia-vfx==0.2.0.0` でその場で更新してください。
 
 **オプション: torchcodec バックエンド。** 実験的な torchcodec のデコード/エンコード経路（`--video-backend torchcodec`/`auto`）を使う場合は、`torchcodec` extra を追加し、同じフラグで `.[dev,nvidia,torchcodec]` を入れます:
 
@@ -307,7 +309,10 @@ python -m jasna              # GUI を起動（引数なし）
   `model_weights/` のファイル欠落、またはリゾルバが別の場所を見ている。3 つのウェイトを `$WORKSPACE/jasna/model_weights/`（6節）に置くか、`JASNA_MODEL_WEIGHTS_DIR` をそれらが入ったフォルダに設定する。
 
 - **RTX Super-Res で `IRuntime::deserializeCudaEngine ... Version tag does not match`**
-  `nvidia-vfx`（nvvfx）同梱の TensorRT 10.9 と jasna の TensorRT 10.16 が soname `libnvinfer.so.10` を共有するため、nvvfx 側が先にロードされるとエンジンを読めなくなる。修正は本ブランチで適用済みです（付録 B.2。upstream にも同等修正が入り収束）。この症状が出る場合は venv の作り直しを検討。
+  `nvidia-vfx` 0.1.0.1 以前に限る症状。それらの wheel は TensorRT 10.9 を同梱し、jasna の TensorRT 10.16 と soname `libnvinfer.so.10` を共有するため、nvvfx 側が先にロードされるとエンジンを読めなくなる。修正は本ブランチで適用済み（付録 B.2。upstream にも同等修正が入り収束）で、固定版の 0.2.0.0 は TensorRT を同梱しない。この症状が出たら `uv pip install nvidia-vfx==0.2.0.0`。
+
+- **`--frame-gen-backend rtx` が「RTX Video Frame Generation is not available in nvidia-vfx 0.1.0.1」と言う**
+  venv が 0.2.0.0 固定（5 節）より前のもの。`uv pip install nvidia-vfx==0.2.0.0`。effect には加えて RTX 40 シリーズ以降の GPU とドライバ 570.190 以降 / 580.82 以降 / 590.44 以降が必要。
 
 - **`--fp8-recon` と RTX Super-Res の併用で `Unable to load any of {libcudnn_graph.so.9.7.1, ...}` で中断**
   nvvfx が `LD_LIBRARY_PATH` 先頭に追記する同梱ディレクトリに、不完全な cuDNN 9.7 ディスパッチャだけが置かれているため。修正は本ブランチで適用済みです（`jasna/restorer/fp8_upsample.py` が `import cudnn` の前に torch 同梱の完全な cuDNN を優先させる）。
@@ -350,3 +355,5 @@ v0.8.0 で native 経路（PyAV）の DLL 補助は不要になりました。�
 **問題**: RTX Super-Res を有効にすると、jasna の TensorRT エンジン逆シリアライズ中に `IRuntime::deserializeCudaEngine ... Serialization assertion stdVersionRead == kSERIALIZATION_VERSION failed. Version tag does not match` で中断する。`nvidia-vfx`（nvvfx）パッケージは自前の TensorRT **10.9**（`nvvfx/libs/libnvinfer.so.10`）を同梱し、`nvvfx/_lib_loader.py` で `RTLD_GLOBAL` 読み込みする。一方 jasna のパイプラインエンジンは TensorRT **10.16**（`tensorrt_libs`）でビルドされる。両者は soname `libnvinfer.so.10` を共有し、ELF のシンボル解決は「先にグローバルスコープへ入った方」を使う。nvvfx が jasna の TensorRT ランタイムより先にロードされると、`torch-tensorrt` が nvvfx の古い 10.9 にバインドされ、jasna の新しい 10.16 製エンジンを読めない。
 
 **修正**: RTX Super-Res リストアモジュールの import 時（`nvvfx` の import より前）に実行される `_preload_tensorrt_runtime()` を追加。Linux では `tensorrt_libs` を特定し、その `libnvinfer.so.10` / `libnvinfer_plugin.so.10` を `ctypes.RTLD_GLOBAL` で先読みすることで、TensorRT 10.16 のシンボルを先にグローバルスコープへ入れ、後続の nvvfx のロードも 10.16 に解決させる。Windows では no-op。upstream も後に同等修正を独自実装したため（`6545b78`）、関数名は upstream に合わせて収束済み。
+
+**`nvidia-vfx==0.2.0.0` 固定（2026-10-03）以降の状態**: 0.2.0.0 は `libnvinfer` を一切同梱しない（`readelf -d` と `/proc/self/maps`、および nvvfx を先に import した状態で jasna のエンジンを逆シリアライズして確認）ため、衝突は構造的に消えた。先読みは 0.1.0.1 のままの venv 向けと upstream との整合のため無害な no-op として残し、`TestTensorrtLoadOrder` も引き続き通る。

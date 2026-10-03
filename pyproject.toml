@@ -73,7 +73,7 @@ nvidia-rtx = [
   # RTX builds strongly typed, so fp16 must live in the ONNX graph itself;
   # used by jasna.trt._convert_onnx_bytes_to_fp16.
   "onnxconverter-common>=1.14",
-  "nvidia-vfx",
+  "nvidia-vfx==0.2.0.0",
   "python_vali==4.8.8",
 ]
 amd = [
