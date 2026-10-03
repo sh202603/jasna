@@ -105,7 +105,9 @@ effect ロード後の追加 VRAM: 1080p `medium` +0.55 GB（`high` +1.24 GB、R
 
 任意のフレームサイズを受け付け（RIFE のような 64 の倍数へのパディングは不要）、サイズが変わると約 15 ms で再ロードするので、解像度が混在するフォルダ一括処理でも generator を 1 つ共有できる。
 
-**未確認**: RIFE との目視 A/B（残像、エッジの破綻、シーン切替検出の誤爆）、0.2.0.0 の Windows wheel、Turing/Ampere で SDK が返す正確なエラー（jasna 側の capability 判定が先に効く）。
+**目視確認（2026-10-03、Linux）**: 1080p テストクリップの 2x 出力を `rtx` と `rife` で見比べ、RTX 側に残像、エッジの破綻、シーン切替の誤ブレンドは見られなかった（両出力間の PSNR は 47.6 dB で、近いが同一ではない）。
+
+**未確認**: 0.2.0.0 の Windows wheel、Turing/Ampere で SDK が返す正確なエラー（jasna 側の capability 判定が先に効く）。
 
 ---
 
