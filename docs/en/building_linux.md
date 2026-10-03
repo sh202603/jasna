@@ -92,7 +92,7 @@ The interim procedure this section used to describe (build a wheel from PyAV ups
 
 ## 5. Install jasna itself
 
-Since v0.8.1 the GPU stack is split into extras (`nvidia` = the NVIDIA stack, `amd` = the ROCm one). For an NVIDIA build the `nvidia` extra pulls in `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx`, which are not on the default PyPI index. Point uv at the PyTorch cu130 index and add two flags:
+Since v0.8.1 the GPU stack is split into extras (`nvidia` = the NVIDIA stack, `amd` = the ROCm one). For an NVIDIA build the `nvidia` extra pulls in `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx==0.2.0.0`, which are not on the default PyPI index. Point uv at the PyTorch cu130 index and add two flags:
 
 ```bash
 cd "$WORKSPACE/jasna"
@@ -109,6 +109,8 @@ Why each flag:
 - `--prerelease=allow`: a transitive dependency (`nvidia-cuda-runtime-cu13`) is a prerelease.
 
 The `[dev]` extra installs `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja`. The `[nvidia]` extra installs the GPU stack (torch cu130 / TensorRT / torch-tensorrt / nvidia-vfx; split out of the required dependencies in v0.8.1) — **omitting it leaves you without torch and the app will not start**.
+
+**Note: `nvidia-vfx` is pinned to 0.2.0.0 (VFX SDK 1.3.0) since 2026-10-03.** The PyPI entry is a 4 KB stub that downloads the real 443 MB wheel from `pypi.nvidia.com` during the install above, so no extra index is needed. 0.2.0.0 adds the `VideoFrameGeneration` effect used by `--frame-gen-backend rtx` ([frame_generation.md](frame_generation.md)) and no longer bundles TensorRT (the old Appendix B.2 clash cannot happen any more). A venv created before the pin has 0.1.0.1; upgrade it in place with `uv pip install nvidia-vfx==0.2.0.0`.
 
 **Optional: the torchcodec backend.** To use the experimental torchcodec decode/encode path (`--video-backend torchcodec`/`auto`), add the `torchcodec` extra and install `.[dev,nvidia,torchcodec]` with the same flags:
 
@@ -215,7 +217,7 @@ The two test clips normally ship with the repository in `$WORKSPACE/jasna/assets
 
 ### 6.1 Optional: RIFE frame-interpolation model (for `--frame-gen`)
 
-Needed only for frame-rate doubling (`--frame-gen {2x,4x}`). The RIFE weights are **not bundled** (non-commercial license terms), so create the TorchScript checkpoint yourself with `scripts/make_rife_torchscript.py`.
+Needed only for frame-rate doubling (`--frame-gen {2x,4x}`) with the default `rife` backend. On an RTX 40 series or newer GPU, `--frame-gen-backend rtx` (NVIDIA RTX Video Frame Generation from the `nvidia-vfx` wheel installed in Section 5) needs no weights at all; see [frame_generation.md](frame_generation.md). The RIFE weights are **not bundled** (non-commercial license terms), so create the TorchScript checkpoint yourself with `scripts/make_rife_torchscript.py`.
 
 1. Clone Practical-RIFE and download a 4.x model package (**verified with v4.25**) so that `<repo>/train_log/` contains `RIFE_HDv3.py`, `IFNet_HDv3.py`, `flownet.pkl`:
    ```bash
@@ -303,7 +305,10 @@ The publicly supported path is therefore **running from source** (Section 7). If
   Files missing from `model_weights/`, or the resolver is looking elsewhere. Put the 3 weights in `$WORKSPACE/jasna/model_weights/` (Section 6), or set `JASNA_MODEL_WEIGHTS_DIR` to a folder containing them.
 
 - **RTX Super-Res fails with `IRuntime::deserializeCudaEngine ... Version tag does not match`**
-  `nvidia-vfx` (nvvfx) bundles TensorRT 10.9 which shares the soname `libnvinfer.so.10` with jasna's TensorRT 10.16; if nvvfx loads first, jasna's engines cannot be deserialized. The fix is applied on this branch (Appendix B.2; upstream later converged on the same fix). If you see this, consider recreating the venv.
+  Only with `nvidia-vfx` 0.1.0.1 or older: those wheels bundle TensorRT 10.9, which shares the soname `libnvinfer.so.10` with jasna's TensorRT 10.16; if nvvfx loads first, jasna's engines cannot be deserialized. The fix is applied on this branch (Appendix B.2; upstream later converged on the same fix), and the pinned 0.2.0.0 no longer ships TensorRT at all. If you see this, run `uv pip install nvidia-vfx==0.2.0.0`.
+
+- **`--frame-gen-backend rtx` says RTX Video Frame Generation is not available in nvidia-vfx 0.1.0.1**
+  The venv predates the 0.2.0.0 pin (Section 5). `uv pip install nvidia-vfx==0.2.0.0`. The effect also needs an RTX 40 series or newer GPU and driver 570.190+ / 580.82+ / 590.44+.
 
 - **Combining `--fp8-recon` with RTX Super-Res aborts with `Unable to load any of {libcudnn_graph.so.9.7.1, ...}`**
   nvvfx prepends its bundled libs directory to `LD_LIBRARY_PATH`, which contains only an incomplete cuDNN 9.7 dispatcher. The fix is applied on this branch (`jasna/restorer/fp8_upsample.py` puts torch's complete cuDNN first before `import cudnn`).
@@ -346,3 +351,5 @@ Linux-specific runtime fixes already applied to this branch's source. All are ne
 **Problem**: With RTX Super-Res enabled, jasna aborts while deserializing its TensorRT engines with `IRuntime::deserializeCudaEngine ... Serialization assertion stdVersionRead == kSERIALIZATION_VERSION failed. Version tag does not match`. The `nvidia-vfx` (nvvfx) package bundles its own TensorRT **10.9** (`nvvfx/libs/libnvinfer.so.10`) and loads it with `RTLD_GLOBAL` (`nvvfx/_lib_loader.py`), while jasna's pipeline engines are built with TensorRT **10.16** (`tensorrt_libs`). Both share the soname `libnvinfer.so.10`, and ELF symbol resolution uses whichever entered the global scope first. If nvvfx loads before jasna's TensorRT runtime, `torch-tensorrt` binds to nvvfx's old 10.9 and cannot read jasna's newer 10.16 engines.
 
 **Fix**: Adds `_preload_tensorrt_runtime()`, executed at import time of the RTX Super-Res restorer module (before `nvvfx` is imported). On Linux it locates `tensorrt_libs` and preloads its `libnvinfer.so.10` / `libnvinfer_plugin.so.10` with `ctypes.RTLD_GLOBAL`, so TensorRT 10.16's symbols enter the global scope first and nvvfx's later load also resolves to 10.16. On Windows it is a no-op. Upstream later implemented the same fix independently (`6545b78`), so the function name matches upstream and the implementations have converged.
+
+**Status since the `nvidia-vfx==0.2.0.0` pin (2026-10-03)**: 0.2.0.0 ships no `libnvinfer` at all (verified with `readelf -d` and `/proc/self/maps`, and by deserializing a jasna engine with nvvfx imported first), so the clash is gone structurally. The preload is kept as a harmless no-op for venvs still on 0.1.0.1 and for parity with upstream; `TestTensorrtLoadOrder` still passes.

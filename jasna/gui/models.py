@@ -185,6 +185,8 @@ class AppSettings:
     upscale_dlss5_preset: str = UPSCALE_DLSS5_DEFAULT_PRESET
     upscale_dlss5_style: str = UPSCALE_DLSS5_DEFAULT_STYLE
     upscale_dlss5_intensity: float = UPSCALE_DLSS5_DEFAULT_INTENSITY
+    rtx_strength: float = 1.0  # 0.0-1.0, applies to every RTX pass (nvidia-vfx >= 0.2.0.0)
+    rtx_highbitrate: bool = False  # HIGHBITRATE_* clean-source upscale models
     
     # Detection
     detection_model: str = DEFAULT_DETECTION_MODEL_NAME  # RF-DETR, Lada YOLO, or ZeLeFans VR YOLO registry name
@@ -213,8 +215,9 @@ class AppSettings:
     frame_generation: str = "none"  # none, 2x
     fmp4: bool = False
     frame_gen: str = "none"  # none, 2x, 4x (frame-rate up-conversion, file-output only)
-    frame_gen_backend: str = "rife"  # rife, rtx (rtx pending nvidia-vfx release)
+    frame_gen_backend: str = "rife"  # rife, rtx (RTX Video Frame Generation; Ada/RTX 40 or newer)
     frame_gen_model_path: str = ""  # optional RIFE weights; empty = <model_weights>/rife.pth
+    frame_gen_rtx_mode: str = "medium"  # low, medium, high (rtx backend only)
     video_backend: str = "native"  # native, auto, torchcodec (experimental)
 
     # Post-export action
