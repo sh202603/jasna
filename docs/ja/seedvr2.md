@@ -91,9 +91,12 @@ checkout は、「セットアップ」の手順 1 の clone を次に置き換�
 git clone -b modi https://github.com/sh202603/ComfyUI-SeedVR2_VideoUpscaler.git ~/seedvr2_videoupscaler
 ```
 
-確認は Linux で行った。Windows では未確認である。
+Windows では Triton が `triton-windows` という別のパッケージで、PyTorch と一緒には入らない。
+checkout の venv に `uv pip install "triton-windows<3.8"` で入れる(PyTorch 2.12 に対応するのは 3.7 系)。
 
-RTX 5080、256px の合成モザイク、LoRA v7 での worker 単体の実測:
+確認は Linux と Windows で行った(どちらも RTX 5080 16 GB)。
+
+RTX 5080、256px の合成モザイク、LoRA v7 での worker 単体の実測(Linux):
 
 | | off | `--seedvr2-accel` |
 |---|---|---|
@@ -116,8 +119,25 @@ VRAM ピークは、GPU 全体の使用量(jasna 本体と worker の合計)か�
 1.8 倍に近づく。`--seedvr2-accel` を付けても律速は一次復元のままである(一次復元のスレッドは、
 時間の 95% 以上を復元に使っている)。
 
-出力は off と bit 一致しない(worker 単体の条件で PSNR 46.4 dB、最大差 28/255)。上の 3 素材の出力を
-目視で比べたところ、off との差は見分けられなかった。LoRA の効果はマージ後も
+Windows 機(RTX 5080 16 GB、triton-windows 3.7.1)でも二つの部品は有効になり、同じ素材と設定で
+次の値になった。480p と 1080p は 3 回の中央値、4K は 1 回の値である。
+
+| 素材 | 処理時間 off | 処理時間 `--seedvr2-accel` | 倍率 | VRAM ピーク off | VRAM ピーク `--seedvr2-accel` |
+|---|---|---|---|---|---|
+| 480p | 148.0 秒(24.3 fps) | 102.0 秒(35.3 fps) | 1.45 倍 | 10.7 GiB | 7.5 GiB |
+| 1080p | 257.4 秒(14.2 fps) | 167.6 秒(21.8 fps) | 1.54 倍 | 11.5 GiB | 7.9 GiB |
+| 4K | 322.9 秒(11.3 fps) | 205.2 秒(17.8 fps) | 1.57 倍 | 13.4 GiB | 9.9 GiB |
+
+VRAM ピークは Linux とほぼ同じで、4K の off も 16 GB に収まって完走した(GPU 全体で 15.4 GiB)。
+一次復元にかかった時間の比は 1.70〜1.73 倍である。処理時間の倍率が Linux より低いのは、一次復元
+以外にかかる時間が 16〜35 秒あるためで(Linux は 8〜10 秒)、そのうち worker の起動が 8〜24 秒を
+占める(Linux は 3〜5 秒)。同じ構成を繰り返したときの処理時間の幅も、Linux の 0.3 秒に対して
+最大 15 秒あった。
+
+出力は off と bit 一致しない(worker 単体の条件で PSNR 46.4 dB、最大差 28/255)。e2e の出力を off と
+比べた PSNR(全フレームの平均)は、Linux と Windows のどちらでも、素材によって 49.0〜50.4 dB だった。
+Linux の 3 素材の出力を目視で比べたところ、off との差は見分けられなかった。Windows の 3 素材の出力も、
+目視では off と同等だった。LoRA の効果はマージ後も
 保たれる(LoRA を効かせない出力との差は 26.5 dB)。lada-ex のハーネスとの bit 一致は、この
 オプションを使う間は成り立たない。torch.compile は部品に入れていない(DiT が 126 ms から
 101 ms になるだけで、ウィンドウ長ごとに再コンパイルが入るため)。
