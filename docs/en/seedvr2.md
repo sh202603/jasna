@@ -81,13 +81,24 @@ folder input, so that cost is paid once per session.
   cannot stay a side branch.
 
 Both are implemented on the SeedVR2 checkout side and are not in the upstream (numz) checkout yet.
+The `modi` branch of the fork [sh202603/ComfyUI-SeedVR2_VideoUpscaler](https://github.com/sh202603/ComfyUI-SeedVR2_VideoUpscaler)
+provides them.
 At startup the worker checks the checkout and the GPU, drops the parts it cannot run with a warning,
 and runs the standard path for them (with the upstream checkout both are dropped and the output is
 bit-identical to off). Requirements:
 
-- a SeedVR2 checkout that provides the two paths, with comfy-kitchen in its venv (it is in the
+- a checkout of the fork's `modi` branch, with comfy-kitchen in its venv (it is in the
   checkout's `requirements.txt`)
 - for `fp8_dit`, an RTX 40 series or newer GPU and a working Triton
+
+To create the checkout, replace the clone in step 1 of [Setup](#setup) with the following. The
+remaining steps are the same.
+
+```bash
+git clone -b modi https://github.com/sh202603/ComfyUI-SeedVR2_VideoUpscaler.git ~/seedvr2_videoupscaler
+```
+
+This was checked on Linux. It has not been checked on Windows.
 
 Worker-only measurements on an RTX 5080 with synthetic 256px mosaics and LoRA v7:
 
@@ -208,5 +219,6 @@ jasna's vendored mmagic subset (inference-only) does not carry. Fine-tune in
   mosaic.
 - VR modes are rejected at startup until evaluated.
 - Tracking of numz repo internals is confined to the single worker file
-  (`jasna/restorer/seedvr2_lora_worker.py`, kept verbatim-identical with
-  lada-ex), but upstream compatibility breaks will require worker-side fixes.
+  (`jasna/restorer/seedvr2_lora_worker.py`), but upstream compatibility breaks will require
+  worker-side fixes. The worker is a port of the lada-ex one and has not been kept identical
+  with it since `--seedvr2-accel` was added, so such fixes go into each.

@@ -75,13 +75,23 @@ worker の起動(モデルロード + LoRA 注入 + ウォームアップ)は重
 - **FP8 DiT**(`fp8_dit`): LoRA を基底の重みへマージしてから、DiT ブロックの線形層を FP8 GEMM に
   差し替える。FP8 化は線形層そのものを置き換えるので、LoRA を側枝として残せない。
 
-どちらも SeedVR2 checkout 側の実装で、上流(numz)の checkout にはまだ無い。worker は起動時に
+どちらも SeedVR2 checkout 側の実装で、上流(numz)の checkout にはまだ無い。fork
+[sh202603/ComfyUI-SeedVR2_VideoUpscaler](https://github.com/sh202603/ComfyUI-SeedVR2_VideoUpscaler) の
+`modi` ブランチが提供する。worker は起動時に
 checkout と GPU を調べ、使えない部品を外して警告を出し、その部品は標準経路で動く
 (上流の checkout では両方が外れ、出力は off と bit 一致する)。必要なものは次のとおり。
 
-- この二つの経路を持つ SeedVR2 checkout と、その venv の comfy-kitchen(checkout の
+- fork の `modi` ブランチの checkout と、その venv の comfy-kitchen(checkout の
   `requirements.txt` に含まれる)
 - `fp8_dit` には RTX 40 系以降の GPU と動く Triton
+
+checkout は、「セットアップ」の手順 1 の clone を次に置き換えて作る。以降の手順は同じ。
+
+```bash
+git clone -b modi https://github.com/sh202603/ComfyUI-SeedVR2_VideoUpscaler.git ~/seedvr2_videoupscaler
+```
+
+確認は Linux で行った。Windows では未確認である。
 
 RTX 5080、256px の合成モザイク、LoRA v7 での worker 単体の実測:
 
@@ -184,5 +194,6 @@ dump が依存する BasicVSR++ 訓練用の劣化パイプラインを jasna �
   パイプラインで細帯をスキップする案は実モザイクの放置になるため採らない。
 - VR モードは未検証のため起動時に拒否する。対応は今後の評価課題。
 - numz repo 内部実装への追従は worker 1 ファイル
-  (`jasna/restorer/seedvr2_lora_worker.py`。lada-ex と逐語同一に保つ)に閉じているが、
-  上流の互換性破壊時には worker 側の修正が必要になる。
+  (`jasna/restorer/seedvr2_lora_worker.py`)に閉じているが、
+  上流の互換性破壊時には worker 側の修正が必要になる。worker は lada-ex の worker の移植で、
+  `--seedvr2-accel` の追加以降は lada-ex と同一に保っていない。修正はそれぞれに入れる。

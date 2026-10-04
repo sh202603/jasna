@@ -10,8 +10,8 @@ zero-padded crops, so ``prepare_crops_for_restoration`` must not reflect-pad
 for this restorer.
 
 Process model: inference runs in a persistent child process from the SeedVR2
-venv (``seedvr2_lora_worker.py`` — a verbatim copy of the lada-ex worker; keep
-it byte-identical so upstream breakage is fixed once and diff-copied). One
+venv (``seedvr2_lora_worker.py``, ported from the lada-ex worker; the two are no
+longer kept byte-identical, so upstream breakage is fixed in each). One
 clip in -> one clip out over stdin/stdout as a JSON header line plus a raw
 uint8 BGR HWC buffer. The child loads the base model once, injects the LoRA at
 startup, and stays resident across input files (``RestorationSession.close()``
@@ -313,7 +313,7 @@ class Seedvr2LoraRestorer:
         with torch.inference_mode():
             stacked = torch.stack(video).to(self.device)
             # Quantize on-device, flip RGB->BGR (the wire is lada-native BGR,
-            # keeping the worker byte-identical with lada-ex), then download.
+            # inherited from the lada-ex worker), then download.
             u8 = stacked.round().clamp(0, 255).to(torch.uint8)
             bgr_hwc = u8.permute(0, 2, 3, 1).flip(-1).contiguous()
             payload = np.ascontiguousarray(bgr_hwc.cpu().numpy())

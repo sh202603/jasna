@@ -86,7 +86,7 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 jasna --input in.mp4 --output out.mp4 --restoration-model-name seedvr2 --seedvr2-repo ~/seedvr2_videoupscaler
 ```
 
-推理在检出自带 venv 的常驻 worker 中运行（不向 jasna 的 venv 安装任何东西），以 33 帧滑窗 + 重叠交叉淡化处理每个片段。需要 16GB 显卡；`ComfyUI-SeedVR2_VideoUpscaler` 检出（base 权重首次自动下载，约 7.3GB）与 [sh202603/lada-seedvr2-lora](https://huggingface.co/sh202603/lada-seedvr2-lora) 的 LoRA（约 90MB）由用户自备。不兼容 VR 模式 / `--frame-gen` / `flashvsr-inline`；可与离线 `flashvsr` 模式组合成最高质量配置。该 LoRA 最擅长低分辨率、劣化严重的素材（diffusion 先验能从信息量极少的输入中重建 BasicVSR++ 只能抹平的细节）；生成式输出补出的是貌似合理的细节而非还原原始信号，因此它并不能完全替代默认的 basicvsrpp，请按素材选用。详情: [docs/en/seedvr2.md](docs/en/seedvr2.md)。
+推理在检出自带 venv 的常驻 worker 中运行（不向 jasna 的 venv 安装任何东西），以 33 帧滑窗 + 重叠交叉淡化处理每个片段。需要 16GB 显卡；`ComfyUI-SeedVR2_VideoUpscaler` 检出（base 权重首次自动下载，约 7.3GB）与 [sh202603/lada-seedvr2-lora](https://huggingface.co/sh202603/lada-seedvr2-lora) 的 LoRA（约 90MB）由用户自备。不兼容 VR 模式 / `--frame-gen` / `flashvsr-inline`；可与离线 `flashvsr` 模式组合成最高质量配置。该 LoRA 最擅长低分辨率、劣化严重的素材（diffusion 先验能从信息量极少的输入中重建 BasicVSR++ 只能抹平的细节）；生成式输出补出的是貌似合理的细节而非还原原始信号，因此它并不能完全替代默认的 basicvsrpp，请按素材选用。使用 fork [`sh202603/ComfyUI-SeedVR2_VideoUpscaler`](https://github.com/sh202603/ComfyUI-SeedVR2_VideoUpscaler) 的 `modi` 分支检出时，可通过 `--seedvr2-accel`（默认关闭）以融合内核运行 VAE、以 FP8 运行 DiT。在 RTX 5080 上整体运行约快 1.7 倍，VRAM 峰值降低 3GB 以上（FP8 部分需要 RTX 40 系列及更新的 GPU，无法运行的部分会给出警告并回退到标准路径）。详情: [docs/en/seedvr2.md](docs/en/seedvr2.md)。
 
 ### FlashVSR 二级修复（实验性）
 

@@ -374,7 +374,8 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         help="Run the SeedVR2 VAE through fused fp16 kernels and the DiT block linears as FP8 "
              "GEMM with the LoRA merged into the weights (default: %(default)s). Needs a "
-             "SeedVR2 checkout that provides these paths (not in the upstream repository), "
+             "SeedVR2 checkout that provides these paths (the modi branch of the fork "
+             "sh202603/ComfyUI-SeedVR2_VideoUpscaler; not in the upstream repository), "
              "comfy-kitchen in its venv, and for FP8 an RTX 40 series or newer GPU with a "
              "working Triton; the worker drops whatever is unavailable (with a warning) and "
              "runs the standard path for it. About 1.85x the crop throughput on an RTX 5080; "

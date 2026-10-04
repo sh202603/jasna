@@ -95,7 +95,7 @@ jasna --input input.mp4 --output output.mp4 --fp8-recon
 jasna --input in.mp4 --output out.mp4 --restoration-model-name seedvr2 --seedvr2-repo ~/seedvr2_videoupscaler
 ```
 
-推論は checkout 専用 venv 内の常駐 worker で行われ（jasna の venv には何も入りません）、各クリップを 33 フレームのスライディングウィンドウ + 重なりクロスフェードで処理します。16GB カードが必要です。`ComfyUI-SeedVR2_VideoUpscaler` の checkout（base 重みは初回に自動ダウンロード、約 7.3GB）と、[sh202603/lada-seedvr2-lora](https://huggingface.co/sh202603/lada-seedvr2-lora) の LoRA（約 90MB）は利用者が用意します。VR モード / `--frame-gen` / `flashvsr-inline` とは併用不可。オフライン `flashvsr` モードとは合成可能で、最高品質構成になります。この LoRA は低解像度で劣化の大きい素材に最も効きます（BasicVSR++ が均してしまう情報の少ない入力からも、diffusion の事前分布がディテールを再構成するため）。生成系の出力は原信号の復元ではなく「ありそうなディテール」の付与なので、既定の basicvsrpp を完全に置き換えるものではなく、素材に応じた使い分けが必要です。詳細: [docs/ja/seedvr2.md](docs/ja/seedvr2.md)。
+推論は checkout 専用 venv 内の常駐 worker で行われ（jasna の venv には何も入りません）、各クリップを 33 フレームのスライディングウィンドウ + 重なりクロスフェードで処理します。16GB カードが必要です。`ComfyUI-SeedVR2_VideoUpscaler` の checkout（base 重みは初回に自動ダウンロード、約 7.3GB）と、[sh202603/lada-seedvr2-lora](https://huggingface.co/sh202603/lada-seedvr2-lora) の LoRA（約 90MB）は利用者が用意します。VR モード / `--frame-gen` / `flashvsr-inline` とは併用不可。オフライン `flashvsr` モードとは合成可能で、最高品質構成になります。この LoRA は低解像度で劣化の大きい素材に最も効きます（BasicVSR++ が均してしまう情報の少ない入力からも、diffusion の事前分布がディテールを再構成するため）。生成系の出力は原信号の復元ではなく「ありそうなディテール」の付与なので、既定の basicvsrpp を完全に置き換えるものではなく、素材に応じた使い分けが必要です。fork [`sh202603/ComfyUI-SeedVR2_VideoUpscaler`](https://github.com/sh202603/ComfyUI-SeedVR2_VideoUpscaler) の `modi` ブランチの checkout を使うと、`--seedvr2-accel`（既定 off）で VAE を融合カーネル、DiT を FP8 で動かせます。RTX 5080 では実行全体が約 1.7 倍速くなり、VRAM のピークが 3GB 以上下がります（FP8 の部分は RTX 40 系以降が必要で、使えない部分は警告して標準の経路に戻ります）。詳細: [docs/ja/seedvr2.md](docs/ja/seedvr2.md)。
 
 ### FlashVSR セカンダリ復元（実験的）
 
