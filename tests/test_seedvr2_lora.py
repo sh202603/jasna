@@ -57,7 +57,9 @@ _STUB_WORKER = textwrap.dedent(
 
     out = sys.stdout.buffer
     stdin = sys.stdin.buffer
-    out.write((json.dumps({"status": "ready"}) + "\\n").encode()); out.flush()
+    ready = {"status": "ready"}
+    ready.update(json.loads(os.environ.get("STUB_READY_EXTRA", "{}")))
+    out.write((json.dumps(ready) + "\\n").encode()); out.flush()
     while True:
         h = rh(stdin)
         if h is None:
@@ -97,13 +99,14 @@ def stub_env(tmp_path, monkeypatch):
     return {"repo": repo, "lora": lora, "worker": worker}
 
 
-def _make_restorer(stub_env):
+def _make_restorer(stub_env, **kwargs):
     return Seedvr2LoraRestorer(
         repo_path=str(stub_env["repo"]),
         lora_path=str(stub_env["lora"]),
         device="cpu",
         python_path=sys.executable,
         startup_timeout_s=30.0,
+        **kwargs,
     )
 
 
@@ -167,6 +170,58 @@ class TestConstructorValidation:
             assert r.tensorrt_active is False
             assert r.input_dtype == torch.float16
             assert r.dtype == torch.float16
+        finally:
+            r.close()
+
+
+class TestAccel:
+    def test_default_requests_no_parts(self, stub_env, monkeypatch):
+        monkeypatch.setenv("STUB_MODE", "ok")
+        r = _make_restorer(stub_env)
+        try:
+            assert "--fused-vae" not in r._cmd
+            assert "--fp8-dit" not in r._cmd
+            assert r.accel_parts == []
+        finally:
+            r.close()
+
+    def test_accel_requests_both_parts(self, stub_env, monkeypatch):
+        """One switch on the jasna side; the worker takes the parts separately."""
+        monkeypatch.setenv("STUB_MODE", "ok")
+        r = _make_restorer(stub_env, accel=True)
+        try:
+            assert "--fused-vae" in r._cmd
+            assert "--fp8-dit" in r._cmd
+        finally:
+            r.close()
+
+    def test_handshake_parts_are_recorded_and_logged(self, stub_env, monkeypatch, caplog):
+        """The worker's stdout is muted, so its decisions arrive in the handshake:
+        enabled parts at INFO, dropped parts as a warning."""
+        import json
+        import logging
+
+        monkeypatch.setenv("STUB_MODE", "ok")
+        monkeypatch.setenv("STUB_READY_EXTRA", json.dumps({
+            "accel": ["fused_vae"],
+            "accel_log": ["enabled fused_vae", "fp8_dit unavailable: requires Triton"],
+        }))
+        with caplog.at_level(logging.INFO, logger="jasna.restorer.seedvr2_lora_restorer"):
+            r = _make_restorer(stub_env, accel=True)
+        try:
+            assert r.accel_parts == ["fused_vae"]
+            levels = {rec.getMessage(): rec.levelno for rec in caplog.records}
+            assert levels["[seedvr2] accel: enabled fused_vae"] == logging.INFO
+            assert levels["[seedvr2] accel: fp8_dit unavailable: requires Triton"] == logging.WARNING
+        finally:
+            r.close()
+
+    def test_handshake_without_accel_fields_is_accepted(self, stub_env, monkeypatch):
+        """A worker that predates the acceleration fields only sends the status."""
+        monkeypatch.setenv("STUB_MODE", "ok")
+        r = _make_restorer(stub_env, accel=True)
+        try:
+            assert r.accel_parts == []
         finally:
             r.close()
 
