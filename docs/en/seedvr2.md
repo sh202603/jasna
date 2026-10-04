@@ -68,6 +68,57 @@ folder input, so that cost is paid once per session.
 | `--seedvr2-overlap` | `9` | Cross-fade overlap between windows |
 | `--seedvr2-color-fix` | `lab` | Per-clip color correction (`none`/`lab`/`wavelet`) |
 | `--seedvr2-empty-cache` | `auto` | Per-clip VRAM release to the co-resident detection/decode process. `auto` = `always` below 20GiB total VRAM (OOM safeguard), `never` above (pure overhead) |
+| `--seedvr2-accel` / `--no-seedvr2-accel` | off | Fused VAE path and FP8 DiT (LoRA merged). Needs a SeedVR2 checkout that provides them. See [Acceleration](#acceleration---seedvr2-accel) |
+
+## Acceleration (`--seedvr2-accel`)
+
+`--seedvr2-accel` asks the worker for two parts. It is off by default.
+
+- **Fused VAE path** (`fused_vae`): GroupNorm and SiLU run as one pass and the convolutions use an
+  fp16-accumulate kernel (comfy-kitchen). The VAE runs in fp16.
+- **FP8 DiT** (`fp8_dit`): the LoRA is merged into the base weights, then the linear layers of the
+  DiT blocks are swapped for FP8 GEMM. The swap replaces the linear layers themselves, so the LoRA
+  cannot stay a side branch.
+
+Both are implemented on the SeedVR2 checkout side and are not in the upstream (numz) checkout yet.
+At startup the worker checks the checkout and the GPU, drops the parts it cannot run with a warning,
+and runs the standard path for them (with the upstream checkout both are dropped and the output is
+bit-identical to off). Requirements:
+
+- a SeedVR2 checkout that provides the two paths, with comfy-kitchen in its venv (it is in the
+  checkout's `requirements.txt`)
+- for `fp8_dit`, an RTX 40 series or newer GPU and a working Triton
+
+Worker-only measurements on an RTX 5080 with synthetic 256px mosaics and LoRA v7:
+
+| | off | `--seedvr2-accel` |
+|---|---|---|
+| 33-frame window (encode / DiT / decode) | 310 / 252 / 730 ms | 144 / 126 / 342 ms |
+| 57-frame clip | 2953 ms (19.3 crop-fps) | 1590 ms (35.8 crop-fps) |
+| Worker VRAM peak | 9.6 GiB | 6.0 GiB |
+
+End to end (the whole jasna run) on a Linux machine with an RTX 5080 16 GB: each clip is 2 minutes
+long, detection is rfdetr-v6, the LoRA is v6, and there is no secondary restoration. Time is the
+wall clock from process start to exit, as the median of 3 runs.
+
+| Clip | Time, off | Time, `--seedvr2-accel` | Speedup | VRAM peak, off | VRAM peak, `--seedvr2-accel` |
+|---|---|---|---|---|---|
+| 480p | 117.3 s (30.7 fps) | 69.9 s (51.5 fps) | 1.68x | 10.9 GiB | 7.6 GiB |
+| 1080p | 219.9 s (16.6 fps) | 125.6 s (29.1 fps) | 1.75x | 11.7 GiB | 8.1 GiB |
+| 4K | 271.7 s (13.5 fps) | 153.7 s (23.8 fps) | 1.77x | 13.6 GiB | 9.9 GiB |
+
+The VRAM peak is the GPU-wide usage (jasna and the worker together) minus the usage before the run.
+The time spent in primary restoration drops by 1.81x to 1.82x on all three clips, close to the
+worker-only ratio (1.86x). The wall-clock speedup is lower because the 7 to 8 seconds of startup
+and shutdown do not change, so it approaches 1.8x on longer clips. Primary restoration stays the
+bottleneck with `--seedvr2-accel` (its thread spends more than 95% of its time restoring).
+
+The output is not bit-identical to off (46.4 dB PSNR in the worker-only setup, max difference
+28/255). Comparing the outputs of the three clips above by eye, no difference from off was
+noticeable. The LoRA keeps its effect after the merge (the output without the LoRA differs by
+26.5 dB).
+Bit parity with the lada-ex harness does not hold while this option is on. torch.compile is not one
+of the parts: it only takes the DiT from 126 ms to 101 ms and recompiles for every window length.
 
 ## How it works
 
