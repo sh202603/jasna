@@ -41,6 +41,7 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 | `--seedvr2-window` / `--seedvr2-overlap` | `33` / `9` | *(+modi)* Sliding-window length (4n+1) and cross-fade overlap. |
 | `--seedvr2-color-fix` | `lab` | *(+modi)* Per-clip color correction: `none`, `lab`, `wavelet`. |
 | `--seedvr2-empty-cache` | `auto` | *(+modi)* Per-clip VRAM release in the SeedVR2 worker: `auto`, `always`, `never`. |
+| `--seedvr2-accel` / `--no-seedvr2-accel` | off | *(+modi)* SeedVR2 fused VAE path and FP8 DiT (LoRA merged). Needs a checkout that provides them; the worker drops unavailable parts with a warning. See [seedvr2.md](seedvr2.md). |
 | `--seedvr2-model-dir`, `--seedvr2-dit`, `--seedvr2-lora-rank` | see `--help` | *(+modi)* Base-weights overrides. See [seedvr2.md](seedvr2.md). |
 | `--compile-basicvsrpp` / `--no-compile-basicvsrpp` | on | TensorRT compilation: big speed boost, more VRAM. See [Tuning](tuning.md). |
 | `--max-clip-size` | `90` | Maximum tracked clip length in frames. Main VRAM lever. |

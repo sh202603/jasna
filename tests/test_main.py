@@ -1290,7 +1290,13 @@ class TestSeedvr2Main:
         assert args.seedvr2_overlap == 9
         assert args.seedvr2_color_fix == "lab"
         assert args.seedvr2_empty_cache == "auto"
+        assert args.seedvr2_accel is False
         assert args.seedvr2_dit == "seedvr2_ema_3b_fp16.safetensors"
+
+    def test_accel_flag_parses_both_ways(self):
+        base = ["--input", "a.mp4", "--output", "b.mp4"]
+        assert build_parser().parse_args(base + ["--seedvr2-accel"]).seedvr2_accel is True
+        assert build_parser().parse_args(base + ["--no-seedvr2-accel"]).seedvr2_accel is False
 
     def _run_expect_error(self, argv, match):
         with _main_patches():
@@ -1408,6 +1414,7 @@ class TestSeedvr2Main:
         assert kw["overlap"] == 9
         assert kw["color_fix"] == "lab"
         assert kw["empty_cache"] == "auto"
+        assert kw["accel"] is False
         mock_basicvsrpp.assert_not_called()
         req = mock_compile.call_args[0][0]
         assert req.basicvsrpp is False

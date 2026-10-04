@@ -96,3 +96,4 @@ class SessionConfig:
     seedvr2_overlap: int = 9
     seedvr2_color_fix: str = "lab"
     seedvr2_empty_cache: str = "auto"
+    seedvr2_accel: bool = False

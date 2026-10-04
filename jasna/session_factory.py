@@ -152,6 +152,7 @@ def _build_seedvr2_restorer(config: SessionConfig, device: "torch.device"):
         overlap=int(config.seedvr2_overlap),
         color_fix=str(config.seedvr2_color_fix),
         empty_cache=str(config.seedvr2_empty_cache),
+        accel=bool(config.seedvr2_accel),
     )
 
 

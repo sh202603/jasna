@@ -99,6 +99,7 @@ def _session_config_from_args(
         seedvr2_overlap=int(getattr(args, "seedvr2_overlap", 9)),
         seedvr2_color_fix=str(getattr(args, "seedvr2_color_fix", "lab")),
         seedvr2_empty_cache=str(getattr(args, "seedvr2_empty_cache", "auto")),
+        seedvr2_accel=bool(getattr(args, "seedvr2_accel", False)),
     )
 
 
@@ -366,6 +367,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Per-clip VRAM release in the worker, returning cached VRAM to the co-resident "
              "detection/decode process. 'auto' resolves to 'always' below 20GiB total VRAM "
              "(an OOM safeguard there) and 'never' above (pure overhead) (default: %(default)s)",
+    )
+    seedvr2.add_argument(
+        "--seedvr2-accel",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Run the SeedVR2 VAE through fused fp16 kernels and the DiT block linears as FP8 "
+             "GEMM with the LoRA merged into the weights (default: %(default)s). Needs a "
+             "SeedVR2 checkout that provides these paths (not in the upstream repository), "
+             "comfy-kitchen in its venv, and for FP8 an RTX 40 series or newer GPU with a "
+             "working Triton; the worker drops whatever is unavailable (with a warning) and "
+             "runs the standard path for it. About 1.85x the crop throughput on an RTX 5080; "
+             "the output differs slightly (about 46 dB PSNR).",
     )
 
     sd15 = parser.add_argument_group("SD 1.5 image restoration")

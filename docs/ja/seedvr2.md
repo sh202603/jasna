@@ -64,6 +64,53 @@ worker の起動(モデルロード + LoRA 注入 + ウォームアップ)は重
 | `--seedvr2-overlap` | `9` | ウィンドウ間クロスフェード幅 |
 | `--seedvr2-color-fix` | `lab` | クリップ単位の色補正(`none`/`lab`/`wavelet`) |
 | `--seedvr2-empty-cache` | `auto` | 同居する検出/デコード側へのクリップ毎 VRAM 返却。`auto` は総 VRAM 20GiB 未満で `always`(OOM 保険)、以上で `never`(純オーバーヘッドのため) |
+| `--seedvr2-accel` / `--no-seedvr2-accel` | off | VAE の融合経路と FP8 DiT(LoRA をマージ)。対応する SeedVR2 checkout が必要。詳細は「[高速化](#高速化--seedvr2-accel)」 |
+
+## 高速化(`--seedvr2-accel`)
+
+`--seedvr2-accel` は worker に二つの部品を要求する。既定は off。
+
+- **VAE の融合経路**(`fused_vae`): GroupNorm と SiLU を 1 回の処理にまとめ、畳み込みを fp16 累積の
+  カーネルで実行する(comfy-kitchen)。VAE は fp16 で動く。
+- **FP8 DiT**(`fp8_dit`): LoRA を基底の重みへマージしてから、DiT ブロックの線形層を FP8 GEMM に
+  差し替える。FP8 化は線形層そのものを置き換えるので、LoRA を側枝として残せない。
+
+どちらも SeedVR2 checkout 側の実装で、上流(numz)の checkout にはまだ無い。worker は起動時に
+checkout と GPU を調べ、使えない部品を外して警告を出し、その部品は標準経路で動く
+(上流の checkout では両方が外れ、出力は off と bit 一致する)。必要なものは次のとおり。
+
+- この二つの経路を持つ SeedVR2 checkout と、その venv の comfy-kitchen(checkout の
+  `requirements.txt` に含まれる)
+- `fp8_dit` には RTX 40 系以降の GPU と動く Triton
+
+RTX 5080、256px の合成モザイク、LoRA v7 での worker 単体の実測:
+
+| | off | `--seedvr2-accel` |
+|---|---|---|
+| 33 フレームのウィンドウ(encode / DiT / decode) | 310 / 252 / 730 ms | 144 / 126 / 342 ms |
+| 57 フレームのクリップ | 2953 ms(19.3 crop-fps) | 1590 ms(35.8 crop-fps) |
+| worker の VRAM ピーク | 9.6 GiB | 6.0 GiB |
+
+jasna 全体(e2e)では次の値になった。RTX 5080 16 GB の Linux 機で、素材は各 2 分、検出は rfdetr-v6、
+LoRA は v6、二次復元はなし。処理時間はプロセスの起動から終了までの壁時計時間で、3 回の中央値である。
+
+| 素材 | 処理時間 off | 処理時間 `--seedvr2-accel` | 倍率 | VRAM ピーク off | VRAM ピーク `--seedvr2-accel` |
+|---|---|---|---|---|---|
+| 480p | 117.3 秒(30.7 fps) | 69.9 秒(51.5 fps) | 1.68 倍 | 10.9 GiB | 7.6 GiB |
+| 1080p | 219.9 秒(16.6 fps) | 125.6 秒(29.1 fps) | 1.75 倍 | 11.7 GiB | 8.1 GiB |
+| 4K | 271.7 秒(13.5 fps) | 153.7 秒(23.8 fps) | 1.77 倍 | 13.6 GiB | 9.9 GiB |
+
+VRAM ピークは、GPU 全体の使用量(jasna 本体と worker の合計)から実行前の使用量を引いた値である。
+一次復元にかかった時間の比は 3 素材とも 1.81〜1.82 倍で、worker 単体の比(1.86 倍)に近い。
+処理時間の倍率がそれより低いのは、起動と終了にかかる 7〜8 秒が変わらないためで、素材が長いほど
+1.8 倍に近づく。`--seedvr2-accel` を付けても律速は一次復元のままである(一次復元のスレッドは、
+時間の 95% 以上を復元に使っている)。
+
+出力は off と bit 一致しない(worker 単体の条件で PSNR 46.4 dB、最大差 28/255)。上の 3 素材の出力を
+目視で比べたところ、off との差は見分けられなかった。LoRA の効果はマージ後も
+保たれる(LoRA を効かせない出力との差は 26.5 dB)。lada-ex のハーネスとの bit 一致は、この
+オプションを使う間は成り立たない。torch.compile は部品に入れていない(DiT が 126 ms から
+101 ms になるだけで、ウィンドウ長ごとに再コンパイルが入るため)。
 
 ## 動作の要点
 

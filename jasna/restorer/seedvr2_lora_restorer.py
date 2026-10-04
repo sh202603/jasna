@@ -17,6 +17,11 @@ uint8 BGR HWC buffer. The child loads the base model once, injects the LoRA at
 startup, and stays resident across input files (``RestorationSession.close()``
 owns the final ``close()``); it is respawned if found dead.
 
+Acceleration (``accel``, ``--seedvr2-accel``) is one switch on the jasna side;
+the worker takes its parts separately (fused VAE kernels, FP8 DiT linears with
+the LoRA merged in), drops whichever the SeedVR2 checkout or the GPU cannot
+run, and reports the active ones in the handshake.
+
 Error policy — harder than a secondary restorer's: a failed clip here means
 the mosaic stays in the output, so there is no pass-through fallback. A worker
 error or death triggers one respawn+retry of the same clip; a second failure
@@ -94,6 +99,7 @@ class Seedvr2LoraRestorer:
         overlap: int = 9,
         color_fix: str = "lab",
         empty_cache: str = "auto",
+        accel: bool = False,
         startup_timeout_s: float = 600.0,
     ) -> None:
         if window % 4 != 1 or window < 1:
@@ -155,6 +161,11 @@ class Seedvr2LoraRestorer:
                "--color-fix", color_fix,
                "--empty-cache", empty_cache,
                "--device", "cuda:0"]
+        if accel:
+            # One switch on the jasna side (like --swiftvr-accel); the worker
+            # takes the parts separately and drops whichever the checkout or
+            # the GPU cannot run, reporting that in the handshake.
+            cmd += ["--fused-vae", "--fp8-dit"]
         # Measurement knob (lada-ex issue #37 C3, undocumented): keep the LoRA
         # adapters in peft's default fp16 instead of the fp32 promotion, for
         # quality/speed A/B runs. Unset (the default) means fp32.
@@ -182,11 +193,15 @@ class Seedvr2LoraRestorer:
         self._cmd = cmd
         self._env = env
         self._startup_timeout_s = startup_timeout_s
+        self._accel_requested = bool(accel)
+        # Acceleration parts the worker reported active in its last handshake.
+        self.accel_parts: list[str] = []
 
         self._spawn()
         logger.info(
-            "[seedvr2] worker ready (lora=%s, window=%d, overlap=%d, color_fix=%s)",
+            "[seedvr2] worker ready (lora=%s, window=%d, overlap=%d, color_fix=%s, acceleration: %s)",
             lora.name, window, overlap, color_fix,
+            ", ".join(self.accel_parts) if self.accel_parts else "off",
         )
 
     # ------------------------------------------------------------------ #
@@ -225,7 +240,15 @@ class Seedvr2LoraRestorer:
         header = result.get("header")
         if not header or header.get("status") != "ready":
             self._kill()
-            raise RuntimeError(f"[seedvr2] worker failed to start: {header}")
+            hint = " (if the failure is in the fused VAE or FP8 path, retry with --no-seedvr2-accel)" \
+                if self._accel_requested else ""
+            raise RuntimeError(f"[seedvr2] worker failed to start: {header}{hint}")
+        # The worker's stdout is muted, so it relays its acceleration decisions
+        # and the active parts in the handshake.
+        for line in header.get("accel_log") or ():
+            level = logging.INFO if line.startswith("enabled") else logging.WARNING
+            logger.log(level, "[seedvr2] accel: %s", line)
+        self.accel_parts = list(header.get("accel") or [])
 
     def close(self) -> None:
         if self._closed:
