@@ -85,7 +85,7 @@ The `modi` branch of the fork [sh202603/ComfyUI-SeedVR2_VideoUpscaler](https://g
 provides them.
 At startup the worker checks the checkout and the GPU, drops the parts it cannot run with a warning,
 and runs the standard path for them (with the upstream checkout both are dropped and the output is
-bit-identical to off). Requirements:
+bit-identical to off on the same checkout). Requirements:
 
 - a checkout of the fork's `modi` branch, with comfy-kitchen in its venv (it is in the
   checkout's `requirements.txt`)
@@ -101,6 +101,13 @@ git clone -b modi https://github.com/sh202603/ComfyUI-SeedVR2_VideoUpscaler.git 
 On Windows, Triton is a separate package, `triton-windows`, and does not come with PyTorch. Install
 it into the checkout's venv with `uv pip install "triton-windows<3.8"` (3.7.x is the series that
 matches PyTorch 2.12).
+
+With a checkout of the fork, a run without `--seedvr2-accel` is not bit-identical to the upstream
+checkout either. The fork converts the fp16 DiT weights to BF16 at load time by default, and the
+worker loads the DiT with that default, so the DiT runs on BF16 weights even with the option off.
+On the 480p clip on Windows, the off outputs of the two checkouts differ by 49.2 dB PSNR (mean over
+all frames). The off columns of the end-to-end tables below were measured with the fork checkout,
+on both Linux and Windows.
 
 This was checked on Linux and on Windows (an RTX 5080 16 GB in both cases).
 

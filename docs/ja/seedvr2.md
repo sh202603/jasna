@@ -79,7 +79,7 @@ worker の起動(モデルロード + LoRA 注入 + ウォームアップ)は重
 [sh202603/ComfyUI-SeedVR2_VideoUpscaler](https://github.com/sh202603/ComfyUI-SeedVR2_VideoUpscaler) の
 `modi` ブランチが提供する。worker は起動時に
 checkout と GPU を調べ、使えない部品を外して警告を出し、その部品は標準経路で動く
-(上流の checkout では両方が外れ、出力は off と bit 一致する)。必要なものは次のとおり。
+(上流の checkout では両方が外れ、出力は同じ checkout の off と bit 一致する)。必要なものは次のとおり。
 
 - fork の `modi` ブランチの checkout と、その venv の comfy-kitchen(checkout の
   `requirements.txt` に含まれる)
@@ -93,6 +93,11 @@ git clone -b modi https://github.com/sh202603/ComfyUI-SeedVR2_VideoUpscaler.git 
 
 Windows では Triton が `triton-windows` という別のパッケージで、PyTorch と一緒には入らない。
 checkout の venv に `uv pip install "triton-windows<3.8"` で入れる(PyTorch 2.12 に対応するのは 3.7 系)。
+
+fork の checkout では、`--seedvr2-accel` を付けない実行の出力も、上流の checkout の出力と bit 一致しない。
+fork は DiT の fp16 の重みを読み込み時に BF16 へ変換するのを既定にしていて、worker はその既定のまま DiT を読むので、off でも DiT が BF16 の重みで動くためである。
+Windows の 480p の素材では、二つの checkout の off の出力の差は、PSNR(全フレームの平均)で 49.2 dB だった。
+下の e2e の表の off は、Linux と Windows のどちらも fork の checkout での値である。
 
 確認は Linux と Windows で行った(どちらも RTX 5080 16 GB)。
 
