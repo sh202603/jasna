@@ -22,7 +22,11 @@ Wire protocol (parent = lada venv, child = this):
                     uint8 BGR bytes  (the 256px mosaic crops, HWC)
   child  -> parent: header ``{"seq","n","h","w"}\\n`` then n*h*w*3 raw uint8
                     BGR bytes  (the restored crops, HWC), exactly n frames
-  child  -> parent (once, at startup): ``{"status":"ready"}\\n``
+  child  -> parent (once, at startup):
+                    ``{"status":"ready","accel":[...],"accel_log":[...]}\\n``
+                    (the active acceleration parts among ``fused_vae`` /
+                    ``fp8_dit``, and one line per requested part saying whether
+                    it was enabled or why not)
   child  -> parent (on per-clip failure): ``{"seq","error":"..."}\\n`` then
                     stays alive for the next clip.
 
@@ -65,6 +69,14 @@ def _parse_args() -> argparse.Namespace:
                          "default dtype (truncating the fp32 checkpoint) instead of promoting "
                          "them to fp32. Reproduces the pre-fix behaviour for A/B measurement; "
                          "fp32 is the numerically verified default")
+    ap.add_argument("--fused-vae", action="store_true",
+                    help="run the VAE through the checkout's fused path (fused GroupNorm+SiLU "
+                         "and fp16-accumulate conv kernels, VAE in fp16). Needs a checkout that "
+                         "provides it; dropped with a note in the handshake otherwise")
+    ap.add_argument("--fp8-dit", action="store_true",
+                    help="merge the LoRA into the base weights and run the DiT block linears "
+                         "as FP8 GEMM. Needs a checkout that provides it, an RTX 40 series or "
+                         "newer GPU and Triton; dropped with a note in the handshake otherwise")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--verbose", action="store_true", help="send worker stdout to stderr, not /dev/null")
@@ -116,8 +128,34 @@ _LORA_TARGET_REGEX = (
 )
 
 
-def _build_runner(repo: str, model_dir: str, dit_model: str, device: str):
-    """CLI と同一経路で runner + ctx を構築し、両モデルを materialize して返す。"""
+def _decide_accel(want_fused_vae: bool, want_fp8_dit: bool, device, compute_dtype):
+    """使える高速化部品をモデルのロード前に決める。返り値: (fused_vae, fp8_dit, accel_log)。
+    部品の実装は SeedVR2 checkout 側にあり、上流 (numz) の checkout には無い。checkout が
+    提供しない、または GPU が対応しない部品は外して理由を accel_log に残す (標準経路で動く)。"""
+    log = []
+
+    def _check(name: str, module: str, func: str, *args) -> bool:
+        try:
+            unsupported_reason = getattr(__import__(module, fromlist=[func]), func)
+        except (ImportError, AttributeError):
+            reason = "not provided by this SeedVR2 checkout"
+        else:
+            reason = unsupported_reason(*args)
+        log.append(f"enabled {name}" if reason is None else f"{name} unavailable: {reason}")
+        return reason is None
+
+    fused_vae = want_fused_vae and _check(
+        "fused_vae", "src.optimization.vae_fusion", "get_vae_fused_path_unsupported_reason", device)
+    fp8_dit = want_fp8_dit and _check(
+        "fp8_dit", "src.optimization.fp8_gemm", "get_fp8_gemm_unsupported_reason", device, compute_dtype)
+    return fused_vae, fp8_dit, log
+
+
+def _build_runner(repo: str, model_dir: str, dit_model: str, device: str,
+                  want_fused_vae: bool = False, want_fp8_dit: bool = False):
+    """CLI と同一経路で runner + ctx を構築し、両モデルを materialize して返す。
+    返り値: (runner, ctx, fp8_dit, accel_parts, accel_log)。fp8_dit は LoRA 注入後に
+    _merge_lora_to_fp8 を呼ぶべきかどうか (FP8 化は注入の後でなければならない)。"""
     import torch
     from src.utils.debug import Debug
     from src.utils.model_registry import DEFAULT_VAE
@@ -132,13 +170,17 @@ def _build_runner(repo: str, model_dir: str, dit_model: str, device: str):
         dit_device=dev, vae_device=dev,
         dit_offload_device=None, vae_offload_device=None,
         tensor_offload_device=None, debug=debug)
+    fused_vae, fp8_dit, accel_log = _decide_accel(
+        want_fused_vae, want_fp8_dit, dev, ctx["compute_dtype"])
     runner, cache_context = prepare_runner(
         dit_model=dit_model, vae_model=DEFAULT_VAE,
         model_dir=model_dir,
         debug=debug, ctx=ctx,
         dit_cache=False, vae_cache=False, dit_id=None, vae_id=None,
         block_swap_config={"blocks_to_swap": 0, "swap_io_components": False, "offload_device": None},
-        attention_mode="sdpa")
+        attention_mode="sdpa",
+        # 上流の checkout は fused_vae 引数を持たないので、使うときだけ渡す
+        **({"fused_vae": True} if fused_vae else {}))
     ctx["cache_context"] = cache_context
     materialize_model(runner, "vae", dev, runner.config, debug)
     materialize_model(runner, "dit", dev, runner.config, debug)
@@ -150,7 +192,14 @@ def _build_runner(repo: str, model_dir: str, dit_model: str, device: str):
     runner.configure_diffusion(device=dev, dtype=ctx["compute_dtype"])
     ctx["text_embeds"] = load_text_embeddings(repo, dev, ctx["compute_dtype"], debug)
     ctx["video_transform"] = prepare_video_transforms(256)
-    return runner, ctx
+    accel_parts = []
+    if fused_vae:
+        if getattr(runner.vae, "fused_path", False):
+            accel_parts.append("fused_vae")
+        else:  # checkout 側が VAE の重み形式などを理由に標準経路へ戻した
+            accel_log[accel_log.index("enabled fused_vae")] = (
+                "fused_vae unavailable: the checkout kept the standard VAE path")
+    return runner, ctx, fp8_dit, accel_parts, accel_log
 
 
 def _inject_lora(runner, ckpt_path: str, rank: int, alpha: int, lora_dtype: str = "fp32") -> int:
@@ -195,38 +244,25 @@ def _inject_lora(runner, ckpt_path: str, rank: int, alpha: int, lora_dtype: str 
     return loaded
 
 
-def _vae_decode(runner, latent):
-    """infer.vae_decode (grouping=False) 等価。latent: (t',h',w',c)。"""
+def _merge_lora_to_fp8(runner) -> int:
+    """LoRA を基底重みへマージして peft ラッパーを外し、ブロックの線形層を FP8 GEMM に
+    差し替える。FP8 化は nn.Linear そのものを置き換えるので、LoRA を側枝として残せない
+    (注入対象が無くなる)。そのため注入・ロードの後に呼ぶ。
+    マージ後の出力は側枝 (fp32) 版とビット一致しない (256px 合成モザイクの実測で PSNR
+    約 46 dB) が、LoRA の効果は保たれる (LoRA 無しとの差は約 26 dB)。
+    返り値: FP8 GEMM に差し替えた線形層の数。"""
     import torch
-    from omegaconf import ListConfig
-    from src.optimization.performance import optimized_channels_to_second
+    from peft.tuners.lora import LoraLayer
+    from src.optimization.fp8_gemm import convert_dit_to_fp8_gemm
 
-    cfg = runner.config.vae
-    device = next(runner.vae.parameters()).device
-    dtype = getattr(torch, cfg.dtype)
-    scale = cfg.scaling_factor
-    shift = cfg.get("shifting_factor", 0.0)
-    if isinstance(scale, ListConfig):
-        scale = torch.tensor(scale, device=device, dtype=dtype)
-    if isinstance(shift, ListConfig):
-        shift = torch.tensor(shift, device=device, dtype=dtype)
-    lat = latent.unsqueeze(0)
-    lat = lat / scale + shift
-    lat = optimized_channels_to_second(lat)
-    lat = lat.squeeze(2)
-    vae_dtype = next(runner.vae.parameters()).dtype
-    if vae_dtype != lat.dtype:
-        with torch.autocast(device.type, lat.dtype, enabled=True):
-            sample = runner.vae.decode(
-                lat, tiled=runner.decode_tiled, tile_size=runner.decode_tile_size,
-                tile_overlap=runner.decode_tile_overlap).sample
-    else:
-        sample = runner.vae.decode(
-            lat, tiled=runner.decode_tiled, tile_size=runner.decode_tile_size,
-            tile_overlap=runner.decode_tile_overlap).sample
-    if hasattr(runner.vae, "postprocess"):
-        sample = runner.vae.postprocess(sample)
-    return sample.squeeze(0)
+    dit = runner.dit.dit_model if hasattr(runner.dit, "dit_model") else runner.dit
+    with torch.no_grad():
+        for parent in list(dit.modules()):
+            for name, child in list(parent.named_children()):
+                if isinstance(child, LoraLayer):
+                    child.merge()
+                    setattr(parent, name, child.base_layer)
+        return convert_dit_to_fp8_gemm(dit)
 
 
 def _sr_forward(runner, ctx, lq01_tchw, seed: int):
@@ -272,7 +308,8 @@ def _sr_forward(runner, ctx, lq01_tchw, seed: int):
             ).vid_sample
         x0_flat = vid_flat - pred  # lerp/v_lerp endpoint at t=T: A=0, B=1
         x0 = na.unflatten(x0_flat, vid_shape)[0]
-        sample = _vae_decode(runner, x0)  # (c,t,h,w) / (c,h,w) [-1,1]
+        # runner.vae_decode は VAE の融合経路 (--fused-vae) の dtype 変換も行う
+        sample = runner.vae_decode([x0])[0]  # (c,t,h,w) / (c,h,w) [-1,1]
         out01 = sample.clamp(-1, 1) * 0.5 + 0.5
     return out01
 
@@ -401,10 +438,23 @@ def main() -> None:
         per_clip_empty_cache = args.empty_cache == "always"
         print(f"seedvr2_lora_worker: empty_cache policy: {args.empty_cache}", file=sys.stderr)
 
-    runner, ctx = _build_runner(args.repo, args.model_dir, args.dit, device)
+    runner, ctx, fp8_dit, accel_parts, accel_log = _build_runner(
+        args.repo, args.model_dir, args.dit, device, args.fused_vae, args.fp8_dit)
     n_lora = _inject_lora(runner, args.lora, args.rank, args.alpha, args.lora_dtype)
     print(f"seedvr2_lora_worker: injected {n_lora} LoRA tensors ({args.lora_dtype}) from {args.lora}",
           file=sys.stderr)
+    if fp8_dit:
+        base_dtype = next(runner.dit.parameters()).dtype
+        if base_dtype in (torch.float16, torch.bfloat16, torch.float32):
+            n_fp8 = _merge_lora_to_fp8(runner)
+            accel_parts.append("fp8_dit")
+            print(f"seedvr2_lora_worker: merged the LoRA, {n_fp8} linear layers run as FP8 GEMM",
+                  file=sys.stderr)
+        else:  # FP8 保存の重みなどには LoRA をマージできない
+            accel_log[accel_log.index("enabled fp8_dit")] = (
+                f"fp8_dit unavailable: the LoRA cannot be merged into {base_dtype} base weights")
+    for line in accel_log:
+        print(f"seedvr2_lora_worker: accel: {line}", file=sys.stderr)
 
     # Warm-up: one minimal window through the full forward. Surfaces CUDA/model
     # errors before the ready handshake and pays the one-off kernel-selection
@@ -414,7 +464,8 @@ def main() -> None:
         torch.cuda.empty_cache()
 
     # Handshake: tell the parent we're ready to accept clips.
-    proto.write((json.dumps({"status": "ready"}) + "\n").encode("utf-8"))
+    ready = {"status": "ready", "accel": accel_parts, "accel_log": accel_log}
+    proto.write((json.dumps(ready) + "\n").encode("utf-8"))
 
     window, overlap, stride = args.window, args.overlap, args.window - args.overlap
     acc_device = torch.device(device)
