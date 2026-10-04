@@ -98,9 +98,13 @@ remaining steps are the same.
 git clone -b modi https://github.com/sh202603/ComfyUI-SeedVR2_VideoUpscaler.git ~/seedvr2_videoupscaler
 ```
 
-This was checked on Linux. It has not been checked on Windows.
+On Windows, Triton is a separate package, `triton-windows`, and does not come with PyTorch. Install
+it into the checkout's venv with `uv pip install "triton-windows<3.8"` (3.7.x is the series that
+matches PyTorch 2.12).
 
-Worker-only measurements on an RTX 5080 with synthetic 256px mosaics and LoRA v7:
+This was checked on Linux and on Windows (an RTX 5080 16 GB in both cases).
+
+Worker-only measurements on an RTX 5080 with synthetic 256px mosaics and LoRA v7 (Linux):
 
 | | off | `--seedvr2-accel` |
 |---|---|---|
@@ -124,9 +128,29 @@ worker-only ratio (1.86x). The wall-clock speedup is lower because the 7 to 8 se
 and shutdown do not change, so it approaches 1.8x on longer clips. Primary restoration stays the
 bottleneck with `--seedvr2-accel` (its thread spends more than 95% of its time restoring).
 
+On a Windows machine (RTX 5080 16 GB, triton-windows 3.7.1) both parts are enabled as well, and the
+same clips and settings give the values below. 480p and 1080p are the median of 3 runs, 4K is a
+single run.
+
+| Clip | Time, off | Time, `--seedvr2-accel` | Speedup | VRAM peak, off | VRAM peak, `--seedvr2-accel` |
+|---|---|---|---|---|---|
+| 480p | 148.0 s (24.3 fps) | 102.0 s (35.3 fps) | 1.45x | 10.7 GiB | 7.5 GiB |
+| 1080p | 257.4 s (14.2 fps) | 167.6 s (21.8 fps) | 1.54x | 11.5 GiB | 7.9 GiB |
+| 4K | 322.9 s (11.3 fps) | 205.2 s (17.8 fps) | 1.57x | 13.4 GiB | 9.9 GiB |
+
+The VRAM peaks are about the same as on Linux, and 4K with the option off also fits in 16 GB and
+completes (15.4 GiB GPU-wide). The time spent in primary restoration drops by 1.70x to 1.73x. The
+wall-clock speedup is lower than on Linux because 16 to 35 seconds are spent outside primary
+restoration (8 to 10 seconds on Linux), of which worker startup takes 8 to 24 seconds (3 to 5
+seconds on Linux). Repeated runs of the same configuration also spread further apart, by up to
+15 seconds against 0.3 seconds on Linux.
+
 The output is not bit-identical to off (46.4 dB PSNR in the worker-only setup, max difference
-28/255). Comparing the outputs of the three clips above by eye, no difference from off was
-noticeable. The LoRA keeps its effect after the merge (the output without the LoRA differs by
+28/255). End to end, the PSNR against the off output (mean over all frames) was 49.0 to 50.4 dB
+depending on the clip, on both Linux and Windows. Comparing the Linux outputs of the three clips by
+eye, no difference from off was noticeable. The Windows outputs of the three clips were also judged
+visually equivalent to off.
+The LoRA keeps its effect after the merge (the output without the LoRA differs by
 26.5 dB).
 Bit parity with the lada-ex harness does not hold while this option is on. torch.compile is not one
 of the parts: it only takes the DiT from 126 ms to 101 ms and recompiles for every window length.
