@@ -3,8 +3,7 @@
 The real worker is replaced by a tiny stub speaking the same JSON-header +
 raw-uint8-BGR protocol, so the parent's wire handling (handshake, BGR flip,
 quantization, respawn+retry, contract errors) runs on a CPU box. The real
-worker file itself is a verbatim copy of the lada-ex one and is only checked
-for staying import-light at the top level.
+worker file itself is only checked for staying import-light at the top level.
 """
 from __future__ import annotations
 
@@ -367,7 +366,7 @@ class TestPadModePlumbing:
 
 class TestWorkerFileHygiene:
     def test_worker_top_level_is_import_light(self):
-        """The worker is a verbatim lada-ex copy executed by a foreign venv; its
+        """The worker is executed by a foreign venv; its
         top level must not import jasna, torch, or numpy (heavy imports live
         inside functions so argparse/--help work anywhere)."""
         src = (Path(restorer_pkg.__file__).parent / "seedvr2_lora_worker.py").read_text(encoding="utf-8")
