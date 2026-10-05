@@ -105,6 +105,10 @@ def _session_config_from_args(
         swiftvr_accel=bool(getattr(args, "swiftvr_accel", True)),
         swiftvr_view_window=int(getattr(args, "swiftvr_view_window", 15)),
         swiftvr_log_level=str(getattr(args, "log_level", "error")),
+        swiftvr_distill_model=str(getattr(args, "swiftvr_distill_model", "") or ""),
+        swiftvr_distill_view_window=int(getattr(args, "swiftvr_distill_view_window", 15)),
+        swiftvr_distill_strength=float(getattr(args, "swiftvr_distill_strength", 0.75)),
+        swiftvr_distill_stabilize=int(getattr(args, "swiftvr_distill_stabilize", 0)),
         restoration_model_name=str(args.restoration_model_name),
         seedvr2_repo=str(getattr(args, "seedvr2_repo", "") or ""),
         seedvr2_python=str(getattr(args, "seedvr2_python", "") or ""),
@@ -345,7 +349,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default="none",
         choices=["none", "unet-4x", "tvai", "rtx-super-res", "flashvsr", "flashvsr-inline",
-                 "swiftvr", "swiftvr-inline"],
+                 "swiftvr", "swiftvr-inline", "swiftvr-distill"],
         help=CLI_HELP["secondary_restoration"]
              + ' "flashvsr" runs an offline 3-phase pass; "flashvsr-inline" runs FlashVSR '
              'inline in the streaming pipeline (no intermediate files, needs a patched '
@@ -353,7 +357,9 @@ def build_parser() -> argparse.ArgumentParser:
              'its options. "swiftvr" runs the same offline 3-phase pass with SwiftVR '
              '(for GPUs where it cannot co-reside with the primary: 12 GB cards, no FP8, '
              'the SeedVR2 primary); "swiftvr-inline" runs SwiftVR inline (faster than '
-             'FlashVSR, FP8 by default). Both need --swiftvr-repo, see the "SwiftVR" group.',
+             'FlashVSR, FP8 by default). Both need --swiftvr-repo, see the "SwiftVR" group. '
+             '"swiftvr-distill" (experimental) runs a small 2x model distilled from SwiftVR '
+             'inside the jasna process; it needs --swiftvr-distill-model.',
     )
 
     seedvr2 = parser.add_argument_group("SeedVR2 (primary restoration, experimental)")
@@ -593,6 +599,43 @@ def build_parser() -> argparse.ArgumentParser:
     swiftvr = parser.add_argument_group("SwiftVR")
     from jasna.restorer.swiftvr_common import add_swiftvr_arguments
     add_swiftvr_arguments(swiftvr)
+
+    swiftvr_distill = parser.add_argument_group("SwiftVR distill (experimental)")
+    swiftvr_distill.add_argument(
+        "--swiftvr-distill-model",
+        type=str,
+        default="",
+        help="Path to the SwiftVR distillation checkpoint (required for "
+             "--secondary-restoration swiftvr-distill). The weights are not bundled.",
+    )
+    swiftvr_distill.add_argument(
+        "--swiftvr-distill-view-window",
+        type=int,
+        default=15,
+        metavar="N",
+        help="Smooth the placement of the crops the model sees over N frames, like "
+             "--swiftvr-view-window (default: %(default)s; 0 disables). On real footage it "
+             "lowers the frame-to-frame flicker without costing detail.",
+    )
+    swiftvr_distill.add_argument(
+        "--swiftvr-distill-strength",
+        type=float,
+        default=0.75,
+        metavar="S",
+        help="Scale the detail the model adds to its upscaled input (0-2; default: "
+             "%(default)s). 0 is the plain bilinear upscale, 1 the model's output; lower "
+             "values trade detail for less frame-to-frame flicker. The default keeps the "
+             "flicker below that of swiftvr-inline at scale 2.",
+    )
+    swiftvr_distill.add_argument(
+        "--swiftvr-distill-stabilize",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Blend the detail the model adds over N frames on each side (0-8; default: "
+             "%(default)s, disabled). A neighbouring frame only contributes where its input "
+             "is close to that of the current frame, so moving content is left alone.",
+    )
 
     detection = parser.add_argument_group("Detection")
     detection.add_argument(

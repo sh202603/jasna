@@ -94,6 +94,11 @@ class SessionConfig:
     swiftvr_accel: bool = True
     swiftvr_view_window: int = 15
     swiftvr_log_level: str = "error"
+    # SwiftVR distillation student (experimental): an external checkpoint path.
+    swiftvr_distill_model: str = ""
+    swiftvr_distill_view_window: int = 15
+    swiftvr_distill_strength: float = 0.75
+    swiftvr_distill_stabilize: int = 0
     # Primary restoration model. For "seedvr2", ``restoration_model_path``
     # carries the LoRA checkpoint instead of the BasicVSR++ checkpoint.
     restoration_model_name: RestorationModelName = "basicvsrpp"
