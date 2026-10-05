@@ -117,6 +117,30 @@ def test_cli_non_default_args_are_mapped() -> None:
     assert config.scene_detection is False
 
 
+def test_cli_swiftvr_distill_args_are_mapped() -> None:
+    defaults = _cli_config()
+    assert defaults.swiftvr_distill_model == ""
+    assert defaults.swiftvr_distill_view_window == 15
+    assert defaults.swiftvr_distill_strength == 0.75
+    assert defaults.swiftvr_distill_stabilize == 0
+
+    config = _cli_config(
+        [
+            "--secondary-restoration", "swiftvr-distill",
+            "--swiftvr-distill-model", "/weights/best.pt",
+            "--swiftvr-distill-view-window", "15",
+            "--swiftvr-distill-strength", "0.75",
+            "--swiftvr-distill-stabilize", "2",
+        ]
+    )
+
+    assert config.secondary_restoration == "swiftvr-distill"
+    assert config.swiftvr_distill_model == "/weights/best.pt"
+    assert config.swiftvr_distill_view_window == 15
+    assert config.swiftvr_distill_strength == 0.75
+    assert config.swiftvr_distill_stabilize == 2
+
+
 def test_gui_defaults_match_cli_defaults() -> None:
     cli = _cli_config()
     gui = _gui_config(AppSettings())

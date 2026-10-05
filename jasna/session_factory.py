@@ -123,6 +123,17 @@ def _build_secondary_restorer(config: SessionConfig, device: "torch.device"):
             view_window=int(config.swiftvr_view_window),
             log_level=str(config.swiftvr_log_level),
         )
+    if config.secondary_restoration == "swiftvr-distill":
+        from jasna.restorer.swiftvr_distill_model import resolve_swiftvr_distill_model_path
+        from jasna.restorer.swiftvr_distill_secondary_restorer import SwiftvrDistillSecondaryRestorer
+
+        return SwiftvrDistillSecondaryRestorer(
+            model_path=resolve_swiftvr_distill_model_path(config.swiftvr_distill_model),
+            device=device,
+            view_window=int(config.swiftvr_distill_view_window),
+            strength=float(config.swiftvr_distill_strength),
+            stabilize_radius=int(config.swiftvr_distill_stabilize),
+        )
     raise ValueError(f"Unsupported secondary restoration: {config.secondary_restoration}")
 
 

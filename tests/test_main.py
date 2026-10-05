@@ -417,6 +417,73 @@ class TestSecondaryRestorers:
         assert mock_offline.call_args.kwargs["engine"] == "swiftvr"
         pipeline_cls.assert_not_called()
 
+    def test_swiftvr_distill_secondary(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        model = tmp_path / "distill.pt"
+        model.touch()
+        mock_distill = MagicMock()
+        with patch(
+            "jasna.restorer.swiftvr_distill_secondary_restorer.SwiftvrDistillSecondaryRestorer", mock_distill
+        ):
+            _run_main(_base_argv(inp, out, rest, det, [
+                "--secondary-restoration", "swiftvr-distill",
+                "--swiftvr-distill-model", str(model),
+                "--swiftvr-distill-view-window", "15",
+                "--swiftvr-distill-strength", "0.5",
+                "--swiftvr-distill-stabilize", "2",
+            ]))
+        mock_distill.assert_called_once()
+        kw = mock_distill.call_args.kwargs
+        assert kw["model_path"] == model
+        assert kw["view_window"] == 15
+        assert kw["strength"] == 0.5
+        assert kw["stabilize_radius"] == 2
+
+    def test_swiftvr_distill_needs_an_existing_model(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        with pytest.raises(ValueError, match="--swiftvr-distill-model is required"):
+            _run_main(_base_argv(inp, out, rest, det, ["--secondary-restoration", "swiftvr-distill"]))
+        with pytest.raises(FileNotFoundError, match="--swiftvr-distill-model not found"):
+            _run_main(_base_argv(inp, out, rest, det, [
+                "--secondary-restoration", "swiftvr-distill",
+                "--swiftvr-distill-model", str(tmp_path / "missing.pt"),
+            ]))
+
+    def test_swiftvr_distill_rejects_a_negative_view_window(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        model = tmp_path / "distill.pt"
+        model.touch()
+        with pytest.raises(ValueError, match="--swiftvr-distill-view-window must be >= 0"):
+            _run_main(_base_argv(inp, out, rest, det, [
+                "--secondary-restoration", "swiftvr-distill",
+                "--swiftvr-distill-model", str(model),
+                "--swiftvr-distill-view-window", "-1",
+            ]))
+
+    @pytest.mark.parametrize("value", ["-0.1", "2.5"])
+    def test_swiftvr_distill_rejects_an_out_of_range_strength(self, tmp_path, value):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        model = tmp_path / "distill.pt"
+        model.touch()
+        with pytest.raises(ValueError, match="--swiftvr-distill-strength must be in"):
+            _run_main(_base_argv(inp, out, rest, det, [
+                "--secondary-restoration", "swiftvr-distill",
+                "--swiftvr-distill-model", str(model),
+                "--swiftvr-distill-strength", value,
+            ]))
+
+    @pytest.mark.parametrize("value", ["-1", "9"])
+    def test_swiftvr_distill_rejects_an_out_of_range_stabilize(self, tmp_path, value):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        model = tmp_path / "distill.pt"
+        model.touch()
+        with pytest.raises(ValueError, match="--swiftvr-distill-stabilize must be in"):
+            _run_main(_base_argv(inp, out, rest, det, [
+                "--secondary-restoration", "swiftvr-distill",
+                "--swiftvr-distill-model", str(model),
+                "--swiftvr-distill-stabilize", value,
+            ]))
+
     def test_flashvsr_inline_choice_parses(self):
         args = build_parser().parse_args([
             "--input", "a.mp4", "--output", "b.mp4",
