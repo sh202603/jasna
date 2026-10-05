@@ -2,6 +2,8 @@
 
 [English](../en/roi-distill-secondary-proposal.md)
 
+[テキスト版](roi-distill-secondary-proposal.txt)
+
 これは**設計提案と参考アダプター**であり、Jasnaで動く完成済み機能ではありません。
 調査対象はコミット`4120fac8e749a12afa72c2f13319cad261949de1`の`modi`パイプラインです。
 checkpointの重み、動画、データセット、個人パス、支援者モデルの保護処理の変更は含みません。

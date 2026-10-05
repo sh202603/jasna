@@ -2,6 +2,8 @@
 
 [日本語版](../ja/roi-distill-secondary-proposal.md)
 
+[Plain-text Japanese version](../ja/roi-distill-secondary-proposal.txt)
+
 This is a **design proposal and reference adapter**, not a working Jasna feature.
 It targets the `modi` pipeline inspected at commit
 `4120fac8e749a12afa72c2f13319cad261949de1`. No checkpoint, media, dataset,
