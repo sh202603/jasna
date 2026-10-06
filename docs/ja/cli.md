@@ -86,7 +86,7 @@ Jasna は `TMP`、次に `TEMP` を使います。`TMPDIR` は使いません。
 
 | オプション | デフォルト | 説明 |
 | ------ | ------- | ----- |
-| `--secondary-restoration` | `none` | `unet-4x`、`tvai`、または `rtx-super-res`。詳しくは[モデル](models.md)。*(+modi)* さらに `flashvsr`（オフライン 3 段パス）と `flashvsr-inline`（単一パス）。いずれも `--flashvsr-repo` が必要。詳細: [flashvsr.md](flashvsr.md)。`swiftvr`（オフライン 3 段パス）と `swiftvr-inline`（単一パス、FlashVSR より高速）は `--swiftvr-repo` が必要。詳細: [swiftvr.md](swiftvr.md)。 |
+| `--secondary-restoration` | `none` | `unet-4x`、`tvai`、または `rtx-super-res`。詳しくは[モデル](models.md)。*(+modi)* さらに `flashvsr`（オフライン 3 段パス）と `flashvsr-inline`（単一パス）。いずれも `--flashvsr-repo` が必要。詳細: [flashvsr.md](flashvsr.md)。`swiftvr`（オフライン 3 段パス）と `swiftvr-inline`（単一パス、FlashVSR より高速）は `--swiftvr-repo` が必要。詳細: [swiftvr.md](swiftvr.md)。`swiftvr-distill`（実験的）は SwiftVR から蒸留した小さな 2 倍モデルを jasna のプロセス内で動かす。`--swiftvr-distill-model` が必要。詳細: [swiftvr.md](swiftvr.md#swiftvr-distill--secondary-restoration-swiftvr-distill)。 |
 | `--rtx-scale` | `4` | RTX Super Res の拡大倍率（`2` または `4`）。 |
 | `--rtx-quality` | `high` | `low`、`medium`、`high`、`ultra`。 |
 | `--rtx-denoise` | `medium` | `none`、`low`、`medium`、`high`、`ultra`。 |
