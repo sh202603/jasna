@@ -1,12 +1,14 @@
 """TinyROIEnhancer: the lightweight 2x student distilled from SwiftVR outputs.
 
-The checkpoint (``roi-distill-pilot-v1``) ships without its model definition.
-The layer layout below follows the state dict. Three points the state dict
-cannot tell are estimates, recovered by probing the weights with flat-colour
-inputs (the only combination that leaves no PixelShuffle grid and no colour
-shift): the ReLU right after the stem, the residual scale, and the bilinear
-base the head's output is added to. Replace them once the author's definition
-is available.
+The weights (``roi-distill-pilot-v1``) are published by their author at
+https://huggingface.co/okatti/swiftvr-distill (AGPL-3.0, not bundled). The
+network below is the one its README defines: 3x3 conv 15->24 and ReLU (stem),
+12 residual blocks ``x + 0.1 * conv3x3(relu(conv3x3(x)))``, 3x3 conv 24->12
+and PixelShuffle(2) (head), output = bilinear 2x of the centre frame plus that
+detail. The three points the state dict alone does not fix (the ReLU after the
+stem, the residual scale, the bilinear base) were first recovered by probing
+the weights and then confirmed against that definition; they stay as named
+constants so a later checkpoint version can change them in one place.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 SWIFTVR_DISTILL_KNOWN_VERSIONS = ("roi-distill-pilot-v1",)
 
-# Estimates, see the module docstring.
+# The published definition, see the module docstring.
 SWIFTVR_DISTILL_RESIDUAL_SCALE = 0.1
 SWIFTVR_DISTILL_STEM_RELU = True
 SWIFTVR_DISTILL_BASE_MODE = "bilinear"
@@ -81,7 +83,10 @@ class TinyROIEnhancer(nn.Module):
 
 def resolve_swiftvr_distill_model_path(model_arg: str) -> Path:
     if not str(model_arg).strip():
-        raise ValueError("--swiftvr-distill-model is required for --secondary-restoration swiftvr-distill")
+        raise ValueError(
+            "--swiftvr-distill-model is required for --secondary-restoration swiftvr-distill "
+            "(swiftvr-distill.pt from https://huggingface.co/okatti/swiftvr-distill)"
+        )
     model_path = Path(str(model_arg).strip()).expanduser()
     if not model_path.is_file():
         raise FileNotFoundError(f"--swiftvr-distill-model not found: {model_path}")
@@ -117,8 +122,8 @@ def load_swiftvr_distill_model(model_path: Path | str, device: torch.device) -> 
 
     version = checkpoint.get("version")
     if version not in SWIFTVR_DISTILL_KNOWN_VERSIONS:
-        # The forward is an estimate made for the known versions; another
-        # version with the same layers may still need a different one.
+        # The forward is the published definition of the known versions;
+        # another version with the same layers may still differ in it.
         logger.warning(
             "SwiftVR distill checkpoint version %r is not one of %s; the forward pass may not match it",
             version, list(SWIFTVR_DISTILL_KNOWN_VERSIONS),

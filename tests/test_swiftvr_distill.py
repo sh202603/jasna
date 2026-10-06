@@ -372,7 +372,7 @@ _REAL_MODEL = os.environ.get("JASNA_SWIFTVR_DISTILL_MODEL", "")
 @pytest.mark.skipif(not _REAL_MODEL or not Path(_REAL_MODEL).is_file(),
                     reason="JASNA_SWIFTVR_DISTILL_MODEL does not point to the real checkpoint")
 def test_real_weights_leave_flat_colours_flat():
-    """Guards the estimated constants of the forward pass. On a flat colour the
+    """Guards the forward-pass constants (the published definition). On a flat colour the
     real weights must add neither a PixelShuffle grid nor a colour shift; a
     wrong residual scale, activation or stem ReLU fails one of the two."""
     model = load_swiftvr_distill_model(_REAL_MODEL, _CPU)
