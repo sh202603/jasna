@@ -418,6 +418,109 @@ Linux、RTX 5080 16 GB、fork e7f186b。inline は同じ jasna と fork で同�
   (144.0 秒、4930 フレーム。FlashVSR inline の旧出力との PSNR 平均
   46.36 dB は、tiny と tiny-long の違いによる)。
 
+## SwiftVR distill(`--secondary-restoration swiftvr-distill`)
+
+`swiftvr-distill` は、SwiftVR の出力から蒸留した小さな畳み込みネットワーク
+(24 チャンネル、残差ブロック 12 個、約 13 万パラメータ)を SwiftVR 本体の代わりに
+動かす。同じ 256px の一次復元クロップを 5 フレームずつ受け取り、中央フレームを
+512px(2 倍)で返す。blend は `--swiftvr-scale 2` と同じく縮小合成で戻す。jasna の
+プロセス内で PyTorch の FP32 で動くので、SwiftVR の checkout、venv、常駐 worker は
+要らない。VRAM の上乗せは一次に対して約 0.2 GB、二次段の時間は scale 2 の
+`swiftvr-inline` の 4 分の 1 から 6 分の 1 である。足されるのは輪郭の締まりと、復元
+クロップから生成したもっともらしい質感であり、単体では復元モデルではなく、出力の
+どこにも元の情報は含まれない。
+
+モデル(`TinyROIEnhancer`、チェックポイント `roi-distill-pilot-v1`)は
+[mioh](https://github.com/mioh-labs/mioh) の作者が、lada で復元したクロップに掛けた
+SwiftVR を教師として蒸留し、無修正フレームに対する detail loss で追加学習したもの。
+[`okatti/swiftvr-distill`](https://huggingface.co/okatti/swiftvr-distill) に
+AGPL-3.0(jasna と同じ。リポジトリには `not-for-all-audiences` タグが付く)で公開
+されている。jasna には同梱しない。`swiftvr-distill.pt` をそこから取得してパスを渡す。
+jasna が組むネットワークはこのリポジトリの README の定義どおりで、公開された
+state dict はそのまま読み込める。
+
+### 使い方
+
+```bash
+jasna --input in.mp4 --output out.mkv \
+      --secondary-restoration swiftvr-distill \
+      --swiftvr-distill-model ~/models/swiftvr-distill.pt
+```
+
+### フラグ
+
+| フラグ | 既定 | 意味 |
+|--------|------|------|
+| `--swiftvr-distill-model` | (必須) | `swiftvr-distill.pt` のパス(`version`、`architecture`、`model` を持つ dict。`weights_only=True` で読む)。 |
+| `--swiftvr-distill-view-window` | `15` | 切り出し view を前後 N フレームで平滑化する。`--swiftvr-view-window` と同じ機構(`0` で無効)。詳細は「[切り出し view の平滑化](#切り出し-view-の平滑化--swiftvr-view-window)」。 |
+| `--swiftvr-distill-strength` | `0.75` | モデルが入力の双線形 2 倍に足す分の比率(0 から 2)。`0` は双線形拡大そのもの、`1` はモデルの出力。揺れも質感もおおむね比例する。 |
+| `--swiftvr-distill-stabilize` | `0` | 実験的。足した分を、入力が近い範囲で前後 N フレーム(0 から 8)と混ぜる。jasna 独自の追加で、作者のアプリにはない処理。テストクリップでは強さを下げたのと同じ引き換えになり、実素材では未計測。 |
+
+### 挙動と制約
+
+- `rtx-super-res` と同じ枠の、同期のプロセス内 `SecondaryRestorer`。worker も
+  ハンドシェイクも clip 上限も無い。中央フレーム 4 枚ずつのバッチで動くので、
+  VRAM は clip 長に依存しない。
+- 5 フレーム窓は clip の端のフレームを繰り返して作る。keep 範囲の外のフレームは
+  返さないが、時間方向の文脈としては使う。
+- `swiftvr-inline` と違い、起動時に強制も拒否もしない。fp8-recon は自動有効化
+  されず、`--frame-gen` も切られず、SeedVR2 一次とも排他にならない(他に常駐する
+  ものが無い)。色補正も無い。モデルは一次出力の双線形拡大に細部を足すだけなので、
+  色は一次のままである。
+- 作者のアプリは合成後のフレームを macOS の VideoToolbox の時間方向ノイズ
+  フィルターにも通しており、安定性の多くをそれに負うとしている。Windows と Linux に
+  同等物は無く、jasna では再現しない。ここで揺れを抑えているのは view の平滑化と
+  既定の強さである。
+- GUI には出ない。`--stream`、VR、`--segments` は拒否しないが、組み合わせは未検証。
+  検証は Windows(RTX 5060 Ti)のみ。
+
+### 実測
+
+Windows、RTX 5060 Ti 16 GB、一次は BasicVSR++(TensorRT)。1080p の実素材 1 本から、
+モザイクの検出が 12 秒続く区間を 3 つ(各 361 フレーム)取った。一次クロップの動きが
+小さい区間、中間の区間、大きい区間である。揺れの増加と質感は
+`docs/swiftvr-flicker-fix` の `flicker_increase` / `texture_ratio` で、二次復元なしを
+基準とし、マスクは `swiftvr-inline` の出力から作った。`swiftvr-inline` は scale 2、
+view window 15、高速化ありで動かした。3 区間の平均:
+
+| 二次復元 | 揺れの増加 | 質感 | 二次段の時間 |
+|---|---|---|---|
+| `swiftvr-distill`、強さ 1.0、window 0 | +19.1% | 132.2% | 2.0 s |
+| `swiftvr-distill`、強さ 1.0、window 15 | +13.9% | 133.7% | 1.9 s |
+| `swiftvr-distill`、強さ 0.75、window 15(既定) | +8.6% | 122.4% | 2.0 s |
+| `swiftvr-distill`、強さ 0.5、window 15 | +4.2% | 111.6% | 2.0 s |
+| `rtx-super-res` 2 倍 | +0.8% | 106.1% | 0.8 s |
+| `swiftvr-inline` scale 2 | +10.9% | 130.0% | 8.2 から 12.0 s |
+
+GPU 全体のピークは、二次復元なしで約 6.0 GB、`swiftvr-distill` で 6.0 から 6.4 GB、
+`swiftvr-inline` で 11.4 から 11.8 GB だった(常駐分約 2.7 GB を含む)。
+
+- **view の平滑化はこのモデルにも効く。** 強さ 1.0 で揺れが +19.1% から +13.9% に
+  下がり、質感は変わらない。動きの小さい区間では +38.7% が +25.7% になる
+  (1080p のテストクリップでは 1 ポイントしか動かなかったが、それは切り出しの位置が
+  ほとんど動かない素材だったためで、一般化できなかった)。
+- **揺れと質感は強さに比例する。** 質感を揃えて比べると、揺れは scale 2 の
+  `swiftvr-inline` より 1 から 2 ポイント大きい。
+- **動きのある場面での働き方が違う。** 動きの大きい区間で `swiftvr-inline` は
+  ほとんど何も足さない(質感 101.5%)が、`swiftvr-distill` は質感を 23% 上げる。
+- **静止した入力では揺れない。** 同じフレームを並べた入力では足した分が厳密に
+  一定になる。テストクリップでは、揺れの増加の約 7 割が質感を揃えた線形シャープでも
+  出る量で、多くは輪郭を強めること自体に伴う。
+
+既定値(強さ 0.75、window 15)はこの数値と、利用者が複数の素材を目視した結果で
+決めた。揺れの違和感は少なく、質感も悪くない。輪郭は SwiftVR より締まり、面は
+平滑になる。
+
+### 実装
+
+`jasna/restorer/swiftvr_distill_model.py`(ネットワークとチェックポイントの検査:
+既知の version、`architecture` の範囲、有限値、strict な読み込み)、
+`swiftvr_distill_secondary_restorer.py`(復元器、強さ、安定化)、
+`session_config.py` / `session_factory.py` / `main.py` の配線(モデルのパスはエンジン
+コンパイルの前にも検査する)。テストは `tests/test_swiftvr_distill.py`(CPU。実重みの
+ケースは `JASNA_SWIFTVR_DISTILL_MODEL` がチェックポイントを指すときに走る)と
+`tests/test_main.py`。
+
 ## 実測
 
 Linux、RTX 5080 16 GB。GPU 全体のピークはデスクトップ常駐(約 1.9 GB)を含み、
