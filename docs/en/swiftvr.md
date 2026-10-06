@@ -548,8 +548,9 @@ Windows, RTX 5060 Ti 16 GB, BasicVSR++ (TensorRT) primary. Three 12 s segments
 (361 frames each) of one 1080p source were taken where the mosaic is detected
 throughout, with little, medium and much motion in the primary crops. Flicker
 increase and texture ratio are the `flicker_increase` / `texture_ratio` of
-`docs/swiftvr-flicker-fix`, relative to no secondary restoration, with the mask
-from the `swiftvr-inline` output. `swiftvr-inline` ran at scale 2, view window
+mioh-labs' `swiftvr_view_smoothing.py` (the reference script of their flicker
+report, see "Acknowledgement"), relative to no secondary restoration, with the
+mask from the `swiftvr-inline` output. `swiftvr-inline` ran at scale 2, view window
 15, acceleration on. Average of the three segments:
 
 | Secondary restoration | Flicker increase | Texture | Secondary stage |
