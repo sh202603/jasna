@@ -479,8 +479,8 @@ jasna --input in.mp4 --output out.mkv \
 Windows、RTX 5060 Ti 16 GB、一次は BasicVSR++(TensorRT)。1080p の実素材 1 本から、
 モザイクの検出が 12 秒続く区間を 3 つ(各 361 フレーム)取った。一次クロップの動きが
 小さい区間、中間の区間、大きい区間である。揺れの増加と質感は
-`docs/swiftvr-flicker-fix` の `flicker_increase` / `texture_ratio` で、二次復元なしを
-基準とし、マスクは `swiftvr-inline` の出力から作った。`swiftvr-inline` は scale 2、
+mioh-labs の `swiftvr_view_smoothing.py`(揺れの報告の参考実装。「謝辞」を参照)の
+`flicker_increase` / `texture_ratio` で、二次復元なしを基準とし、マスクは `swiftvr-inline` の出力から作った。`swiftvr-inline` は scale 2、
 view window 15、高速化ありで動かした。3 区間の平均:
 
 | 二次復元 | 揺れの増加 | 質感 | 二次段の時間 |
