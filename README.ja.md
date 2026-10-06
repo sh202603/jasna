@@ -117,6 +117,14 @@ jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-inline --s
 
 既定で DiT を FP8 + torch.compile で動かし（`--no-swiftvr-accel` で無効。RTX 40 系以降が必要で、それ以外は警告して bf16 に戻る）、SwiftVR 単体を約 8GB に抑えるため、モデルネイティブの 1024px 処理でも短冊分割なしに 16GB カードで一次パイプラインと同時常駐します（`--swiftvr-scale 2` は 512px 処理で速い。scale 2 で目立っていた時間方向の揺れは、SwiftVR に渡す切り出しの位置がフレームごとに動くことが主因で、既定で有効な `--swiftvr-view-window` がこれを平滑化し、目視では scale 2 も scale 4 と同等になる。既定は scale 4 のまま）。RTX 5080 では、同じ素材の FlashVSR inline に対して実行全体が約 2 倍（scale 2）〜4 倍（scale 4）速くなります。fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) の checkout（`restore_clip()` API が必要）、約 20GB のチェックポイント、`uv sync` の venv は利用者が用意します。復元クロップは FlashVSR と同じく常に一次出力を参照して色補正されます。`--frame-gen` とは併用できません。`--secondary-restoration swiftvr` はオフライン 3 段版で（FlashVSR の `flashvsr` と同じ bundle 機構）、SwiftVR を GPU 単独で走らせるため、12GB カード（scale 4 の FP8 でピーク 9GB 未満）、FP8 が使えない GPU（bf16 が 16GB に単独で収まる）、SeedVR2 一次との併用に使え、`--swiftvr-bundle-dir` で失敗した段から再開できます。詳細: [docs/ja/swiftvr.md](docs/ja/swiftvr.md)。
 
+`--secondary-restoration swiftvr-distill`（実験的）は軽量版です。SwiftVR の出力から蒸留した小さな 2 倍ネットワーク（約 13 万パラメータ）を jasna のプロセス内で動かし、checkout、venv、worker は不要、VRAM の上乗せは一次に対して約 0.2GB、二次段は scale 2 の `swiftvr-inline` の 4〜6 分の 1 の時間で済みます。輪郭を締めてもっともらしい質感を足すもので、元の情報を取り戻すものではありません。重みは作者が [`okatti/swiftvr-distill`](https://huggingface.co/okatti/swiftvr-distill)（AGPL-3.0）で公開しており、同梱しません:
+
+```bash
+jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-distill --swiftvr-distill-model ~/models/swiftvr-distill.pt
+```
+
+詳細: [docs/ja/swiftvr.md](docs/ja/swiftvr.md#swiftvr-distill--secondary-restoration-swiftvr-distill)。
+
 ### TensorRT-RTX フレーバー（opt-in、エンジンコンパイル高速化）
 
 `nvidia` の代わりに `nvidia-rtx` extra を入れると TensorRT スタックが [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx)（JIT コンパイル）に切り替わり、初回のエンジンビルドが大幅に短縮されます（RTX 5060 Ti 実測: RF-DETR 118 秒 → 16 秒、BasicVSR++ サブエンジン 143 秒 → 52 秒。RTX 5080: 36 秒 → 5 秒 / 55 秒 → 16 秒）。代償は処理速度の低下（1080p 長尺の定常スループットで約 −10%）です。エンジンは `.rtx` タグ付きの名前でキャッシュされ、両フレーバーで 1 つの `model_weights` ディレクトリを共有できます。1 つの venv には 1 フレーバーのみ入ります。詳細: [docs/ja/tensorrt_rtx.md](docs/ja/tensorrt_rtx.md)。
@@ -192,7 +200,7 @@ jasna --input input_folder --output output_folder
 - **[FP8 復元バックエンド](docs/ja/fp8_recon.md)** — cuDNN FP8 アップサンプル段でピーク VRAM を削減。
 - **[SeedVR2 一次復元](docs/ja/seedvr2.md)** — BasicVSR++ を置き換える diffusion+LoRA のモザイク除去。
 - **[FlashVSR セカンダリ復元](docs/ja/flashvsr.md)** — オフライン/インラインの拡散 4x アップスケール。
-- **[SwiftVR セカンダリ復元](docs/ja/swiftvr.md)** — オフライン/インラインの拡散 4x アップスケール。FlashVSR より高速。
+- **[SwiftVR セカンダリ復元](docs/ja/swiftvr.md)** — オフライン/インラインの拡散 4x アップスケール。FlashVSR より高速。SwiftVR の checkout が要らない軽量 2x の `swiftvr-distill` も。
 - **[フローズンビルド](docs/ja/frozen_build.md)** — 実験的な Nuitka スタンドアロンビルド。
 - **[上流との変更点一覧](docs/ja/changes_vs_upstream.md)** — このフォークの全差分。
 

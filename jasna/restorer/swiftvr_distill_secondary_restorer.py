@@ -14,9 +14,10 @@ logger = logging.getLogger(__name__)
 # 4, 188 at 16) and only add VRAM.
 SWIFTVR_DISTILL_BATCH_SIZE = 4
 
-# Temporal stabilization of the added detail, after mioh's stabilizeSwiftVRFrame:
-# a neighbour stops contributing where its input differs from the centre
-# frame's by more than a few levels, and counts less than the centre anyway.
+# Temporal stabilization of the added detail (jasna's own experiment; the
+# author's app does not post-process this model this way): a neighbour stops
+# contributing where its input differs from the centre frame's by more than a
+# few levels, and counts less than the centre anyway.
 SWIFTVR_DISTILL_STABILIZE_MAX_RADIUS = 8
 SWIFTVR_DISTILL_STABILIZE_SIGMA = 8.0 / 255.0
 SWIFTVR_DISTILL_STABILIZE_NEIGHBOUR_WEIGHT = 0.8

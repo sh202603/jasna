@@ -117,6 +117,14 @@ jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-inline --s
 
 It runs the DiT in FP8 with torch.compile by default (`--no-swiftvr-accel` disables it; needs an RTX 40 series or newer GPU, otherwise it falls back to bf16 with a warning), which keeps SwiftVR near 8 GB so it co-resides with the primary pipeline on a 16 GB card without any tiling, even at the model-native 1024px (`--swiftvr-scale 2` processes at 512px and is faster; the flicker that stood out at scale 2 was mainly the crop framing SwiftVR sees shifting from frame to frame, which the default-on `--swiftvr-view-window` smooths out; with it scale 2 is visually on par with scale 4, and scale 4 stays the default). On an RTX 5080 a whole run is about 2x (scale 2) to 4x (scale 4) faster than with FlashVSR inline on the same material. You supply a checkout of the fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) (its `restore_clip()` API is required), the ~20 GB checkpoint and a `uv sync` venv. The restored crops are always color-corrected against the primary output, like FlashVSR's. Not compatible with `--frame-gen`. `--secondary-restoration swiftvr` is the offline 3-phase counterpart (the same bundle machinery as FlashVSR's `flashvsr`): it runs SwiftVR alone on the GPU, which is the mode for 12 GB cards (scale 4 in FP8 peaks below 9 GB), for GPUs without FP8 (bf16 fits a 16 GB card on its own) and for the SeedVR2 primary, and it resumes from a persisted `--swiftvr-bundle-dir`. Details: [docs/en/swiftvr.md](docs/en/swiftvr.md).
 
+`--secondary-restoration swiftvr-distill` (experimental) is the lightweight alternative: a small 2x network distilled from SwiftVR's outputs (about 131k parameters) that runs inside the jasna process, with no checkout, venv or worker, about 0.2 GB of VRAM on top of the primary and a secondary stage 4 to 6 times faster than `swiftvr-inline` at scale 2. It tightens outlines and adds a plausible texture, not source information. The weights are published by their author at [`okatti/swiftvr-distill`](https://huggingface.co/okatti/swiftvr-distill) (AGPL-3.0) and are not bundled:
+
+```bash
+jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-distill --swiftvr-distill-model ~/models/swiftvr-distill.pt
+```
+
+Details: [docs/en/swiftvr.md](docs/en/swiftvr.md#swiftvr-distill---secondary-restoration-swiftvr-distill).
+
 ### TensorRT-RTX flavor (opt-in, fast engine compilation)
 
 Installing the `nvidia-rtx` extra instead of `nvidia` switches the TensorRT stack to [TensorRT-RTX](https://developer.nvidia.com/tensorrt-rtx) (JIT compilation): first-run engine builds finish in a fraction of the time (RTX 5060 Ti: RF-DETR 118 s → 16 s, BasicVSR++ sub-engines 143 s → 52 s; RTX 5080: 36 s → 5 s / 55 s → 16 s), at the cost of slightly slower processing (steady-state throughput about −10% on a long 1080p video). Engines are cached under `.rtx`-tagged names, so both flavors can share one `model_weights` directory. One venv holds one flavor. Details: [docs/en/tensorrt_rtx.md](docs/en/tensorrt_rtx.md).
@@ -194,7 +202,7 @@ If you run out of VRAM during processing, reduce **max clip size** first, for ex
 - **[FP8 restoration backend](docs/en/fp8_recon.md)** — the cuDNN FP8 upsample stage with lower peak VRAM.
 - **[SeedVR2 primary restoration](docs/en/seedvr2.md)** — diffusion+LoRA mosaic removal replacing BasicVSR++.
 - **[FlashVSR secondary restoration](docs/en/flashvsr.md)** — offline and inline diffusion 4x upscaling.
-- **[SwiftVR secondary restoration](docs/en/swiftvr.md)** — offline and inline diffusion 4x upscaling, faster than FlashVSR.
+- **[SwiftVR secondary restoration](docs/en/swiftvr.md)** — offline and inline diffusion 4x upscaling, faster than FlashVSR; plus `swiftvr-distill`, a lightweight 2x student that needs no SwiftVR checkout.
 - **[Frozen build](docs/en/frozen_build.md)** — the experimental Nuitka standalone build.
 - **[Changes vs upstream](docs/en/changes_vs_upstream.md)** — the full delta of this fork.
 

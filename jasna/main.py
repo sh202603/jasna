@@ -539,7 +539,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default="",
         help="Path to the SwiftVR distillation checkpoint (required for "
-             "--secondary-restoration swiftvr-distill). The weights are not bundled.",
+             "--secondary-restoration swiftvr-distill): swiftvr-distill.pt from "
+             "https://huggingface.co/okatti/swiftvr-distill (AGPL-3.0). The weights are "
+             "not bundled.",
     )
     swiftvr_distill.add_argument(
         "--swiftvr-distill-view-window",
@@ -565,9 +567,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         metavar="N",
-        help="Blend the detail the model adds over N frames on each side (0-8; default: "
-             "%(default)s, disabled). A neighbouring frame only contributes where its input "
-             "is close to that of the current frame, so moving content is left alone.",
+        help="Experimental: blend the detail the model adds over N frames on each side "
+             "(0-8; default: %(default)s, disabled). A neighbouring frame only contributes "
+             "where its input is close to that of the current frame, so moving content is "
+             "left alone. On the test footage it traded detail for flicker like a lower "
+             "--swiftvr-distill-strength; not measured on real footage.",
     )
 
     detection = parser.add_argument_group("Detection")

@@ -481,6 +481,120 @@ in every run.
   (PSNR mean 46.36 dB against the old FlashVSR inline output, the tiny
   vs tiny-long difference).
 
+## SwiftVR distill (`--secondary-restoration swiftvr-distill`)
+
+`swiftvr-distill` runs a small convolutional network distilled from SwiftVR's
+outputs (24 channels, 12 residual blocks, about 131k parameters) in place of
+SwiftVR itself. It takes the same 256px primary crops, five frames at a time,
+and returns the centre frame at 512px (2x); the blend shrink-composites it back
+as with `--swiftvr-scale 2`. It runs in PyTorch FP32 inside the jasna process:
+no SwiftVR checkout, venv or resident worker, about 0.2 GB of VRAM on top of
+the primary, and a secondary stage 4 to 6 times faster than `swiftvr-inline`
+at scale 2. What it adds is tighter outlines and a plausible texture synthesized
+from the restored crop. It is not a restoration model on its own, and nothing
+in its output is information recovered from the source.
+
+The model (`TinyROIEnhancer`, checkpoint `roi-distill-pilot-v1`) was trained by
+the author of [mioh](https://github.com/mioh-labs/mioh) as a student of SwiftVR
+run on lada-restored crops, then fine-tuned with a detail loss against aligned
+uncensored frames. It is published at
+[`okatti/swiftvr-distill`](https://huggingface.co/okatti/swiftvr-distill) under
+AGPL-3.0 (the same license as jasna; the repository carries the
+`not-for-all-audiences` tag). jasna does not bundle it: download
+`swiftvr-distill.pt` from there and pass its path. The network jasna builds is
+the one that repository's README defines; the published state dict loads
+unchanged.
+
+### Usage
+
+```bash
+jasna --input in.mp4 --output out.mkv \
+      --secondary-restoration swiftvr-distill \
+      --swiftvr-distill-model ~/models/swiftvr-distill.pt
+```
+
+### Flags
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--swiftvr-distill-model` | (required) | Path to `swiftvr-distill.pt` (a dict with `version`, `architecture` and `model`, read with `weights_only=True`). |
+| `--swiftvr-distill-view-window` | `15` | Crop view smoothing over N frames, the same mechanism as `--swiftvr-view-window` (`0` disables). See "[Crop view smoothing](#crop-view-smoothing---swiftvr-view-window)". |
+| `--swiftvr-distill-strength` | `0.75` | Scale of the detail the model adds to the bilinear 2x of its input (0 to 2). `0` is the plain upscale, `1` the model's output. Flicker and texture both grow roughly in proportion to it. |
+| `--swiftvr-distill-stabilize` | `0` | Experimental. Blend the added detail over N frames on each side (0 to 8) where the inputs agree. jasna's own addition, not something the author's app does; on the test clip it traded detail for flicker like a lower strength, and it is not measured on real footage. |
+
+### Behavior and constraints
+
+- Synchronous in-process `SecondaryRestorer`, the same frame as
+  `rtx-super-res`: no worker, no handshake, no clip cap. It runs in batches of
+  4 centre frames, so VRAM is flat in the clip length.
+- The five-frame window repeats the clip's edge frames; frames outside the
+  kept range are not returned but still serve as temporal context.
+- Unlike `swiftvr-inline`, nothing is forced or rejected at startup: fp8-recon
+  is not auto-enabled, `--frame-gen` is not turned off and the SeedVR2 primary
+  is not excluded (nothing else is resident). There is no color correction
+  either: the model adds detail to a bilinear upscale of the primary output,
+  so the colours stay the primary's.
+- The author's app also passes the composited frame through macOS's
+  VideoToolbox temporal noise filter, which it credits with much of its
+  steadiness. jasna has no counterpart on Windows or Linux and does not
+  replicate it; the view smoothing and the default strength are what hold the
+  flicker down here.
+- Not exposed in the GUI. `--stream`, VR and `--segments` are not rejected but
+  were not tested with it. Verified on Windows only (RTX 5060 Ti).
+
+### Measurements
+
+Windows, RTX 5060 Ti 16 GB, BasicVSR++ (TensorRT) primary. Three 12 s segments
+(361 frames each) of one 1080p source were taken where the mosaic is detected
+throughout, with little, medium and much motion in the primary crops. Flicker
+increase and texture ratio are the `flicker_increase` / `texture_ratio` of
+`docs/swiftvr-flicker-fix`, relative to no secondary restoration, with the mask
+from the `swiftvr-inline` output. `swiftvr-inline` ran at scale 2, view window
+15, acceleration on. Average of the three segments:
+
+| Secondary restoration | Flicker increase | Texture | Secondary stage |
+|-----------------------|------------------|---------|-----------------|
+| `swiftvr-distill`, strength 1.0, window 0 | +19.1% | 132.2% | 2.0 s |
+| `swiftvr-distill`, strength 1.0, window 15 | +13.9% | 133.7% | 1.9 s |
+| `swiftvr-distill`, strength 0.75, window 15 (default) | +8.6% | 122.4% | 2.0 s |
+| `swiftvr-distill`, strength 0.5, window 15 | +4.2% | 111.6% | 2.0 s |
+| `rtx-super-res` 2x | +0.8% | 106.1% | 0.8 s |
+| `swiftvr-inline` scale 2 | +10.9% | 130.0% | 8.2 to 12.0 s |
+
+The GPU-wide peak was about 6.0 GB with no secondary restoration, 6.0 to
+6.4 GB with `swiftvr-distill` and 11.4 to 11.8 GB with `swiftvr-inline`
+(about 2.7 GB of residents included).
+
+- **View smoothing works for this model too.** At strength 1.0 it takes the
+  flicker from +19.1% to +13.9% at the same texture; on the quiet segment from
+  +38.7% to +25.7%. (On the 1080p test clip it moved the number by one point,
+  which did not generalize: the crop framing there barely moves.)
+- **Flicker and texture scale with the strength.** At equal texture the flicker
+  is 1 to 2 points above `swiftvr-inline` at scale 2.
+- **It behaves differently on motion.** On the high-motion segment
+  `swiftvr-inline` adds almost nothing (texture 101.5%) while `swiftvr-distill`
+  raises the texture by 23%.
+- **A still input does not flicker**: on repeated identical frames the added
+  detail is exactly constant. On the test clip about 70% of the flicker
+  increase is also produced by a linear sharpen of the same texture, so most of
+  it comes with stronger outlines as such.
+
+The defaults (strength 0.75, window 15) were chosen from these numbers and the
+user's visual check of several clips: the flicker is unobtrusive and the
+texture acceptable. Outlines come out tighter than SwiftVR's, surfaces
+smoother.
+
+### Implementation
+
+`jasna/restorer/swiftvr_distill_model.py` (the network and the checkpoint
+checks: known version, `architecture` bounds, finite tensors, strict load),
+`swiftvr_distill_secondary_restorer.py` (the restorer, strength and
+stabilization), the wiring in `session_config.py` / `session_factory.py` /
+`main.py` (the model path is checked before engine compilation as well).
+Tests: `tests/test_swiftvr_distill.py` (CPU; the cases on the real weights run
+when `JASNA_SWIFTVR_DISTILL_MODEL` points at the checkpoint) and
+`tests/test_main.py`.
+
 ## Measurements
 
 Linux, RTX 5080 16 GB. The GPU-wide peak includes about 1.9 GB of desktop
