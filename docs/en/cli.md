@@ -85,7 +85,7 @@ The `--ltx-*` options need `--restoration-model-name ltx` or `ltx-undistilled`.
 
 | Option | Default | Notes |
 | ------ | ------- | ----- |
-| `--secondary-restoration` | `none` | `unet-4x`, `tvai`, or `rtx-super-res`. See [Models](models.md). *(+modi)* also `flashvsr` (offline 3-phase pass) and `flashvsr-inline` (single pass); both need `--flashvsr-repo`. See [flashvsr.md](flashvsr.md). `swiftvr` (offline 3-phase pass) and `swiftvr-inline` (single pass, faster than FlashVSR) need `--swiftvr-repo`; see [swiftvr.md](swiftvr.md). `swiftvr-distill` (experimental) runs a small 2x model distilled from SwiftVR inside the jasna process; needs `--swiftvr-distill-model`. See [swiftvr.md](swiftvr.md#swiftvr-distill---secondary-restoration-swiftvr-distill). |
+| `--secondary-restoration` | `none` | `unet-4x`, `tvai`, or `rtx-super-res`. See [Models](models.md). *(+modi)* also `flashvsr` (offline 3-phase pass) and `flashvsr-inline` (single pass); both need `--flashvsr-repo`. See [flashvsr.md](flashvsr.md). `swiftvr` (offline 3-phase pass) and `swiftvr-inline` (single pass, faster than FlashVSR) need `--swiftvr-repo`; see [swiftvr.md](swiftvr.md). `swiftvr-distill` (experimental) runs a small 2x model distilled from SwiftVR inside the jasna process; needs `swiftvr-distill.pt` in `model_weights/`. See [swiftvr.md](swiftvr.md#swiftvr-distill---secondary-restoration-swiftvr-distill). |
 | `--rtx-scale` | `4` | RTX Super Res upscale factor (`2` or `4`). |
 | `--rtx-quality` | `high` | `low`, `medium`, `high`, `ultra`. |
 | `--rtx-denoise` | `medium` | `none`, `low`, `medium`, `high`, `ultra`. |
