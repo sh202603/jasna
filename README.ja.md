@@ -117,10 +117,11 @@ jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-inline --s
 
 既定で DiT を FP8 + torch.compile で動かし（`--no-swiftvr-accel` で無効。RTX 40 系以降が必要で、それ以外は警告して bf16 に戻る）、SwiftVR 単体を約 8GB に抑えるため、モデルネイティブの 1024px 処理でも短冊分割なしに 16GB カードで一次パイプラインと同時常駐します（`--swiftvr-scale 2` は 512px 処理で速い。scale 2 で目立っていた時間方向の揺れは、SwiftVR に渡す切り出しの位置がフレームごとに動くことが主因で、既定で有効な `--swiftvr-view-window` がこれを平滑化し、目視では scale 2 も scale 4 と同等になる。既定は scale 4 のまま）。RTX 5080 では、同じ素材の FlashVSR inline に対して実行全体が約 2 倍（scale 2）〜4 倍（scale 4）速くなります。fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) の checkout（`restore_clip()` API が必要）、約 20GB のチェックポイント、`uv sync` の venv は利用者が用意します。復元クロップは FlashVSR と同じく常に一次出力を参照して色補正されます。`--frame-gen` とは併用できません。`--secondary-restoration swiftvr` はオフライン 3 段版で（FlashVSR の `flashvsr` と同じ bundle 機構）、SwiftVR を GPU 単独で走らせるため、12GB カード（scale 4 の FP8 でピーク 9GB 未満）、FP8 が使えない GPU（bf16 が 16GB に単独で収まる）、SeedVR2 一次との併用に使え、`--swiftvr-bundle-dir` で失敗した段から再開できます。詳細: [docs/ja/swiftvr.md](docs/ja/swiftvr.md)。
 
-`--secondary-restoration swiftvr-distill`（実験的）は軽量版です。SwiftVR の出力から蒸留した小さな 2 倍ネットワーク（約 13 万パラメータ）を jasna のプロセス内で動かし、checkout、venv、worker は不要、VRAM の上乗せは一次に対して約 0.2GB、二次段は scale 2 の `swiftvr-inline` の 4〜6 分の 1 の時間で済みます。輪郭を締めてもっともらしい質感を足すもので、元の情報を取り戻すものではありません。重みは作者が [`okatti/swiftvr-distill`](https://huggingface.co/okatti/swiftvr-distill)（AGPL-3.0）で公開しており、同梱しません:
+`--secondary-restoration swiftvr-distill`（実験的）は軽量版です。SwiftVR の出力から蒸留した小さな 2 倍ネットワーク（約 13 万パラメータ）を jasna のプロセス内で動かし、checkout、venv、worker は不要、VRAM の上乗せは一次に対して約 0.2GB、二次段は scale 2 の `swiftvr-inline` の 4〜6 分の 1 の時間で済みます。輪郭を締めてもっともらしい質感を足すもので、元の情報を取り戻すものではありません。重みは作者が [`okatti/swiftvr-distill`](https://huggingface.co/okatti/swiftvr-distill)（AGPL-3.0）で公開しており、同梱しません。`swiftvr-distill.pt` を `model_weights/` に置きます:
 
 ```bash
-jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-distill --swiftvr-distill-model ~/models/swiftvr-distill.pt
+wget -O model_weights/swiftvr-distill.pt https://huggingface.co/okatti/swiftvr-distill/resolve/main/swiftvr-distill.pt
+jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-distill
 ```
 
 詳細: [docs/ja/swiftvr.md](docs/ja/swiftvr.md#swiftvr-distill--secondary-restoration-swiftvr-distill)。
