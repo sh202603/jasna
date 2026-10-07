@@ -7,7 +7,9 @@ import pytest
 import torch
 
 from jasna.restorer.secondary_restorer import AsyncSecondaryRestorer, SecondaryRestorer
+from jasna.model_weights_resolver import resolve_model_weights_file
 from jasna.restorer.swiftvr_distill_model import (
+    SWIFTVR_DISTILL_DEFAULT_FILENAME,
     SWIFTVR_DISTILL_KNOWN_VERSIONS,
     TinyROIEnhancer,
     load_swiftvr_distill_model,
@@ -144,9 +146,32 @@ class TestLoadSwiftvrDistillModel:
 
 
 class TestResolveModelPath:
-    def test_empty_is_rejected(self):
-        with pytest.raises(ValueError, match="--swiftvr-distill-model is required"):
-            resolve_swiftvr_distill_model_path("  ")
+    @pytest.fixture
+    def model_weights(self, tmp_path: Path, monkeypatch) -> Path:
+        """An empty model_weights/ in the CWD, which the resolver picks first."""
+        weights = tmp_path / "model_weights"
+        weights.mkdir()
+        monkeypatch.chdir(tmp_path)
+        return weights
+
+    def test_empty_uses_model_weights(self, model_weights: Path):
+        expected = _write_checkpoint(model_weights / SWIFTVR_DISTILL_DEFAULT_FILENAME)
+        assert resolve_swiftvr_distill_model_path("  ").resolve() == expected.resolve()
+
+    def test_empty_without_the_file_names_the_download(self, model_weights: Path):
+        with pytest.raises(FileNotFoundError, match=r"swiftvr-distill\.pt. Download it with:") as e:
+            resolve_swiftvr_distill_model_path("")
+        assert "huggingface.co/okatti/swiftvr-distill" in str(e.value)
+        assert "--swiftvr-distill-model" in str(e.value)
+
+    def test_bare_name_uses_model_weights(self, model_weights: Path):
+        expected = _write_checkpoint(model_weights / "custom.pt")
+        assert resolve_swiftvr_distill_model_path("custom.pt").resolve() == expected.resolve()
+
+    def test_bare_name_missing_names_both_places(self, model_weights: Path):
+        with pytest.raises(FileNotFoundError, match="--swiftvr-distill-model not found: nope.pt") as e:
+            resolve_swiftvr_distill_model_path("nope.pt")
+        assert "also looked in" in str(e.value) and str(Path("model_weights") / "nope.pt") in str(e.value)
 
     def test_missing_file_is_rejected(self, tmp_path: Path):
         with pytest.raises(FileNotFoundError, match="--swiftvr-distill-model not found"):
@@ -366,11 +391,18 @@ class TestSwiftvrDistillSecondaryRestorer:
         assert restorer.model is None
 
 
-_REAL_MODEL = os.environ.get("JASNA_SWIFTVR_DISTILL_MODEL", "")
+def _real_model() -> Path | None:
+    """The published checkpoint: JASNA_SWIFTVR_DISTILL_MODEL if set, else model_weights/."""
+    env = os.environ.get("JASNA_SWIFTVR_DISTILL_MODEL", "")
+    path = Path(env).expanduser() if env else resolve_model_weights_file(SWIFTVR_DISTILL_DEFAULT_FILENAME)
+    return path if path.is_file() else None
 
 
-@pytest.mark.skipif(not _REAL_MODEL or not Path(_REAL_MODEL).is_file(),
-                    reason="JASNA_SWIFTVR_DISTILL_MODEL does not point to the real checkpoint")
+_REAL_MODEL = _real_model()
+
+
+@pytest.mark.skipif(_REAL_MODEL is None,
+                    reason="swiftvr-distill.pt is neither in model_weights/ nor at JASNA_SWIFTVR_DISTILL_MODEL")
 def test_real_weights_leave_flat_colours_flat():
     """Guards the forward-pass constants (the published definition). On a flat colour the
     real weights must add neither a PixelShuffle grid nor a colour shift; a
