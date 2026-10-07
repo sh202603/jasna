@@ -24,6 +24,12 @@ logger = logging.getLogger(__name__)
 
 SWIFTVR_DISTILL_KNOWN_VERSIONS = ("roi-distill-pilot-v1",)
 
+# The published file name; looked up in model_weights/ like the other weights.
+SWIFTVR_DISTILL_DEFAULT_FILENAME = "swiftvr-distill.pt"
+SWIFTVR_DISTILL_WEIGHTS_URL = (
+    "https://huggingface.co/okatti/swiftvr-distill/resolve/main/swiftvr-distill.pt"
+)
+
 # The published definition, see the module docstring.
 SWIFTVR_DISTILL_RESIDUAL_SCALE = 0.1
 SWIFTVR_DISTILL_STEM_RELU = True
@@ -82,12 +88,29 @@ class TinyROIEnhancer(nn.Module):
 
 
 def resolve_swiftvr_distill_model_path(model_arg: str) -> Path:
-    if not str(model_arg).strip():
-        raise ValueError(
-            "--swiftvr-distill-model is required for --secondary-restoration swiftvr-distill "
-            "(swiftvr-distill.pt from https://huggingface.co/okatti/swiftvr-distill)"
-        )
-    model_path = Path(str(model_arg).strip()).expanduser()
+    """Locate the checkpoint: ``--swiftvr-distill-model`` as given, a bare file
+    name inside model_weights/, or ``swiftvr-distill.pt`` in model_weights/
+    when the flag is empty (the same lookup as the other model weights)."""
+    from jasna.model_weights_resolver import resolve_model_weights_file
+
+    model_arg = str(model_arg).strip()
+    if not model_arg:
+        model_path = resolve_model_weights_file(SWIFTVR_DISTILL_DEFAULT_FILENAME)
+        if not model_path.is_file():
+            raise FileNotFoundError(
+                f"SwiftVR distill checkpoint not found: {model_path}. Download it with:\n"
+                f"  wget -O model_weights/{SWIFTVR_DISTILL_DEFAULT_FILENAME} {SWIFTVR_DISTILL_WEIGHTS_URL}\n"
+                "or pass --swiftvr-distill-model."
+            )
+        return model_path
+    model_path = Path(model_arg).expanduser()
+    if not model_path.is_file() and model_path.parent == Path("."):
+        looked_in = resolve_model_weights_file(model_arg)  # bare file name -> model_weights/
+        if not looked_in.is_file():
+            raise FileNotFoundError(
+                f"--swiftvr-distill-model not found: {model_arg} (also looked in {looked_in})"
+            )
+        return looked_in
     if not model_path.is_file():
         raise FileNotFoundError(f"--swiftvr-distill-model not found: {model_path}")
     return model_path
