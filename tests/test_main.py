@@ -439,10 +439,26 @@ class TestSecondaryRestorers:
         assert kw["strength"] == 0.5
         assert kw["stabilize_radius"] == 2
 
-    def test_swiftvr_distill_needs_an_existing_model(self, tmp_path):
+    def test_swiftvr_distill_defaults_to_model_weights(self, tmp_path, monkeypatch):
         inp, out, rest, det = _make_model_files(tmp_path)
-        with pytest.raises(ValueError, match="--swiftvr-distill-model is required"):
+        (tmp_path / "model_weights").mkdir()
+        model = tmp_path / "model_weights" / "swiftvr-distill.pt"
+        model.touch()
+        monkeypatch.chdir(tmp_path)
+        mock_distill = MagicMock()
+        with patch(
+            "jasna.restorer.swiftvr_distill_secondary_restorer.SwiftvrDistillSecondaryRestorer", mock_distill
+        ):
             _run_main(_base_argv(inp, out, rest, det, ["--secondary-restoration", "swiftvr-distill"]))
+        assert mock_distill.call_args.kwargs["model_path"].resolve() == model.resolve()
+
+    def test_swiftvr_distill_needs_an_existing_model(self, tmp_path, monkeypatch):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        (tmp_path / "model_weights").mkdir()  # empty: the default file is missing
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(FileNotFoundError, match="SwiftVR distill checkpoint not found") as e:
+            _run_main(_base_argv(inp, out, rest, det, ["--secondary-restoration", "swiftvr-distill"]))
+        assert "huggingface.co/okatti/swiftvr-distill" in str(e.value)
         with pytest.raises(FileNotFoundError, match="--swiftvr-distill-model not found"):
             _run_main(_base_argv(inp, out, rest, det, [
                 "--secondary-restoration", "swiftvr-distill",

@@ -164,8 +164,10 @@ def test_session_selects_swiftvr_distill_secondary(tmp_path: Path) -> None:
     assert kwargs["stabilize_radius"] == 2
 
 
-def test_swiftvr_distill_requires_model_path(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="--swiftvr-distill-model is required"):
+def test_swiftvr_distill_requires_model_path(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "model_weights").mkdir()  # empty: the default file is missing
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(FileNotFoundError, match="SwiftVR distill checkpoint not found"):
         _build_session(_config(secondary_restoration="swiftvr-distill"))
     with pytest.raises(FileNotFoundError, match="--swiftvr-distill-model not found"):
         _build_session(

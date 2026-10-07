@@ -302,7 +302,8 @@ def build_parser() -> argparse.ArgumentParser:
              'the SeedVR2 primary); "swiftvr-inline" runs SwiftVR inline (faster than '
              'FlashVSR, FP8 by default). Both need --swiftvr-repo, see the "SwiftVR" group. '
              '"swiftvr-distill" (experimental) runs a small 2x model distilled from SwiftVR '
-             'inside the jasna process; it needs --swiftvr-distill-model.',
+             'inside the jasna process; it needs swiftvr-distill.pt in model_weights/ (or '
+             '--swiftvr-distill-model).',
     )
 
     seedvr2 = parser.add_argument_group("SeedVR2 (primary restoration, experimental)")
@@ -538,10 +539,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--swiftvr-distill-model",
         type=str,
         default="",
-        help="Path to the SwiftVR distillation checkpoint (required for "
-             "--secondary-restoration swiftvr-distill): swiftvr-distill.pt from "
-             "https://huggingface.co/okatti/swiftvr-distill (AGPL-3.0). The weights are "
-             "not bundled.",
+        help='Path to the SwiftVR distillation checkpoint for --secondary-restoration '
+             'swiftvr-distill. If not set, uses "<model_weights>/swiftvr-distill.pt"; a bare '
+             'file name is looked up in model_weights/. The weights are not bundled: download '
+             'swiftvr-distill.pt from https://huggingface.co/okatti/swiftvr-distill (AGPL-3.0).',
     )
     swiftvr_distill.add_argument(
         "--swiftvr-distill-view-window",
