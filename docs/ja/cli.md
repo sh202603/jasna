@@ -66,7 +66,7 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 
 | オプション | デフォルト | 説明 |
 | ------ | ------- | ----- |
-| `--secondary-restoration` | `none` | `unet-4x`、`tvai`、または `rtx-super-res`。詳しくは[モデル](models.md)。*(+modi)* さらに `flashvsr`（オフライン 3 段パス）と `flashvsr-inline`（単一パス）。いずれも `--flashvsr-repo` が必要。詳細: [flashvsr.md](flashvsr.md)。`swiftvr`（オフライン 3 段パス）と `swiftvr-inline`（単一パス、FlashVSR より高速）は `--swiftvr-repo` が必要。詳細: [swiftvr.md](swiftvr.md)。 |
+| `--secondary-restoration` | `none` | `unet-4x`、`tvai`、または `rtx-super-res`。詳しくは[モデル](models.md)。*(+modi)* さらに `flashvsr`（オフライン 3 段パス）と `flashvsr-inline`（単一パス）。いずれも `--flashvsr-repo` が必要。詳細: [flashvsr.md](flashvsr.md)。`swiftvr`（オフライン 3 段パス）と `swiftvr-inline`（単一パス、FlashVSR より高速）は `--swiftvr-repo` が必要。詳細: [swiftvr.md](swiftvr.md)。`swiftvr-distill`（実験的）は SwiftVR から蒸留した小さな 2 倍モデルを jasna のプロセス内で動かす。`model_weights/` に `swiftvr-distill.pt` が必要。詳細: [swiftvr.md](swiftvr.md#swiftvr-distill--secondary-restoration-swiftvr-distill)。 |
 | `--rtx-scale` | `4` | RTX Super Res の拡大倍率（`2` または `4`）。 |
 | `--rtx-quality` | `high` | `low`～`ultra`。 |
 | `--rtx-denoise` | `medium` | `none` で無効。 |
@@ -96,6 +96,10 @@ Windows では、CLI もアプリ本体と同じファイルです: `jasna.exe -
 | `--swiftvr-accel` | on | *(+modi)* FP8 DiT と torch.compile（`--no-swiftvr-accel` で無効）。RTX 40 系以降と動く Triton が必要で、使えない部品は起動時に外して警告する。詳細: [swiftvr.md](swiftvr.md#高速化--swiftvr-accel)。 |
 | `--swiftvr-bundle-dir` | temp | *(+modi)* `swiftvr`（オフライン）専用。中間 bundle をここに永続化する（失敗した段からの再開が可能になる）。詳細: [swiftvr.md](swiftvr.md#オフライン-3-段--secondary-restoration-swiftvr)。 |
 | `--swiftvr-keep-bundle` | off | *(+modi)* `swiftvr`（オフライン）専用。完了後も bundle を残す（`--swiftvr-bundle-dir` 指定時は暗黙的に有効）。 |
+| `--swiftvr-distill-model` | `<model_weights>/swiftvr-distill.pt` | *(+modi)* [`okatti/swiftvr-distill`](https://huggingface.co/okatti/swiftvr-distill) の `swiftvr-distill.pt` のパス（AGPL-3.0、同梱なし）。省略時は `model_weights/` の中を探す（ファイル名だけを渡したときも同様）。 |
+| `--swiftvr-distill-view-window` | `15` | *(+modi)* `swiftvr-distill` の切り出し view を前後 N フレームで平滑化する。`--swiftvr-view-window` と同じ機構（`0` で無効）。 |
+| `--swiftvr-distill-strength` | `0.75` | *(+modi)* `swiftvr-distill` が入力の双線形 2 倍に足す分の比率（0〜2。`0` = 双線形拡大のみ、`1` = モデルの出力）。揺れも質感も比率とともに増える。 |
+| `--swiftvr-distill-stabilize` | `0` | *(+modi)* 実験的。`swiftvr-distill` が足した分を、入力が近い範囲で前後 N フレーム（0〜8）と混ぜる。実素材では未計測。 |
 
 ## SD 1.5 画像復元
 

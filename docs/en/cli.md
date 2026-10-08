@@ -66,7 +66,7 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 
 | Option | Default | Notes |
 | ------ | ------- | ----- |
-| `--secondary-restoration` | `none` | `unet-4x`, `tvai`, or `rtx-super-res`. See [Models](models.md). *(+modi)* also `flashvsr` (offline 3-phase pass) and `flashvsr-inline` (single pass); both need `--flashvsr-repo`. See [flashvsr.md](flashvsr.md). `swiftvr` (offline 3-phase pass) and `swiftvr-inline` (single pass, faster than FlashVSR) need `--swiftvr-repo`; see [swiftvr.md](swiftvr.md). |
+| `--secondary-restoration` | `none` | `unet-4x`, `tvai`, or `rtx-super-res`. See [Models](models.md). *(+modi)* also `flashvsr` (offline 3-phase pass) and `flashvsr-inline` (single pass); both need `--flashvsr-repo`. See [flashvsr.md](flashvsr.md). `swiftvr` (offline 3-phase pass) and `swiftvr-inline` (single pass, faster than FlashVSR) need `--swiftvr-repo`; see [swiftvr.md](swiftvr.md). `swiftvr-distill` (experimental) runs a small 2x model distilled from SwiftVR inside the jasna process; needs `swiftvr-distill.pt` in `model_weights/`. See [swiftvr.md](swiftvr.md#swiftvr-distill---secondary-restoration-swiftvr-distill). |
 | `--rtx-scale` | `4` | RTX Super Res upscale factor (`2` or `4`). |
 | `--rtx-quality` | `high` | `low`–`ultra`. |
 | `--rtx-denoise` | `medium` | `none` disables. |
@@ -96,6 +96,10 @@ On Windows the CLI is the same file as the app: `jasna.exe --input ...`.
 | `--swiftvr-accel` | on | *(+modi)* FP8 DiT and torch.compile (`--no-swiftvr-accel` disables). Needs an RTX 40 series or newer GPU and a working Triton; unavailable parts are dropped at startup with a warning. See [swiftvr.md](swiftvr.md#acceleration---swiftvr-accel). |
 | `--swiftvr-bundle-dir` | temp | *(+modi)* `swiftvr` (offline) only: persist the intermediate bundle here (enables stage resume). See [swiftvr.md](swiftvr.md#offline-3-phase-mode---secondary-restoration-swiftvr). |
 | `--swiftvr-keep-bundle` | off | *(+modi)* `swiftvr` (offline) only: keep the bundle after completion (implied by `--swiftvr-bundle-dir`). |
+| `--swiftvr-distill-model` | `<model_weights>/swiftvr-distill.pt` | *(+modi)* Path to `swiftvr-distill.pt` from [`okatti/swiftvr-distill`](https://huggingface.co/okatti/swiftvr-distill) (AGPL-3.0, not bundled). Unset, the file is looked up in `model_weights/`; a bare file name is looked up there too. |
+| `--swiftvr-distill-view-window` | `15` | *(+modi)* Crop view smoothing over N frames for `swiftvr-distill`, the same mechanism as `--swiftvr-view-window` (`0` disables). |
+| `--swiftvr-distill-strength` | `0.75` | *(+modi)* Scale of the detail `swiftvr-distill` adds to the bilinear 2x of its input (0–2; `0` = plain upscale, `1` = the model's output). Flicker and texture both grow with it. |
+| `--swiftvr-distill-stabilize` | `0` | *(+modi)* Experimental: blend the detail `swiftvr-distill` adds over N frames on each side (0–8) where the inputs agree. Not measured on real footage. |
 
 ## SD 1.5 image restoration
 

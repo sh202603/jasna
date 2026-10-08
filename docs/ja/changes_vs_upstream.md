@@ -219,6 +219,19 @@ FlashVSR 二次復元（§9）と同じ役割を [SwiftVR](https://github.com/H-
 
 ---
 
+## 18. 新機能（modi）: SwiftVR distill 二次復元（実験的）
+
+`--secondary-restoration swiftvr-distill` は、SwiftVR の出力から蒸留した小さな畳み込みの student（`TinyROIEnhancer`、24 チャンネル、残差ブロック 12 個、約 13 万パラメータ、チェックポイント `roi-distill-pilot-v1`）を SwiftVR の代わりに動かす。256px の一次クロップを 5 フレームずつ入れ、中央フレームを 512px（2x）で受け取り、`--swiftvr-scale 2` と同じく再 blend する。jasna のプロセス内で PyTorch の FP32 で動き、checkout、venv、worker は要らない。重みは [mioh](https://github.com/mioh-labs/mioh) の作者が学習して [`okatti/swiftvr-distill`](https://huggingface.co/okatti/swiftvr-distill) に公開したもの（AGPL-3.0）。同梱せず、他の重みと同じ `model_weights/` に `swiftvr-distill.pt` を置く（別の場所なら `--swiftvr-distill-model` で渡す）。GUI には出ない。
+
+- **復元器**。`rtx-super-res` と同じ枠の同期 `SecondaryRestorer`（`jasna/restorer/swiftvr_distill_secondary_restorer.py`）。中央フレーム 4 枚ずつのバッチ、5 フレーム窓は clip の端を繰り返し、keep 範囲の外のフレームは文脈としてだけ使う。§16 の切り出し view の平滑化を `view_smoothing_window` 経由で再利用する（`--swiftvr-distill-view-window`、既定 15）。`--swiftvr-distill-strength`（既定 0.75、0〜2）はモデルが入力の双線形 2 倍に足す分の比率。`--swiftvr-distill-stabilize`（既定 0、実験的）は足した分を入力が近い範囲で前後フレームと混ぜる jasna 側の実験で、テストクリップでは強さを下げたのと同じ引き換えにしかならなかった。起動時の連動は無い。fp8-recon は自動有効化されず、`--frame-gen` も切られず、SeedVR2 一次とも排他にならず、色補正も無い（一次出力自身の拡大に細部を足すだけ）。
+- **モデルとチェックポイント**。`jasna/restorer/swiftvr_distill_model.py` は公開 README の定義どおりのネットワークを組む（3x3 conv 15→24 と ReLU、`x + 0.1 * conv(relu(conv(x)))` のブロック 12 個、3x3 conv 24→12 と PixelShuffle(2)、出力 = 中央フレームの双線形 2 倍 + その細部）。定義の公開前は、state dict からは決まらない 3 点（stem 直後の ReLU、残差係数、双線形の土台）を平坦色で重みを探って復元しており、公開された定義がそれを裏付けた。3 点は名前付き定数のまま残す。ローダーは `version`、`architecture`（範囲付きの int、奇数の window）、`model`（有限値、strict な読み込み）を持つ dict だけを `weights_only=True` で受け付け、未知の version は警告して読む。
+- **SwiftVR 本体の安定性を再現しない理由**。作者のアプリは合成後のフレームを macOS の VideoToolbox の時間方向ノイズフィルターにも通している。Windows と Linux に同等物は無く、jasna では再現しない。代わりに view の平滑化と既定の強さで揺れを抑える。
+- **テスト**: `tests/test_swiftvr_distill.py`（CPU: チェックポイント検査、窓のインデックス、強さ、安定化、部分 keep。実重みのケースは `JASNA_SWIFTVR_DISTILL_MODEL` がチェックポイントを指すときに走り、平坦色で forward を固定する）と `tests/test_main.py`。
+
+**検証**（Windows、RTX 5060 Ti 16 GB、2026-10-05。`docs/ja/swiftvr.md` の「SwiftVR distill」）: 動きの小・中・大の 1080p 実素材 12 秒 × 3 区間で、既定値の揺れの増加は +8.6%、質感 122.4%（二次復元なし基準）。scale 2 の `swiftvr-inline` は +10.9% / 130.0% で、質感を揃えると揺れは 1〜2 ポイント上回る。二次段は区間あたり 2.0 s 対 8.2〜12.0 s、GPU 全体ピークの上乗せは約 5.5 GB に対して最大 0.4 GB。view の平滑化は強さ 1.0 の揺れを質感そのままで +19.1% から +13.9% に下げる。利用者が複数の素材を目視し、揺れの違和感は少なく質感も悪くない（輪郭は SwiftVR より締まり、面は平滑）と確認した。公開されたチェックポイントは、この計測に使った公開前のものとテンソル単位で同一。Linux（RTX 5080 16 GB、2026-10-08）: 同じ走行がすべて完走して出力フレーム数が入力と一致し、1080p 4203 フレームの二次段は 5.8 s 対 scale 2 の `swiftvr-inline` 38.9 s（6.7 分の 1。480p は 3.8 s 対 26.0 s）、GPU 全体ピークの上乗せは 5.5 GB に対して 0.2 GB。強さ 0 はロスレス encode 同士で二次復元なしと Y PSNR 61 dB で一致し、8K SBS の VR 素材も二次復元なしと同じフレーム数で完走した。利用者が 1080p、480p、8K SBS の出力を目視し、問題なしと確認した。`--stream` と `--segments` は未検証。
+
+---
+
 ## 付録: リベース履歴
 
 各ベースへのリベースで取り込んだ上流の主変更と本フォークの対応の記録（新しい順）。
