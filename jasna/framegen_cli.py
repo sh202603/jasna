@@ -404,7 +404,7 @@ def main() -> None:
     # Deferred heavy imports. Crucially NOT jasna.pipeline (keeps detection /
     # restoration out of this tool's import surface).
     from jasna.framegen import MULTIPLIER_CHOICES, build_frame_generator
-    from jasna.media.probe import UnsupportedColorspaceError
+    from jasna.media.probe import UnsupportedVideoError
 
     input_path = Path(args.input)
     if not input_path.exists():
@@ -481,7 +481,7 @@ def main() -> None:
                         batch_size=batch_size, show_progress=not args.no_progress,
                         decode_backend=decode_backend, encode_backend=encode_backend,
                     )
-                except UnsupportedColorspaceError as e:
+                except UnsupportedVideoError as e:
                     # Parity with jasna/main.py: in a folder batch, skip the bad
                     # file and keep going; for a single file, fail.
                     failed += 1

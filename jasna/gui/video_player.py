@@ -506,11 +506,11 @@ class VideoPlayerDialog(ctk.CTkToplevel):
             text=t("player_restoration_model"),
             text_color=Colors.TEXT_PRIMARY,
         ).grid(row=1, column=0, padx=(12, 6), pady=(0, 10), sticky="w")
-        default_stem = default_restoration_model_path().stem
+        default_stem = default_restoration_model_path("basicvsrpp").stem
         stems = [
             path.stem for path in discover_restoration_checkpoints()
         ] or [default_stem]
-        self._restoration_model = ctk.CTkOptionMenu(
+        self._restoration_checkpoint_menu = ctk.CTkOptionMenu(
             self._settings_card,
             values=stems,
             command=self._restoration_model_changed,
@@ -523,12 +523,12 @@ class VideoPlayerDialog(ctk.CTkToplevel):
             width=340,
         )
         selected_stem = (
-            self._base_settings.restoration_model
-            if self._base_settings.restoration_model in stems
+            self._base_settings.restoration_checkpoint
+            if self._base_settings.restoration_checkpoint in stems
             else (default_stem if default_stem in stems else stems[0])
         )
-        self._restoration_model.set(selected_stem)
-        self._restoration_model.grid(
+        self._restoration_checkpoint_menu.set(selected_stem)
+        self._restoration_checkpoint_menu.grid(
             row=1, column=1, columnspan=3, padx=(0, 14), pady=(0, 10), sticky="w"
         )
 
@@ -723,7 +723,7 @@ class VideoPlayerDialog(ctk.CTkToplevel):
             detection_model=self._model.get(),
             detection_score_threshold=float(self._threshold.get()),
             secondary_restoration=self._secondary.get_value(),
-            restoration_model=self._restoration_model.get(),
+            restoration_checkpoint=self._restoration_checkpoint_menu.get(),
         )
 
     def _tick(self) -> None:

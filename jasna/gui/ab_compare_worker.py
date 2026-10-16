@@ -26,7 +26,7 @@ from PIL import Image
 from jasna.gui.models import AppSettings
 from jasna.gui.restoration_preview import (
     RestoredClipFrame,
-    _frame_image,
+    frame_image,
     run_preview_pass,
 )
 from jasna.gui.video_session import (
@@ -659,7 +659,7 @@ class ABCompareWorker:
                 0.0,
                 (pts_list[0] - reader.start_pts) * float(metadata.time_base),
             )
-            original = _frame_image(
+            original = frame_image(
                 batch[0],
                 AB_PREVIEW_MAX_SIZE,
                 left_eye_only=vr_resolution.is_sbs,

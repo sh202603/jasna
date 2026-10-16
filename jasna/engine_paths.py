@@ -38,6 +38,8 @@ def configure_torch_compile_cache() -> None:
 _DEFAULT_RESTORATION_MODELS = {
     "basicvsrpp": "lada_mosaic_restoration_model_generic_v1.2.pth",
     "ltx": "ltx-restore",
+    # SeedVR2 primary (modi): the LoRA checkpoint.
+    "seedvr2": "lada_seedvr2_lora_v6.pt",
 }
 
 
