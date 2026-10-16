@@ -9,6 +9,10 @@ Jasna は JAV の動画と画像のモザイクを復元します。無料で、
 
 > ### ⚙️ これは Jasna の `+modi` フォークです
 >
+> ## ⚠️ パブリックソースのみで構築。LTX による復元はできません。
+>
+> **このフォークは Jasna のソースのうち公開されている部分だけで作られています。** 非公開のサブモジュール `jasna/protection`（ライセンス有効化と、暗号化された支援者モデルの復号）は**含まれていない**ため、**LTX・UNet 4x・SD 1.5 はこのビルドでは動きません**。LTX の重みは暗号化（`.enc`）されて配布され、復号できるのは公式リリースだけです。`--restoration-model-name ltx` と GUI の LTX モードはここでは失敗し、`--ltx-trial` は何も復元せず速度を測るだけです。LTX や支援者モデルが必要な場合は公式の [**Kruk2/jasna**](https://github.com/Kruk2/jasna) リリースを使ってください。公式リリースが LTX で復元した動画は、ここで `--ltx-crop-vsr` を使って鮮明化できます（[docs/ja/ltx_crop_vsr.md](docs/ja/ltx_crop_vsr.md)）。それ以外（検出、BasicVSR++ 復元、RTX/TVAI の二次復元、区間エディター、VR180、ストリーミング、エクスポート後アクション）は通常どおり動作します。
+>
 > 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) **v0.11.1** をベースにした改変ビルドで、次を追加しています。
 >
 > - **復元モデル**: **SeedVR2 + LoRA** 一次復元、**FlashVSR**・**SwiftVR**・**SwiftVR distill** 二次復元、**RTX Super Res** の追加オプション 2 つ（`--rtx-strength`、`--rtx-highbitrate`）、**LTX 出力の鮮明化**（`--ltx-crop-vsr`）。
@@ -16,12 +20,9 @@ Jasna は JAV の動画と画像のモザイクを復元します。無料で、
 > - **バックエンド**: 実験的な **torchcodec 動画バックエンド**、実験的な **cuDNN FP8 復元バックエンド**、エンジンを数秒でビルドする **TensorRT-RTX** フレーバー。
 > - **GUI**: 区間エディターの **A/B モデル比較**と、動画プレーヤーの**復元チェックポイント**選択。
 >
-> 全変更は層別に、状態と詳細ガイドへのリンク付きで [docs/ja/changes_vs_upstream.md](docs/ja/changes_vs_upstream.md) にまとめています。機能別のガイドは下の[`+modi` のガイド](#すべてのガイド)にあります。
->
-> - **このビルドでは LTX による復元はできません。** このフォークは公開ソースから作っており、LTX モデルの重みは暗号化（`.enc`）されていて、復号できるのは公式リリースだけです。`--restoration-model-name ltx` と GUI の LTX モードはここでは動かず、`--ltx-trial` は速度測定だけで復元しません。LTX の結果が欲しい場合は公式リリースで復元し、必要ならその出力をここで `--ltx-crop-vsr` で鮮明化できます（[docs/ja/ltx_crop_vsr.md](docs/ja/ltx_crop_vsr.md)）。
+> - **上流との変更点一覧:** [docs/ja/changes_vs_upstream.md](docs/ja/changes_vs_upstream.md)。層別に、各機能の状態付き。機能別のガイドは下の[`+modi` のガイド](#すべてのガイド)にあります。
 > - **ソースから実行します。** セットアップはビルドガイド（[Linux](docs/ja/building_linux.md)、[Windows](docs/ja/building_windows.md)）に従ってください。Windows 向けには `scripts/build_nuitka.py` で実験的なバンドルを作れます（[docs/ja/frozen_build.md](docs/ja/frozen_build.md)）。
 > - **ソース（このフォーク/ブランチ）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
-> - **対象範囲 — 公開（無料）機能のみ。** 支援者モデル（**unet-4x** と **SD 1.5 画像復元**）は支援者キーで解錠される暗号化チェックポイントで、復号コードは**この公開フォークに含まれない**プライベートサブモジュールにあります。そのため、これらのモデルは**ここではダウンロード・復号・実行できません**。上流のコードは同梱されますが inert（不活性）のままです。支援者モデルが必要な場合は上流 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) を使い支援者になってください。それ以外（検出・動画復元・RTX/TVAI セカンダリ・区間エディター・VR180・エクスポート後アクション・フレーム生成）は通常通り動作します。
 
 ## 目次
 

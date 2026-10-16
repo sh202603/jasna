@@ -9,6 +9,10 @@ Jasna 修复 JAV 视频和图片中的马赛克。Jasna 免费，提供简单的
 
 > ### ⚙️ 这是 Jasna 的 `+modi` 分支
 >
+> ## ⚠️ 仅由公开源码构建。本构建无法用 LTX 修复视频。
+>
+> **本分支只包含 Jasna 源码中公开的部分。** 私有子模块 `jasna/protection`（许可证激活以及加密的支持者模型的解密）**不在其中**，因此 **LTX、UNet 4x 和 SD 1.5 在本构建中不可用**。LTX 模型权重以加密形式（`.enc`）分发，只有官方发布版能解密：`--restoration-model-name ltx` 和 GUI 的 LTX 模式在这里会失败，`--ltx-trial` 只测速度、不做任何修复。如需 LTX 或支持者模型，请使用官方 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) 发布版。官方发布版用 LTX 修复过的视频，可以在这里用 `--ltx-crop-vsr` 锐化（[docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)）。其他一切（检测、BasicVSR++ 修复、RTX/TVAI 二级修复、区间编辑器、VR180、流媒体、导出后操作）均正常工作。
+>
 > 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) **v0.11.1** 的改版构建，新增：
 >
 > - **修复模型**：**SeedVR2 + LoRA** 一级修复；**FlashVSR**、**SwiftVR** 和 **SwiftVR distill** 二级修复；**RTX Super Res** 的两个附加选项（`--rtx-strength`、`--rtx-highbitrate`）；以及 **LTX 输出锐化**（`--ltx-crop-vsr`）。
@@ -16,12 +20,9 @@ Jasna 修复 JAV 视频和图片中的马赛克。Jasna 免费，提供简单的
 > - **后端**：实验性的 **torchcodec 视频后端**、实验性的 **cuDNN FP8 修复后端**，以及几秒内即可构建引擎的 **TensorRT-RTX** 版本。
 > - **GUI**：区间编辑器中的 **A/B 模型对比**，以及视频播放器中的**修复检查点**选择。
 >
-> 全部变更按层级整理，附状态和详细指南：[docs/en/changes_vs_upstream.md](docs/en/changes_vs_upstream.md)（英文）；各功能的指南见下方的[`+modi` 指南](#所有指南)。
->
-> - **本构建无法用 LTX 修复视频。** 本分支由公开源码构建，LTX 模型权重是加密的（`.enc`），只有官方发布版能解密。`--restoration-model-name ltx` 和 GUI 的 LTX 模式在这里不可用，`--ltx-trial` 只测速度、不做修复。如需 LTX 的结果，请用官方发布版修复，然后可在这里用 `--ltx-crop-vsr` 锐化其输出（[docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)）。
+> - **与上游的完整变更:** [docs/en/changes_vs_upstream.md](docs/en/changes_vs_upstream.md)（英文），按层级整理并附各功能的状态；各功能的指南见下方的[`+modi` 指南](#所有指南)。
 > - **从源码运行。** 请按构建指南（[Linux](docs/en/building_linux.md)、[Windows](docs/en/building_windows.md)，英文）安装本分支；Windows 可用 `scripts/build_nuitka.py` 构建实验性的打包版本（[docs/en/frozen_build.md](docs/en/frozen_build.md)）。
 > - **源码（本分支）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
-> - **范围 — 仅公开（免费）功能。** 支持者模型（**unet-4x** 和 **SD 1.5 图像修复**）以加密检查点形式提供，需用支持者密钥解锁，而解密代码位于**不属于本公开分支**的私有子模块中 —— 因此这些模型**无法在此下载、解密或运行**。它们的上游代码随附但保持 inert（不激活）。如需支持者模型，请使用上游 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) 并成为支持者。其他一切（检测、视频修复、RTX/TVAI 二级修复、区间编辑器、VR180、导出后操作、帧生成）均正常工作。
 
 ## 目录
 
