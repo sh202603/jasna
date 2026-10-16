@@ -2,9 +2,9 @@
 
 How to set up Jasna on Windows and run it **from source**.
 
-> **Verification status (2026-08-13, `0.10.0+modi` on upstream `93d0584` = the v0.10.0 tag)**: These instructions are **verified on real hardware on the 93d0584 base** — Windows 11 + RTX 5060 Ti (driver 610.88, Python 3.13.9, CUDA 13.2, ffmpeg 8.1); the full-pytest failure set matches the bare v0.10.0 baseline exactly, fifteen CLI runs (including the v0.10.0 additions: `--cq`, chapter/subtitle preservation, `JASNA_DECODE_BACKEND`, post-export commands, near-lock retarget, and streaming restart) plus the GUI smoke (restored-video player playback/seek/full-screen on both the VLC and SoftwareClock paths, queue right-click actions, A/B comparison, segment editor) all pass, and the Windows build of the VALI fork wheel 4.8.8 is verified in Section 5.3. (The previous verification, on the a7cdaf8 base, was 2026-07-30.) For the Linux side see [building_linux.md](building_linux.md).
+> **Verification status**: these instructions were last **verified on real hardware on the v0.10.0 base** (`93d0584`, 2026-08-13) and are **not yet re-verified on the current `0.11.1+modi` base** (upstream `2fc3e899`); what changed since then is upstream's dependency bumps in Section 5 (torch 2.12.1, `comfy-kitchen`, `ultralytics>=8.4.96`) and the `JASNA_DECODE_BACKEND`-only decode selection, both verified on Linux ([building_linux.md](building_linux.md)). The v0.10.0 verification: Windows 11 + RTX 5060 Ti (driver 610.88, Python 3.13.9, CUDA 13.2, ffmpeg 8.1); the full-pytest failure set matches the bare v0.10.0 baseline exactly, fifteen CLI runs (including the v0.10.0 additions: `--cq`, chapter/subtitle preservation, `JASNA_DECODE_BACKEND`, post-export commands, near-lock retarget, and streaming restart) plus the GUI smoke (restored-video player playback/seek/full-screen on both the VLC and SoftwareClock paths, queue right-click actions, A/B comparison, segment editor) all pass, and the Windows build of the VALI fork wheel 4.8.8 is verified in Section 5.3. (The previous verification, on the a7cdaf8 base, was 2026-07-30.) For the Linux side see [building_linux.md](building_linux.md).
 
-> **This guide covers the `v0.9.1+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
+> **This guide covers the `0.11.1+modi` branch** (upstream `2fc3e899` = the v0.11.1 tag plus one docs commit). The GPU stack (**torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11**, plus upstream's `comfy-kitchen==0.2.36`, `triton-windows==3.7.1.post27` and `ultralytics>=8.4.96`) follows upstream's pins in `pyproject.toml`; this branch only adds `nvidia-vfx==0.2.0.0`, `nvidia-cudnn-frontend` and the optional `nvidia-rtx` extra ([tensorrt_rtx.md](tensorrt_rtx.md)). TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0`.
 
 > **v0.8.0 simplified the setup considerably.** Upstream v0.8.0 moved the media layer to PyAV (NVDEC/NVENC), which removed the C++ builds of `python_vali` / `PyNvVideoCodec` entirely. All of the following prerequisites of the old guide are gone with them:
 >
@@ -17,9 +17,9 @@ How to set up Jasna on Windows and run it **from source**.
 >
 > Leftovers of these in an existing environment do no harm (`CUDA_PATH` can even help: the torchcodec backend's DLL-resolution fallback consults it). On the other hand, **the NVIDIA driver requirement rose to 610+** (the startup check rejects anything below 610 on Windows). The one special step that used to remain, self-building the **PyAV wheel**, ended with av 18.1.0 reaching PyPI (Section 4).
 >
-> **Main additions on this branch:** 2x/4x frame generation via RIFE ([frame_generation.md](frame_generation.md)), the torchcodec backend ([torchcodec_backend.md](torchcodec_backend.md)), the cuDNN FP8 restoration backend ([fp8_recon.md](fp8_recon.md)), SeedVR2 primary restoration ([seedvr2.md](seedvr2.md)), and FlashVSR secondary restoration ([flashvsr.md](flashvsr.md)). The AV1 / 8-bit / BT.601 and BT.2020 output features of v0.7.2+modi were absorbed into upstream v0.8.0. See [changes_vs_upstream.md](changes_vs_upstream.md) for the full delta.
+> **Main additions on this branch:** 2x/4x frame generation with RIFE or RTX Video Frame Generation ([frame_generation.md](frame_generation.md)), the torchcodec backend ([torchcodec_backend.md](torchcodec_backend.md)), the cuDNN FP8 restoration backend ([fp8_recon.md](fp8_recon.md)), the TensorRT-RTX flavor ([tensorrt_rtx.md](tensorrt_rtx.md)), SeedVR2 primary restoration ([seedvr2.md](seedvr2.md)), FlashVSR ([flashvsr.md](flashvsr.md)) and SwiftVR / SwiftVR distill ([swiftvr.md](swiftvr.md)) secondary restoration, and sharpening of LTX outputs ([ltx_crop_vsr.md](ltx_crop_vsr.md)). See [changes_vs_upstream.md](changes_vs_upstream.md) for the full delta, organized by layer.
 
-> **Packaging note:** This fork ships an experimental Nuitka build script (`scripts\build_nuitka.py`), but it is ⚠️ **not yet updated for the v0.8.0 media-layer migration** (it still assumes bundling the old `python_vali` / `PyNvVideoCodec` DLLs and is not expected to work as-is). Details: [Packaging / frozen builds](#8-packaging--frozen-builds).
+> **Packaging note:** This fork ships its own experimental Nuitka build script (`scripts\build_nuitka.py`) that produces a standalone `jasna.exe` + `jasna-framegen.exe` distribution from the venv of this guide; see [frozen_build.md](frozen_build.md) and [Packaging / frozen builds](#8-packaging--frozen-builds). It is kept current with the branch (last updated 2026-10-03 for the rfdetr-v6 detector and the CUDA kernel set) but is not part of the verification above.
 
 ---
 
@@ -246,7 +246,7 @@ Additional prerequisites on top of Section 1:
 cd $Workspace
 git clone https://codeberg.org/Kruk2/vali.git       # skip if you have a checkout
 cd vali
-git checkout f4a67f8      # = the 4.8.8 pin, has DecodeSingleSurfaceAsyncDetailed and the post-EAGAIN drain fix
+git checkout 0e5c01e      # = the 4.8.8 pin: DecodeSingleSurfaceAsyncDetailed, the ASF/VC-1 timestamp fixes, the decoder-open GIL release (f4a67f8, the previously verified commit, also works)
 git submodule update --init --recursive
 ```
 
@@ -270,16 +270,16 @@ python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurf
 # running jasna with --log-level info now prints "Using VALI NVDEC decoder for <file>"
 ```
 
-> The Windows build and a full pipeline run are verified at fork commit `f4a67f8` (= the 4.8.8 pin, 2026-08-13, RTX 5060 Ti + CUDA 13.2). The previous verification was at fork commit `3ad0d54` (= the 4.8.7 pin, 2026-07-30, RTX 5080 + CUDA 13.2 + gyan.dev 8.1 shared): both decode paths of the pipeline go through VALI, the bundled test clip's output is **bitstream-md5-identical** to the PyAV-decoded run, and coexistence with the av wheel and the torchcodec backend is confirmed (av vendors FFmpeg via delvewheel, vali bundles its own copy, torchcodec resolves via PATH — three separate in-process DLL copies, which is fine on Windows because each DLL has its own symbol namespace).
+> The Windows build and a full pipeline run are verified at fork commit `f4a67f8` (= the 4.8.8 pin, 2026-08-13, RTX 5060 Ti + CUDA 13.2); `0e5c01e` is verified on Linux (2026-10-16) and its Windows build is pending. The previous verification was at fork commit `3ad0d54` (= the 4.8.7 pin, 2026-07-30, RTX 5080 + CUDA 13.2 + gyan.dev 8.1 shared): both decode paths of the pipeline go through VALI, the bundled test clip's output is **bitstream-md5-identical** to the PyAV-decoded run, and coexistence with the av wheel and the torchcodec backend is confirmed (av vendors FFmpeg via delvewheel, vali bundles its own copy, torchcodec resolves via PATH — three separate in-process DLL copies, which is fine on Windows because each DLL has its own symbol namespace).
 
 ---
 
 ## 6. Model weights and assets
 
-Place these 4 files in `$Workspace\jasna\model_weights\`:
+Place these files in `$Workspace\jasna\model_weights\` (taken from an upstream release package):
 
 - `lada_mosaic_restoration_model_generic_v1.2.pth`
-- `rfdetr-v5.onnx`
+- `rfdetr-v6.onnx` (the default detector since v0.9.0; `rfdetr-v6-large.onnx` for 4K and `rfdetr-vr-v1.onnx` for VR180 are optional, and the old `rfdetr-v5.onnx` still works)
 - `lada_mosaic_detection_model_v4_fast.pt`
 - `lada_vr_mosaic_detection_model_v2_accurate.pt` (added in v0.8.0; the weights behind the VR180 YOLO detection model `zelefans-vr-yolo-v2`)
 
@@ -291,7 +291,7 @@ The two test clips normally ship with the repository in `$Workspace\jasna\assets
 
 ### 6.1 Optional: RIFE frame-interpolation model (for `--frame-gen`)
 
-Needed only for frame-rate doubling (`--frame-gen {2x,4x}`). The RIFE weights are **not bundled** (non-commercial license terms), so create the TorchScript checkpoint yourself with `scripts/make_rife_torchscript.py`.
+Needed only for frame-rate doubling (`--frame-gen {2x,4x}`) with the default `rife` backend. On an RTX 40 series or newer GPU, `--frame-gen-backend rtx` (NVIDIA RTX Video Frame Generation from the `nvidia-vfx` wheel installed in Section 5) needs no weights at all; see [frame_generation.md](frame_generation.md). The RIFE weights are **not bundled** (non-commercial license terms), so create the TorchScript checkpoint yourself with `scripts/make_rife_torchscript.py`.
 
 1. Clone Practical-RIFE and download a 4.x model package (**verified with v4.25**) so that `<repo>\train_log\` contains `RIFE_HDv3.py`, `IFNet_HDv3.py`, `flownet.pkl`:
    ```powershell
@@ -309,7 +309,7 @@ When **running from source**, `model_weights\rife.pth` is picked up automaticall
 
 ### 6.2 Optional: FlashVSR secondary restoration (experimental)
 
-FlashVSR (`--secondary-restoration flashvsr` / `flashvsr-inline`) needs a separate repository checkout with its own venv. Use the fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus) (it includes the tiny-long fix inline needs and the `--flashvsr-accel` speed-up, and `uv sync` installs its dependencies). Windows is supported (inline is re-verified on v0.8.0+modi on a 16 GB Windows card with `--flashvsr-tiles 2`; v0.8.0 automatically caps `--max-clip-size` to 32 in inline mode, leaving more VRAM headroom than in the v0.7.2 era). Setup instructions: [flashvsr.md](flashvsr.md).
+FlashVSR (`--secondary-restoration flashvsr` / `flashvsr-inline`) needs a separate repository checkout with its own venv. Use the fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus) (it includes the tiny-long fix inline needs and the `--flashvsr-accel` speed-up, and `uv sync` installs its dependencies). Windows is supported; on a 16 GB card use `--flashvsr-tiles 2` for 1080p (inline follows `--max-clip-size`, default 90; the former 32-frame cap is gone). Setup instructions: [flashvsr.md](flashvsr.md).
 
 ---
 
@@ -319,13 +319,19 @@ SeedVR2 (`--restoration-model-name seedvr2`) needs a separate `ComfyUI-SeedVR2_V
 
 ---
 
+### 6.4 Optional: SwiftVR secondary restoration and SwiftVR distill (experimental)
+
+SwiftVR (`--secondary-restoration swiftvr` / `swiftvr-inline`, also the `swiftvr` backend of `--ltx-crop-vsr`) needs the fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) (branch `modi`) checked out with its own `uv sync` venv and the ~20 GB checkpoint. The small distilled model (`--secondary-restoration swiftvr-distill`, also the `swiftvr-distill` backend of `--ltx-crop-vsr`) needs nothing but `swiftvr-distill.pt` from [okatti/swiftvr-distill](https://huggingface.co/okatti/swiftvr-distill) in `model_weights\`. Setup instructions and the Windows notes: [swiftvr.md](swiftvr.md).
+
+---
+
 ## 7. Run from source / smoke test
 
 With Sections 1–6 done, run Jasna directly from the source checkout inside the venv:
 
 ```powershell
 cd $Workspace\jasna
-python -m jasna --version    # -> 0.9.1+modi
+python -m jasna --version    # -> 0.11.1+modi
 python -m jasna --help
 jasna --input assets\test_clip1_1080p.mp4 --output $env:TEMP\out.mp4   # process a short clip
 python -m jasna              # launch the GUI (no arguments)
@@ -339,15 +345,13 @@ Check:
 - The NVIDIA driver is **610 or newer** (the startup check rejects older ones).
 - The install path is ASCII-only (enforced at startup; watch out for extraction paths under user names containing non-ASCII characters).
 
-> **The first processing run is slow.** On first use the GPU-specific TensorRT engines are compiled (15–60 min). They are cached next to the weights inside `model_weights\` (e.g. `<model>_sub_engines\`) and reused afterwards. When migrating from v0.7.2, some engines recompile because the default max-clip-size changed (90); the loop_body engine caches keep their names and are reused.
+> **The first processing run is slow.** On first use the GPU-specific TensorRT engines are compiled (15–60 min). They are cached next to the weights inside `model_weights\` (e.g. `<model>_sub_engines\`) and reused afterwards. Engine caches from the v0.9.1 base onwards stay valid (the engine layer is unchanged through v0.11.1); `--max-clip-size` no longer triggers a recompile.
 
 ---
 
 ## 8. Packaging / frozen builds
 
-This fork ships an experimental Nuitka build script (`scripts\build_nuitka.py`) that in the v0.7.2 era produced a standalone distribution with a single `jasna.exe` ([frozen_build.md](frozen_build.md)).
-
-⚠️ **The script has not been updated for the v0.8.0 media-layer migration.** It still assumes bundling the old `python_vali` / `PyNvVideoCodec` DLLs (CUDA NPP / nvJPEG etc.) and is not expected to work as-is. It will be updated after the Windows hardware verification.
+This fork ships its own experimental Nuitka build script (`scripts\build_nuitka.py`) that produces a standalone distribution with `jasna.exe` and `jasna-framegen.exe` from the venv of this guide; the procedure, the bundle layout and its limits are in [frozen_build.md](frozen_build.md). The script follows the branch (PyAV media layer, the rfdetr-v6 detector, the CUDA kernel set, the worker scripts of the external restorers), but each new base needs a fresh build and smoke test on Windows.
 
 Upstream's own packaging tooling (also Nuitka-based) lives in a **private submodule (`jasna/protection`)** not included in this fork. Features depending on that submodule (`unet-4x`, SD1.5 inpaint, license activation) do not work in this fork's frozen builds.
 
