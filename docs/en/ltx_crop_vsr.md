@@ -46,6 +46,57 @@ little from the LTX run only widens or narrows the sharpened area. LTX outputs m
 - Prefer hevc (10-bit) output. The refine's default `--codec` is hevc at 10 bit as well,
   so the untouched picture keeps its bit depth.
 
+### Examples
+
+The workflow is two passes: the official release restores with LTX, this build
+sharpens that output. Give both passes the same low `--cq` and the same encoder
+settings, because the refine re-encodes the whole picture once more and the parts
+outside the mosaics should not lose quality on the way.
+
+```bash
+# Pass 1, in the official release: LTX restoration at high quality.
+jasna --input source.mp4 --output ltx.mkv \
+      --restoration-model-name ltx --detection-model rfdetr-v6 \
+      --codec hevc --cq 14 --encoder-settings "preset=p7,rc-lookahead=32,qmax=28"
+
+# Pass 2, in this build: sharpen the mosaic areas of the LTX output with SwiftVR.
+jasna --input ltx.mkv --output ltx_sharp.mkv \
+      --ltx-crop-vsr swiftvr --ltx-crop-vsr-source source.mp4 \
+      --detection-model rfdetr-v6 \
+      --swiftvr-repo ~/SwiftVR --swiftvr-model-dir ~/SwiftVR/checkpoints \
+      --codec hevc --cq 14 --encoder-settings "preset=p7,rc-lookahead=32,qmax=28"
+```
+
+The same pass 2 with the distill student instead of SwiftVR (no checkout or venv;
+`swiftvr-distill.pt` in `model_weights/`):
+
+```bash
+jasna --input ltx.mkv --output ltx_sharp.mkv \
+      --ltx-crop-vsr swiftvr-distill --ltx-crop-vsr-source source.mp4 \
+      --detection-model rfdetr-v6 --swiftvr-distill-strength 0.75 \
+      --codec hevc --cq 14 --encoder-settings "preset=p7,rc-lookahead=32,qmax=28"
+```
+
+What the encoding options do here:
+
+- `--cq 14` is far below the HEVC default of 28 (lower = better quality, bigger
+  file; the number is passed to NVENC as it is). Pass 1 decides the quality of the
+  picture outside the mosaics; pass 2 only has to preserve it. On a low-bitrate
+  source the automatic output-size ceiling can cap a very low CQ in pass 1 (see
+  [Encoder settings](cli.md#encoder-settings)); pass 2 inherits a high-bitrate
+  source, so it is not affected.
+- `--encoder-settings "preset=p7,rc-lookahead=32,qmax=28"`: `preset=p7` is NVENC's
+  slowest and best preset (default `p5`), `rc-lookahead=32` lets the rate control
+  look 32 frames ahead, and `qmax=28` caps the worst quantizer VBR may fall back to
+  (default 34). Any key from the [NVENC table](cli.md#nvidia-nvenc-keys-all-codecs)
+  works; an unknown key stops the job with the list of accepted keys.
+- `--codec hevc` is the default in both passes and keeps the untouched picture at
+  10 bit. If the LTX output was written as 8-bit `h264`, pass `--codec h264` to the
+  refine as well, so the bit depth does not change.
+- `--ltx-fast`, `--restoration-model-name ltx-undistilled` and `--ltx-seed` belong to
+  pass 1 only and do not affect pass 2. `--ltx-large-canvas` goes into both passes
+  (see above). `--lut` and `--sharpen` go into pass 1 only.
+
 ### Refused combinations
 
 `--restoration-model-name` other than basicvsrpp, `--secondary-restoration`, `--denoise`,
