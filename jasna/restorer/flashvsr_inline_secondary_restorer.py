@@ -42,6 +42,7 @@ import torch
 
 from jasna.restorer import bundled_script_path
 from jasna.restorer.flashvsr_offline import FLASHVSR_FORK_URL, apply_flashvsr_accel_env
+from jasna.restorer.worker_env import external_worker_env
 
 if TYPE_CHECKING:
     pass
@@ -156,8 +157,7 @@ class FlashvsrInlineSecondaryRestorer:
 
         # The FlashVSR venv must import its own repo, not inherit jasna's
         # PYTHONPATH.
-        env = dict(os.environ)
-        env.pop("PYTHONPATH", None)
+        env = external_worker_env()
         if os.name == "nt":
             # expandable_segments is not supported on Windows (torch warns and
             # falls back to the default caching allocator), so the worker's

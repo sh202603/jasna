@@ -38,6 +38,7 @@ import torch
 
 from jasna.restorer import bundled_script_path
 from jasna.restorer.swiftvr_common import check_restore_clip_api
+from jasna.restorer.worker_env import external_worker_env
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +120,7 @@ class SwiftvrInlineSecondaryRestorer:
 
         # The SwiftVR venv must import its own package, not inherit jasna's
         # PYTHONPATH.
-        env = dict(os.environ)
-        env.pop("PYTHONPATH", None)
+        env = external_worker_env()
         if os.name == "nt":
             # expandable_segments is not supported on Windows; force UTF-8 so a
             # non-ASCII log line cannot raise on the cp932 text layer our
