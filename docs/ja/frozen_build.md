@@ -22,8 +22,8 @@ upstream はパッケージングを PyInstaller から Nuitka へ切り替え�
   venv に全ランタイム依存に加えて `[dev]` extra（`uv pip install -e .[dev,nvidia]`）が入っていれば、`nuitka>=2.4` が使える。
   Nuitka は jasna を C にコンパイルするため、Visual Studio Build Tools（MSVC）も必要である。
 - `model_weights\` に必須の重み 3 ファイルがあること。
-  `lada_mosaic_restoration_model_generic_v1.2.pth`、`rfdetr-v5.onnx`、`lada_mosaic_detection_model_v4_fast.pt` である。
-- 任意で、`ffmpeg` と `ffprobe`（メジャーバージョン 8、shared ビルド推奨）と `mkvmerge` が `PATH` にあること。
+  `lada_mosaic_restoration_model_generic_v1.2.pth`、`rfdetr-v6.onnx`、`lada_mosaic_detection_model_v4_fast.pt` である（`model_weights\` にある他のファイル、たとえば `rfdetr-v6-large.onnx`、`rfdetr-vr-v1.onnx`、VR 用 YOLO 重み、`swiftvr-distill.pt` も複製される。TensorRT エンジンは複製しない）。
+- 任意で、`ffmpeg` と `ffprobe`（メジャーバージョン 8、shared ビルド推奨）と `mkvmerge` が `PATH` にあること（`mkvmerge` は v0.8.0 以降ランタイムでは不要だが、見つかればスクリプトは同梱する）。
   見つかれば `tools\` と `mkvtoolnix\` に同梱される。
   見つからなければ警告だけ出してビルドは続行し、凍結アプリは実行時に配布先の `PATH` へフォールバックする。
   `tools\` の DLL は torchcodec バックエンドの動作条件でもある。
@@ -112,14 +112,14 @@ dist_nuitka\jasna\
   配布物に含まれるのは jasna 側のオーケストレーション（`jasna\restorer\` 配下の worker と driver のスクリプトを含む）だけである。
 - 配布物は、書き込み可能で ASCII のみのパスに展開する必要がある。
   TRT エンジンが exe の隣の `model_weights\` に書き込まれるためであり、ASCII 制約はソース実行時と同じ RTX Super-Res の制限である。
-- 配布先にも NVIDIA GPU（compute capability 7.5 以上）とドライバ 590 以上は必要である。
+- 配布先にも NVIDIA GPU（compute capability 7.5 以上）とドライバ 610 以上は必要である（起動チェックが Windows では 610 未満を拒否する）。
   `ffmpeg` と `mkvmerge` は、ビルド時に同梱されなかった場合に限り配布先の `PATH` に必要となる。
 
 ## 6. ビルドの検証
 
 ```powershell
 cd dist_nuitka\jasna
-.\jasna.exe --version                 # -> 0.8.1+modi（スクリプトが自動で確認済み）
+.\jasna.exe --version                 # -> 0.11.1+modi（スクリプトがインストール済みパッケージの版と照合する）
 .\jasna.exe --input assets\test_clip1_1080p.mp4 --output %TEMP%\out.mkv
 .\jasna-framegen.exe --input %TEMP%\out.mkv --output %TEMP%\out2x.mkv --factor 2x   # --bundle-rife の重みが必要
 ```
