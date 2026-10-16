@@ -216,6 +216,7 @@ BasicVSR++ の **upsample** サブエンジンを cuDNN graph API の FP8 畳み
 - **stage の例外で pipeline が失敗せずハングする**: stage スレッドが死ぬと（例: 二次復元が worker エラーで例外）、その生産側が満杯の `FrameQueue.put` で永久に待ち、`Pipeline.run()` が返りませんでした（進捗 100% のまま encode-stall 監視が 30 秒ごとにログ）。`_run_pass` は join 中に `error_holder` を監視し、最初のエラーで cancel を立て、フレームキューを abort（`FrameQueue.abort()` が待機中の `put` を解放）、metadata キューを排出して全 stage を巻き戻し、元の例外を再送出します。upstream v0.11 の `_run_pass` 上に再実装。`test_run_secondary_error_does_not_hang_with_blocked_producer` で固定。
 - **フォルダ一括でのフレーム生成**: generator は 1 回だけ構築して全動画で共有しますが、`FrameGenWriter.close()` が 1 本目の後にその借用 generator を close していたため 2 本目がクラッシュしていました。writer は generator に触らず、構築した側（CLI のフォルダループ / GUI のジョブ）が一括処理後に 1 回 close します。
 - **外部 worker が jasna のライブラリディレクトリを継承していた**（`jasna/restorer/worker_env.py`、2026-10-16）: FlashVSR、SwiftVR、SeedVR2 の worker は自前の torch と cuDNN で動きますが `LD_LIBRARY_PATH` を継承しており、FP8 が on（`swiftvr-inline` が有効化する）だと新しい torch の worker が jasna 側の cuDNN サブライブラリを読んで最初の畳み込みで死にました（`CUDNN_STATUS_SUBLIBRARY_LOADING_FAILED`。SwiftVR venv が torch 2.14 / cuDNN 9.24 に移って顕在化）。`external_worker_env()` が全 worker の環境を作り、`PYTHONPATH` を落とし、`LD_LIBRARY_PATH` からこのインタプリタの配下にある項目を除きます。
+- **Linux/X11 でモーダルダイアログが空表示になる**: About ダイアログと初回ウィザードは upstream の `grab_modal()` を 250 ms 遅らせて呼びます（`jasna/gui/app.py`、`jasna/gui/wizard.py`）。ウィジェットの描画より先にモーダルグラブを掛けると、一部の X11 ウィンドウマネージャでリサイズ不可の `CTkToplevel` が空のまま残るためです。upstream の他のダイアログはグラブ前に `wait_visibility()` を呼んでおり、変更していません。
 - **FP8 バックエンドの cuDNN ロード順**: [5.2](#52-cudnn-fp8-upsample-バックエンド--fp8-recon) を参照。
 - **frozen build 向けの YOLO ONNX CPU エクスポート**: ultralytics の GPU エクスポートは TensorRT より先に torch CUDA を初期化し、frozen バイナリで初期化順序を壊します（CUDA error 100）。検出 ONNX は CPU でエクスポートし（`half=False, device="cpu"`）、upstream の `CUDA_VISIBLE_DEVICES` 退避/復元は維持。エンジンは引き続き fp16 でビルドされます。
 
@@ -269,7 +270,6 @@ BasicVSR++ の **upsample** サブエンジンを cuDNN graph API の FP8 畳み
 | `_preload_tensorrt_runtime` の名前と YOLO export の `CUDA_VISIBLE_DEVICES` 退避/復元 | upstream `6545b78` / `5b3ca34` がブランチの修正と収束。名前は upstream、CPU export は維持（[7](#7-このブランチで保持しているバグ修正)） | v0.6.2 直後 |
 | フォルダ毎ファイルバナー `[i/N] Processing <in> -> <out>` | `2f3a87e` が画像+動画合算カウンタ付きの同じバナーを追加 | v0.7.2 |
 | 出力フォーマットの柔軟化: `--codec` / `--bit-depth`、`chw_rgb_to_surface`、BT.601/2020 タグ付け、mkvmerge+ffmpeg remux、`docs/CODECS_AND_COLORSPACE_*` | PyAV エンコーダが `--codec {hevc,h264,av1}`、BT.601/709/2020 × full/limited × NV12/P010 一式、H.273 のインライン付与を実装し mkvmerge を廃止。`--bit-depth` は廃止（hevc/av1 → 10-bit、h264 → 8-bit） | v0.8.0 |
-| Linux のモーダルダイアログ空表示に対する遅延 `grab_set` | `wait_visibility()` ベースの X11 対応 | v0.8.0 |
 | `python_vali` / `PyNvVideoCodec` 向け Windows DLL ロード補助 | PyAV メディア層がそれらをランタイムから撤去 | v0.8.0 |
 | NVENC 入力ピッチ整列（256 バイトのステージングバッファ。[#230](https://github.com/Kruk2/jasna/issues/230) として報告） | `bb6e36e`「fix(encoder): align NVENC input pitch」（16 バイト整列、ゼロ埋め、テスト） | v0.8.1 |
 | Linux ドライバ最小 580 / `os_utils` のプラットフォーム分岐 | `041eded` | v0.8.1 |
