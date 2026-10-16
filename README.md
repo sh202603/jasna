@@ -11,7 +11,7 @@ and a command line, and runs on your GPU.
 
 > ### ⚙️ This is the `+modi` fork of Jasna
 >
-> A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1, adding **frame generation** (`--frame-gen` 2x/4x), an experimental **torchcodec video backend**, an experimental **FP8 restoration backend**, **SeedVR2 primary restoration**, and **FlashVSR secondary restoration**, among other improvements.
+> A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1, adding **frame generation** (`--frame-gen` 2x/4x), an experimental **torchcodec video backend**, an experimental **FP8 restoration backend**, **SeedVR2 primary restoration**, **FlashVSR / SwiftVR secondary restoration**, and **sharpening of LTX outputs** (`--ltx-crop-vsr`, [docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)), among other improvements.
 >
 > - **Source (this fork/branch):** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
 > - **Full list of changes vs upstream:** [docs/en/changes_vs_upstream.md](docs/en/changes_vs_upstream.md)
