@@ -16,7 +16,7 @@ Jasna は動画と画像のモザイクを復元します。無料で、シン�
 > 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) **v0.11.1** をベースにした改変ビルドで、次を追加しています。
 >
 > - **復元モデル**: **SeedVR2 + LoRA** 一次復元、**FlashVSR**・**SwiftVR**・**SwiftVR distill** 二次復元、**RTX Super Res** の追加オプション 2 つ（`--rtx-strength`、`--rtx-highbitrate`）。
-> - **LTX 出力の鮮明化**（`--ltx-crop-vsr`）: 公式リリースが LTX で復元した動画とその元動画を受け取り、LTX の公開部分であるモザイクスキャンを再実行し、モザイク領域を SwiftVR または SwiftVR distill で 2 倍に拡大して LTX 自身の合成処理で戻します。このビルドで LTX の結果を扱える唯一の経路です。[docs/ja/ltx_crop_vsr.md](docs/ja/ltx_crop_vsr.md) をご覧ください。
+> - **LTX 出力の鮮明化**（`--ltx-crop-vsr`）: 公式リリースが LTX で復元した動画とその元動画を受け取り、LTX の公開部分であるモザイクスキャンを再実行し、モザイク領域を SwiftVR または SwiftVR distill で 2 倍に拡大して LTX 自身の合成処理で戻します。特に低解像度の入力で LTX の復元 crop がぼやけるケースの鮮明化を狙ったものです。このビルドで LTX の結果を扱える唯一の経路です。[docs/ja/ltx_crop_vsr.md](docs/ja/ltx_crop_vsr.md) をご覧ください。
 > - **フレーム生成**（`--frame-gen` 2x/4x、RIFE または RTX Video Frame Generation）と、復元済み動画向けのスタンドアロン `jasna-framegen`。
 > - **バックエンド**: 実験的な **torchcodec 動画バックエンド**、実験的な **cuDNN FP8 復元バックエンド**、エンジンを数秒でビルドする **TensorRT-RTX** フレーバー。
 > - **GUI**: 区間エディターの **A/B モデル比較**と、動画プレーヤーの**復元チェックポイント**選択。
