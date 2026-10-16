@@ -26,6 +26,7 @@ CLI_RESTORATION_MODELS: dict[str, tuple[RestorationModelName, LtxModelName]] = {
     "basicvsrpp": ("basicvsrpp", LTX_DEFAULT_MODEL),
     "ltx": ("ltx", "distilled"),
     "ltx-undistilled": ("ltx", "undistilled"),
+    "seedvr2": ("seedvr2", LTX_DEFAULT_MODEL),
 }
 
 
@@ -109,7 +110,6 @@ def _session_config_from_args(
         swiftvr_distill_view_window=int(getattr(args, "swiftvr_distill_view_window", 15)),
         swiftvr_distill_strength=float(getattr(args, "swiftvr_distill_strength", 0.75)),
         swiftvr_distill_stabilize=int(getattr(args, "swiftvr_distill_stabilize", 0)),
-        restoration_model_name=str(args.restoration_model_name),
         seedvr2_repo=str(getattr(args, "seedvr2_repo", "") or ""),
         seedvr2_python=str(getattr(args, "seedvr2_python", "") or ""),
         seedvr2_model_dir=str(getattr(args, "seedvr2_model_dir", "") or ""),
@@ -1279,6 +1279,9 @@ def main() -> None:
         raise ValueError("Frame generation (--frame-gen) is file-output only and not supported in streaming mode")
     if frame_gen_multiplier > 1 and segments_spec:
         raise ValueError("Frame generation (--frame-gen) cannot be combined with --segments smart rendering")
+    if frame_gen_multiplier > 1 and restoration_backend == "ltx" and not input_is_image:
+        # The LTX pass writes its frames straight to the encoder, past the frame-gen writer.
+        parser.error(f"--frame-gen does not support --restoration-model-name {args.restoration_model_name}")
 
     from jasna.media.backend import VideoBackend
     video_backend = VideoBackend(str(args.video_backend).lower())
@@ -1343,11 +1346,28 @@ def main() -> None:
             str(args.detection_model), str(args.detection_model_path), args.detection_score_threshold
         )
 
-    restoration_model_path = Path(
-        args.restoration_model_path or default_restoration_model_path(restoration_backend)
-    )
-    if restoration_backend != "ltx" and not restoration_model_path.exists():
-        parser.error(f"restoration model not found: {restoration_model_path}")
+    if restoration_backend == "seedvr2":
+        # restoration_model_path carries the LoRA checkpoint for seedvr2.
+        if args.restoration_model_path:
+            print("Warning: --restoration-model-path is BasicVSR++-only and ignored with "
+                  "--restoration-model-name seedvr2 (use --seedvr2-lora)")
+        lora_arg = str(args.seedvr2_lora).strip()
+        restoration_model_path = (
+            Path(lora_arg).expanduser() if lora_arg else default_restoration_model_path("seedvr2")
+        )
+        if not restoration_model_path.exists():
+            raise FileNotFoundError(
+                f"SeedVR2 LoRA checkpoint not found: {restoration_model_path}. Download it with:\n"
+                "  wget -O model_weights/lada_seedvr2_lora_v6.pt "
+                "https://huggingface.co/sh202603/lada-seedvr2-lora/resolve/main/lada_seedvr2_lora_v6.pt\n"
+                "or pass --seedvr2-lora."
+            )
+    else:
+        restoration_model_path = Path(
+            args.restoration_model_path or default_restoration_model_path(restoration_backend)
+        )
+        if restoration_backend != "ltx" and not restoration_model_path.exists():
+            parser.error(f"restoration model not found: {restoration_model_path}")
 
     segments = None
     splice_plan = None
@@ -1358,6 +1378,95 @@ def main() -> None:
         )
 
     from jasna.accelerator import device_context, vendor_for_device
+
+    secondary_name = str(args.secondary_restoration).lower()
+    if restoration_backend == "seedvr2":
+        seedvr2_log = logging.getLogger(__name__)
+        if not str(args.seedvr2_repo).strip():
+            raise ValueError(
+                "--restoration-model-name seedvr2 requires --seedvr2-repo "
+                "(path to a ComfyUI-SeedVR2_VideoUpscaler checkout)"
+            )
+        if int(args.seedvr2_window) < 1 or int(args.seedvr2_window) % 4 != 1:
+            raise ValueError("--seedvr2-window must be 4n+1 (e.g. 33)")
+        if not 0 <= int(args.seedvr2_overlap) < int(args.seedvr2_window):
+            raise ValueError("--seedvr2-overlap must be >= 0 and smaller than --seedvr2-window")
+        if frame_gen_multiplier > 1:
+            raise ValueError(
+                "--restoration-model-name seedvr2 does not support --frame-gen "
+                "(no VRAM budget next to the resident worker; run frame generation as a separate pass)"
+            )
+        if secondary_name in ("flashvsr-inline", "swiftvr-inline"):
+            raise ValueError(
+                "--restoration-model-name seedvr2 cannot be combined with --secondary-restoration "
+                f"{secondary_name} (the two resident workers exceed a 16 GB card; use the offline "
+                "'flashvsr' or 'swiftvr' mode, whose phases never co-reside)"
+            )
+        if secondary_name == "tvai":
+            seedvr2_log.warning(
+                "[seedvr2] TVAI sharpening on top of a diffusion primary risks over-enhancement"
+            )
+        if getattr(args, "fp8_recon", False):
+            seedvr2_log.warning("[seedvr2] --fp8-recon is BasicVSR++-only and has no effect with seedvr2")
+        if is_streaming:
+            seedvr2_log.warning(
+                "[seedvr2] streaming: mosaic-dense stretches are limited to the SeedVR2 "
+                "rate (~17-21 crop-fps); expect player stalls on such content"
+            )
+        # jasna's VR crops are projection-conditioned — out of distribution for
+        # the LoRA and unverified (same rejection style as flashvsr offline).
+        vr_mode = str(args.vr_mode).strip().lower()
+        if vr_mode in ("sbs", "sbs-fisheye"):
+            raise ValueError(
+                f"--restoration-model-name seedvr2 does not support VR processing (--vr-mode {vr_mode})"
+            )
+        if vr_mode == "auto":
+            from jasna.media.probe import get_video_meta_data
+            from jasna.vr180 import resolve_vr_mode
+
+            probe_videos = folder_videos if folder_videos else ([input_video] if input_video is not None else [])
+            for probe_path in probe_videos:
+                vr_resolution = resolve_vr_mode("auto", get_video_meta_data(str(probe_path)), probe_path)
+                if vr_resolution.resolved != "off":
+                    raise ValueError(
+                        "--restoration-model-name seedvr2 does not support VR processing, but "
+                        f"--vr-mode auto detected VR content in {probe_path.name} "
+                        f"({vr_resolution.resolved}: {vr_resolution.reason}). "
+                        "Pass --vr-mode off to force flat processing."
+                    )
+
+    fvsr_lora_arg = str(getattr(args, "flashvsr_lora", "") or "").strip()
+    if fvsr_lora_arg:
+        from jasna.model_weights_resolver import resolve_model_weights_file
+
+        fvsr_lora_file = Path(fvsr_lora_arg).expanduser()
+        if not fvsr_lora_file.is_file() and fvsr_lora_file.parent == Path("."):
+            fvsr_lora_file = resolve_model_weights_file(fvsr_lora_arg)  # bare file name -> model_weights/
+        if not fvsr_lora_file.is_file():
+            raise FileNotFoundError(f"--flashvsr-lora not found: {fvsr_lora_arg} (also looked in {fvsr_lora_file})")
+        args.flashvsr_lora = str(fvsr_lora_file.resolve())  # the worker chdirs into the checkout
+
+    if secondary_name in ("flashvsr-inline", "swiftvr-inline"):
+        # No clip cap (both are flat in VRAM vs clip length); frame-gen is a
+        # separate pass.
+        if frame_gen_multiplier > 1:
+            raise ValueError(
+                f"--secondary-restoration {secondary_name} does not support --frame-gen "
+                "(run frame generation as a separate pass)"
+            )
+
+    if secondary_name == "swiftvr-distill":
+        # Checked here as well as in the session factory: the factory runs
+        # after engine compilation, which can take the better part of an hour.
+        from jasna.restorer.swiftvr_distill_model import resolve_swiftvr_distill_model_path
+
+        resolve_swiftvr_distill_model_path(str(args.swiftvr_distill_model))
+        if int(args.swiftvr_distill_view_window) < 0:
+            raise ValueError("--swiftvr-distill-view-window must be >= 0")
+        if not 0.0 <= float(args.swiftvr_distill_strength) <= 2.0:
+            raise ValueError("--swiftvr-distill-strength must be in [0, 2]")
+        if not 0 <= int(args.swiftvr_distill_stabilize) <= 8:
+            raise ValueError("--swiftvr-distill-stabilize must be in [0, 8]")
 
     with _usage_errors(parser):
         encoder_settings = _resolve_cli_encoder_settings(
@@ -1408,6 +1517,8 @@ def main() -> None:
                     splice_plan=splice_plan,
                     frame_gen_multiplier=frame_gen_multiplier,
                     frame_generator=frame_generator,
+                    decode_backend=decode_backend,
+                    encode_backend=encode_backend,
                 )
             split_config = replace(
                 config,

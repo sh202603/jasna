@@ -157,6 +157,7 @@ class SegmentEditor(ctk.CTkToplevel):
         self._tried_seeds: dict[tuple[float, float], dict[int, tuple[SeedFrame, ...]]] = {}
         self._shown_seed: tuple[tuple[float, float], int] | None = None
         self._seed_image: tuple[SeedFrame, Image.Image] | None = None
+        self._ab_window = None
 
         self.title(t("segments_title"))
         self.configure(fg_color=Colors.BG_MAIN)
@@ -1816,6 +1817,38 @@ class SegmentEditor(ctk.CTkToplevel):
 
     def _standard_preview_settings(self) -> AppSettings:
         return replace(self._current_video_settings(), restoration_model="basicvsrpp")
+
+    def _open_ab_compare(self) -> None:
+        self._require_state()
+        if self._ab_window is not None or self._scan_panel.active or self._is_gpu_busy():
+            return
+        # The A/B worker owns the GPU while its window is open; stop the
+        # editor's own restoration preview first (same flow as _start_scan).
+        if self._restore_active:
+            self._deactivate_restoration_preview()
+        if self._restoration_worker is not None:
+            self._restoration_worker.close()
+            self._restoration_worker = None
+        self._set_playing(False)
+        from jasna.gui.ab_compare import ABCompareWindow
+
+        self._ab_window = ABCompareWindow(
+            self,
+            path=self._job.path,
+            metadata=self._metadata,
+            get_settings=self._current_video_settings,
+            center_seconds=self._current,
+            projection=self._vr_projection,
+            initial_detection_model=self._scan_panel.detection_model,
+            initial_threshold=self._scan_panel.threshold,
+            is_gpu_busy=self._is_gpu_busy,
+            set_preview_gpu_busy=self._set_preview_gpu_busy,
+            on_closed=self._ab_compare_closed,
+        )
+
+    def _ab_compare_closed(self) -> None:
+        self._ab_window = None
+        self._take_focus()
 
     def _suggest_mask(self) -> None:
         self._require_state()
