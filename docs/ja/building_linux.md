@@ -2,15 +2,11 @@
 
 Linux で Jasna のセットアップを行い、**ソースから実行**する手順です。
 
-> **本ガイドは `0.11.1+modi` ブランチの手順です**（upstream `2fc3e899` = v0.11.1 タグ + docs コミット 1 つ）。GPU スタック（**torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11**、加えて upstream の `comfy-kitchen==0.2.36` と `ultralytics>=8.4.96`）は `pyproject.toml` の upstream のピンに追従しており、本ブランチが足しているのは `nvidia-vfx==0.2.0.0`、`nvidia-cudnn-frontend`、任意の `nvidia-rtx` extra（[tensorrt_rtx.md](tensorrt_rtx.md)）だけです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです。
-
-> **v0.8.0 でビルド手順は大幅に簡素化されました。** upstream v0.8.0 でメディア層が PyAV（NVDEC/NVENC）へ移行し、`python_vali` / `PyNvVideoCodec` のネイティブビルドが丸ごと不要になりました。これに伴い、旧ガイドの前提だった CUDA Toolkit、cmake / ninja、ffmpeg dev パッケージ（`libav*-dev`）、`FFMPEG_DIR` prefix、`setuptools<80` の固定、`mkvmerge` はすべて不要です。かつて残っていた特殊手順の PyAV wheel 自前ビルドも、av 18.1.0 の PyPI 公開で不要になりました（4 節）。v0.9.1 ベースからは**任意**で VALI デコードバックエンドを再びビルドできます（5.3 節）が、必須ではありません。
+> **ブランチとベース。** 本ガイドは `0.11.1+modi`（upstream `2fc3e899` = v0.11.1 タグ + docs コミット 1 つ）の手順です。GPU スタックは `pyproject.toml` の upstream のピンに追従しています（torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.36 / ultralytics 8.4.96 以上）。本ブランチが足しているのは `nvidia-vfx==0.2.0.0`、`nvidia-cudnn-frontend`、任意の `nvidia-rtx` extra だけです。ブランチが upstream に加えている変更とその理由は [changes_vs_upstream.md](changes_vs_upstream.md) にあります。
 >
-> **このブランチの主な追加機能:** RIFE または RTX Video Frame Generation による 2x/4x フレーム生成（[frame_generation.md](frame_generation.md)）、torchcodec バックエンド（[torchcodec_backend.md](torchcodec_backend.md)）、cuDNN FP8 復元（[fp8_recon.md](fp8_recon.md)）、TensorRT-RTX フレーバー（[tensorrt_rtx.md](tensorrt_rtx.md)）、SeedVR2 一次復元（[seedvr2.md](seedvr2.md)）、FlashVSR（[flashvsr.md](flashvsr.md)）と SwiftVR / SwiftVR distill（[swiftvr.md](swiftvr.md)）の二次復元、LTX 出力の鮮明化（[ltx_crop_vsr.md](ltx_crop_vsr.md)）。層別に整理した全差分は [changes_vs_upstream.md](changes_vs_upstream.md) を参照してください。
-
-> **パッケージングについて:** この公開フォークは Jasna を**ソースから実行**します。Linux 向けの frozen バイナリはありません（フォークの実験的 Nuitka スクリプト `scripts/build_nuitka.py` は Windows 向け。[frozen_build.md](frozen_build.md)）。パッケージ済みバイナリが必要なら upstream Kruk2/jasna の公式リリースを使ってください（LTX と支援者モデルはそもそも公式リリースでしか動きません）。
-
-> 本ガイドは **Ubuntu 26.04 LTS** + **RTX 5080** で **upstream `2fc3e899` ベースの `0.11.1+modi` を検証済み**です（2026-10-16: 同じ deselect と timeout で素の upstream と比較した full pytest は、残る失敗がすべて upstream でも失敗するもののみ。modi 機能の e2e CLI 実走（native / torchcodec バックエンド、FP8、フレーム生成、SeedVR2、FlashVSR inline、SwiftVR inline / オフライン / distill、`--ltx-crop-vsr`、segments、streaming）。5.3 節の VALI fork wheel を 4.8.8 で再ビルドして実効確認）。過去ベース: v0.9.1 2026-07-30、d7a99bd 2026-07-23、v0.8.1 2026-07-19、v0.8.0 2026-07-18。他のディストリでも動作しますが、パッケージ名や ffmpeg の導入手順は異なります。
+> **検証済み**: Ubuntu 26.04 LTS + RTX 5080、2026-10-16。実施内容と過去ベースは[付録 B](#付録-b-本セットアップの履歴)。他のディストリでも動作しますが、パッケージ名や ffmpeg の導入手順は異なります。
+>
+> **ソースから実行します。** このフォークに Linux 向け frozen バイナリはありません（実験的な Nuitka スクリプトは Windows 専用。[frozen_build.md](frozen_build.md)）。LTX と支援者モデルは upstream の公式リリースでしか動きません。
 
 ---
 
@@ -20,12 +16,12 @@ Linux で Jasna のセットアップを行い、**ソースから実行**する
 |---|---|---|---|
 | OS | Ubuntu 26.04 x64（または同等） | n/a | 26.04 で検証。`apt` に ffmpeg 8 がある |
 | ビルドツール | `build-essential`, `pkg-config` | apt | 任意の VALI バックエンドのビルド（5.3節）にのみ使用 |
-| Python | **3.13 + 3.13-dev + 3.13-tk** | apt (`python3.13 python3.13-dev python3.13-tk`) | v0.8.1 で `requires-python` は `>=3.12` に緩和されたが、本ガイドの検証は 3.13 のみ（Ubuntu 26.04 の既定 `python3` = 3.14 は cu130 GPU スタックとの組み合わせが未検証）。`python3.13-dev` は任意の VALI wheel のビルド（5.3節）に、`python3.13-tk` は GUI の実行に必要 |
+| Python | **3.13 + 3.13-dev + 3.13-tk** | apt (`python3.13 python3.13-dev python3.13-tk`) | `requires-python` は `>=3.12` だが、本ガイドの検証は 3.13 のみ（Ubuntu 26.04 の既定 `python3` = 3.14 は cu130 GPU スタックとの組み合わせが未検証）。`python3.13-dev` は任意の VALI wheel のビルド（5.3節）に、`python3.13-tk` は GUI の実行に必要 |
 | uv | 最新 | [astral.sh/uv](https://docs.astral.sh/uv/) | venv を管理 |
 | NVIDIA ドライバ | **580+** | ディストリ / NVIDIA | 起動チェックが Linux では 580 以上を要求。GPU は compute capability 7.5+ |
 | ffmpeg / ffprobe | **v8**（実行時 CLI） | apt | 起動チェックが `ffprobe` のメジャーバージョン 8 を要求。`ffmpeg` CLI は HLS ストリーミング等で使用 |
 
-CUDA Toolkit は基本セットアップでは不要になりました。torch / tensorrt の pip wheel が CUDA ランタイムを同梱しており、自前でコンパイルするネイティブ拡張ももうありません（av 18.1.0 以降、PyAV wheel は PyPI から入ります。4節）。拡張をコンパイルするのは任意の VALI バックエンドのビルドだけで、その追加前提（CUDA Toolkit を含む）は 5.3 節に記載しています。
+基本セットアップに CUDA Toolkit は不要で、コンパイルするものもありません。PyAV を含む GPU 系パッケージはすべて wheel で入ります。拡張をコンパイルするのは任意の VALI バックエンドのビルド（5.3 節）だけで、その追加前提はそこに記載しています。
 
 ### 1.1 システムパッケージのインストール
 
@@ -43,13 +39,13 @@ sudo apt-get install -y \
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-> ⚠ **apt の ffmpeg は CLI としてだけ使います。** PyPI の av wheel は自前の FFmpeg を同梱しており、distro のライブラリには触れません（4節）。旧ガイドで必要だった `libav*-dev` は基本セットアップでは不要で、任意の VALI バックエンドをビルドする場合にだけ必要になります（5.3 節）。
+> ⚠ **apt の ffmpeg は CLI としてだけ使います。** PyPI の av wheel は自前の FFmpeg を同梱しており、distro のライブラリには触れません（4節）。`libav*-dev` が必要になるのは、任意の VALI バックエンドをビルドする場合だけです（5.3 節）。
 
 ---
 
 ## 2. リポジトリのクローン
 
-クローンするのは `jasna` だけです。`vali` / `PyNvVideoCodec` は v0.8.0 のランタイムからは使われないため、チェックアウト不要になりました。本ガイドでは作業ルートを `$WORKSPACE` と呼びます。
+クローンするのは `jasna` だけです（5.3 節の VALI フォークは任意で、その節でクローンします）。本ガイドでは作業ルートを `$WORKSPACE` と呼びます。
 
 ```bash
 export WORKSPACE="$HOME/jasna-dev"     # ← 任意のディレクトリ
@@ -74,25 +70,19 @@ python --version                                # -> Python 3.13.x（3.14 なら
 
 > ⚠ **`--python` はパス（`/usr/bin/python3.13`）で渡すこと。** バージョン要求形式（`--python 3.13`）や省略にすると、uv が managed CPython（最新 = 3.14）を取得したり、Ubuntu 26.04 の既定 `python3`（3.14）を拾うことがあります。`python --version` が 3.14 を返したら `rm -rf .venv` してパス指定で作り直してください。
 
-旧ガイドにあったビルドツールの先入れ（`cmake ninja scikit-build "setuptools<80" wheel numpy`）は、対象だった `vali` / `PyNvVideoCodec` のビルドごと廃止されたため不要です。
-
 ---
 
-## 4. PyAV wheel（av 18.1.0 以降は PyPI で解決）
+## 4. PyAV
 
-GPU パスは PyAV の **current_ctx API** に加え、v0.9.1 ベースからはエンコーダが `CudaContext(cuda_stream=...)` で渡す **CUDA stream 明示指定**を使います。**av 18.1.0（PyPI、2026-08 公開）は両 API を含む最初のリリース**であり、自前ビルドは不要になりました。`pyproject.toml` の `av>=18.1,<19` が 5 節のインストールで解決されます。
+ビルドするものはありません。GPU パスは PyAV の current_ctx API と av 18.1 の CUDA stream 明示指定を使い、`pyproject.toml` は `av==18.1.0`（upstream の VALI wheel がリンクしているのと同じリリース）に固定しています。5 節のインストールで PyPI から解決されます。この wheel は十分新しい nv-codec-headers でビルドした FFmpeg 8 を同梱しており（`hevc_nvenc` は `lookahead_level` を受理）、distro の FFmpeg にリンクすることはありません。
 
-PyPI のバイナリ wheel は十分新しい nv-codec-headers でビルドされた FFmpeg 8 を同梱しており（執筆時点で 8.1.2、`hevc_nvenc` は `lookahead_level` を受理）、旧自前ビルド手順で問題だった distro FFmpeg へのリンクの罠は該当しません。公式 18.1.0 wheel で Linux 実機検証済み（2026-08-24）: NVDEC デコード・NVENC エンコードを含むメディア層テストとフルパイプラインの e2e テストが合格。
-
-> **既存 venv の移行:** 暫定の自前ビルド wheel はバージョンが `18.0.0` で、`av>=18.1` を満たさなくなったため、次回の 5 節のインストールで公式 wheel に自動で置き換わります。すぐ切り替えるだけなら `uv pip install "av>=18.1"` を一度実行してください。他に作業はありません。
-
-本節が以前記載していた暫定手順（PyAV upstream main のコミット `f6f0a5e` を BtbN FFmpeg 8.1 shared ビルドにリンクして wheel をビルドし、auditwheel でライブラリを同梱）は、再び必要になった場合に備え本ガイドの git 履歴に残っています。
+2026 年 8 月より前の暫定の自前ビルド wheel（`18.0.0`）が venv に残っていても、5 節のインストールで置き換わります。[付録 B](#付録-b-本セットアップの履歴) を参照。
 
 ---
 
 ## 5. jasna 本体のインストール
 
-v0.8.1 で GPU スタックは extras に分割されました（`nvidia` = NVIDIA スタック、`amd` = ROCm 用）。NVIDIA ビルドでは `nvidia` extra が `torch==2.12.0+cu130` / `torchvision==0.27.0+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx==0.2.0.0` を入れますが、これらは既定の PyPI にありません。uv を PyTorch cu130 インデックスに向け、フラグを 2 つ追加します:
+GPU スタックは extras に分かれています（`nvidia` = NVIDIA スタック、`amd` = ROCm 用）。NVIDIA ビルドでは `nvidia` extra が `torch==2.12.1+cu130` / `torchvision==0.27.1+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx==0.2.0.0` / `comfy-kitchen==0.2.36` を入れますが、一部は既定の PyPI にありません。uv を PyTorch cu130 インデックスに向け、フラグを 2 つ追加します:
 
 ```bash
 cd "$WORKSPACE/jasna"
@@ -108,9 +98,9 @@ uv pip install -e .[dev,nvidia] \
 - `--index-strategy unsafe-best-match`：`torch-tensorrt==2.12.0` をインデックスの local-version リリース `2.12.0+cu130` で満たせるようにする。
 - `--prerelease=allow`：推移依存（`nvidia-cuda-runtime-cu13`）がプレリリース。
 
-`[dev]` extra は `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja` を入れます。`[nvidia]` extra は GPU スタック（torch cu130 / TensorRT / torch-tensorrt / nvidia-vfx。v0.8.1 で必須依存から分割）を入れます — **指定を忘れると torch が入らず起動しません**。
+`[dev]` extra は `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja` を入れます。`[nvidia]` extra は GPU スタック（torch cu130 / TensorRT / torch-tensorrt / nvidia-vfx）を入れます — **指定を忘れると torch が入らず起動しません**。
 
-**注: `nvidia-vfx` は 2026-10-03 から 0.2.0.0（VFX SDK 1.3.0）に固定しています。** PyPI 上のエントリは 4 KB の殻で、上記インストール中に `pypi.nvidia.com` から実 wheel（443 MB）を取ってくるため、追加のインデックス指定は要りません。0.2.0.0 は `--frame-gen-backend rtx`（[frame_generation.md](frame_generation.md)）が使う `VideoFrameGeneration` effect を追加し、TensorRT を同梱しなくなりました（旧付録 B.2 の衝突は起こり得なくなった）。固定より前に作った venv には 0.1.0.1 が入っているので、`uv pip install nvidia-vfx==0.2.0.0` でその場で更新してください。
+**注: `nvidia-vfx` は 0.2.0.0（VFX SDK 1.3.0）に固定しています。** PyPI 上のエントリは 4 KB の殻で、上記インストール中に `pypi.nvidia.com` から実 wheel（443 MB）を取ってくるため、追加のインデックス指定は要りません。0.2.0.0 は `--frame-gen-backend rtx`（[frame_generation.md](frame_generation.md)）が使う `VideoFrameGeneration` effect を提供し、TensorRT を同梱しません。0.1.0.1 が入った古い venv は `uv pip install nvidia-vfx==0.2.0.0` でその場で更新できます（[付録 B](#付録-b-本セットアップの履歴)）。
 
 **オプション: torchcodec バックエンド。** 実験的な torchcodec のデコード/エンコード経路（`--video-backend torchcodec`/`auto`）を使う場合は、`torchcodec` extra を追加し、同じフラグで `.[dev,nvidia,torchcodec]` を入れます:
 
@@ -155,15 +145,9 @@ grep -n "weights_only=False" .venv/lib/python3.13/site-packages/mmengine/runner/
 
 > `uv pip install -e .[dev,nvidia]` を再実行すると `mmengine` が再インストールされ、このパッチが消えます。その後は再適用してください。
 
-### 5.2 ONNX パッケージ（YOLO 検出モデル用）
+### 5.2 YOLO 検出モデルに追加パッケージは不要
 
-**YOLO 系検出モデル（lada-yolo-\* と zelefans-vr-yolo-v2）**を使う場合、ultralytics は TensorRT エンジンをビルドする前にモデルを ONNX へエクスポートします。これには自動では入らない 3 パッケージが必要です。（RF-DETR モデルは不要。事前ビルド済み `.onnx` を TensorRT が直接パースするため）
-
-```bash
-uv pip install onnx onnxslim onnxruntime
-```
-
-ソースから実行する場合、ultralytics が初回エクスポート時に未導入ならこれらを自動ダウンロードしますが、事前に入れておくと初回 YOLO 実行時の待ちを回避できます。
+YOLO 系検出モデル（`lada-yolo-*`、`zelefans-vr-yolo-v2`）は、TensorRT エンジンをビルドする前に ultralytics が ONNX へエクスポートします。`onnx` は通常依存として入っており、エクスポートは `simplify=False` で走るため `onnxslim` も `onnxruntime` も要りません。RF-DETR モデルは事前ビルド済みの `.onnx` を TensorRT が直接パースします。
 
 ---
 
@@ -212,7 +196,7 @@ python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurf
 - `lada_mosaic_restoration_model_generic_v1.2.pth`
 - `rfdetr-v6.onnx`（v0.9.0 以降の既定検出器。4K 向け `rfdetr-v6-large.onnx` と VR180 向け `rfdetr-vr-v1.onnx` は任意、旧 `rfdetr-v5.onnx` も引き続き使える）
 - `lada_mosaic_detection_model_v4_fast.pt`
-- `lada_vr_mosaic_detection_model_v2_accurate.pt`（v0.8.0 で追加。VR180 向け YOLO 検出モデル `zelefans-vr-yolo-v2` の実体）
+- `lada_vr_mosaic_detection_model_v2_accurate.pt`（VR180 向け YOLO 検出モデル `zelefans-vr-yolo-v2` の実体）
 
 ソースから実行すると Jasna は `model_weights/` を自動解決する（付録 A.1）ため、ここに置くだけでよい。
 
@@ -270,7 +254,7 @@ python -m jasna              # GUI を起動（引数なし）
 
 > **GUI の起動は `python -m jasna`（引数なし）です。** console script の `jasna` は `jasna.main:main` に直結しており、引数なしでも GUI ディスパッチ（`jasna/__main__.py`）を通りません。frozen ビルドの引数なし起動だけが GUI に入ります。
 
-`model_weights/` は自動解決され（付録 A.1）、`ffmpeg`/`ffprobe`（v8）はシステムの `PATH` から使われます。`mkvmerge` は不要になりました。インストールパスは ASCII のみ（起動時に強制）。
+`model_weights/` は自動解決され（付録 A.1）、`ffmpeg`/`ffprobe`（v8）はシステムの `PATH` から使われます。インストールパスは ASCII のみ（起動時に強制）。
 
 > **最初の処理実行は遅い。** 初回使用時に GPU 向け TensorRT エンジンがコンパイルされます（15〜60 分）。`model_weights/` 内のウェイト隣（`<モデル名>_sub_engines/` 等）にキャッシュされ、以降は再利用されます。v0.9.1 ベース以降のエンジンキャッシュはそのまま有効です（エンジン層は v0.11.1 まで無変更）。`--max-clip-size` の変更で再コンパイルされることもなくなりました。
 
@@ -295,7 +279,7 @@ python -m jasna              # GUI を起動（引数なし）
   av が 18.0.0 のまま（PyPI の旧リリース、またはバージョン表記が同じ `18.0.0` の暫定自前ビルド wheel）。`uv pip install "av>=18.1"` で入れ直す（4節）。
 
 - **Jasna が起動拒否: ffprobe のバージョン違い**
-  起動チェックは `ffprobe` の**メジャーバージョン 8** を要求します。`apt` の ffmpeg 8 を導入する（1.1節）。`mkvmerge` のチェックは v0.8.0 で廃止されました。
+  起動チェックは `ffprobe` の**メジャーバージョン 8** を要求します。`apt` の ffmpeg 8 を導入する（1.1節）。
 
 ### 環境 / Python
 
@@ -316,7 +300,7 @@ python -m jasna              # GUI を起動（引数なし）
   `model_weights/` のファイル欠落、またはリゾルバが別の場所を見ている。3 つのウェイトを `$WORKSPACE/jasna/model_weights/`（6節）に置くか、`JASNA_MODEL_WEIGHTS_DIR` をそれらが入ったフォルダに設定する。
 
 - **RTX Super-Res で `IRuntime::deserializeCudaEngine ... Version tag does not match`**
-  `nvidia-vfx` 0.1.0.1 以前に限る症状。それらの wheel は TensorRT 10.9 を同梱し、jasna の TensorRT 10.16 と soname `libnvinfer.so.10` を共有するため、nvvfx 側が先にロードされるとエンジンを読めなくなる。修正は本ブランチで適用済み（付録 B.2。upstream にも同等修正が入り収束）で、固定版の 0.2.0.0 は TensorRT を同梱しない。この症状が出たら `uv pip install nvidia-vfx==0.2.0.0`。
+  `nvidia-vfx` 0.1.0.1 以前に限る症状。それらの wheel は TensorRT 10.9 を同梱し、jasna の TensorRT 10.16 と soname `libnvinfer.so.10` を共有するため、nvvfx 側が先にロードされるとエンジンを読めなくなる。固定版の 0.2.0.0 は TensorRT を同梱せず、衝突を避ける先読みガードも残っている（付録 A.3）。この症状が出たら `uv pip install nvidia-vfx==0.2.0.0`。
 
 - **`--frame-gen-backend rtx` が「RTX Video Frame Generation is not available in nvidia-vfx 0.1.0.1」と言う**
   venv が 0.2.0.0 固定（5 節）より前のもの。`uv pip install nvidia-vfx==0.2.0.0`。effect には加えて RTX 40 シリーズ以降の GPU とドライバ 570.190 以降 / 580.82 以降 / 590.44 以降が必要。
@@ -329,38 +313,33 @@ python -m jasna              # GUI を起動（引数なし）
 
 ---
 
-## 付録 A: 本ブランチのビルド/ランタイム改修の内容
+## 付録 A: 本セットアップが依存するブランチ側の変更
 
-本ブランチのソースへ適用済みの変更です（参照用の記述。独立した `.patch` ファイルは同梱しない）。
+以下はブランチのソースに適用済みの変更です。独立した `.patch` ファイルは同梱しません（同梱する 2 つのパッチ、mmengine 用と FlashVSR_plus 用は別パッケージに当てるものです。5.1 節と [flashvsr.md](flashvsr.md)）。ブランチの変更の全体は [changes_vs_upstream.md](changes_vs_upstream.md) にあります。
 
 ### A.1 `model_weights/` ディレクトリの自動解決
 
-`jasna/model_weights_resolver.py` を追加し、`model_weights/` を優先順位で探索: `JASNA_MODEL_WEIGHTS_DIR` 環境変数 → 実行ファイルの隣 → カレントディレクトリ → ソースツリーの隣。`main.py`、`mosaic/detection_registry.py`、`engine_paths.py`、GUI（`gui/processor.py`, `gui/engine_preflight.py`）がハードコードの `Path("model_weights")` ではなく resolver を経由します。これで CLI を任意のディレクトリから実行可能に。
+`jasna/model_weights_resolver.py` が `model_weights/` を次の順で探します: 環境変数 `JASNA_MODEL_WEIGHTS_DIR`、実行ファイルの隣（frozen ビルドのみ）、カレントディレクトリ、`jasna` パッケージの隣（ソースツリー）。CLI、検出モデルレジストリ、エンジンパス、GUI はハードコードの `Path("model_weights")` ではなくこれを経由するので、CLI は任意のディレクトリから実行でき、6 節はファイルを置くだけで済みます。
 
-### A.2 DLL ロード補助（torchcodec バックエンドのみ）
+### A.2 Linux/X11 のモーダルダイアログ
 
-v0.8.0 で native 経路（PyAV）の DLL 補助は不要になりました。現在は torchcodec バックエンドのモジュール（`jasna/media/torchcodec_decoder.py` / `torchcodec_encoder.py`）が **Windows のみ** torchcodec パッケージのディレクトリと `CUDA_PATH\bin`（設定時）を DLL 検索パスに登録します。Linux では no-op。
+About ダイアログと初回ウィザードは、upstream の `grab_modal()` を 250 ms 遅らせて呼びます（`jasna/gui/app.py`、`jasna/gui/wizard.py`）。ウィジェットの描画より先にモーダルグラブを掛けると、一部の X11 ウィンドウマネージャでリサイズ不可の `CTkToplevel` が空のまま残るためです。upstream の他のダイアログはグラブ前に `wait_visibility()` を呼んでおり、変更していません。
 
-### A.3 BasicVSR++ ベンチの TRT API 修正
+### A.3 RTX Super Res 復元器の TensorRT ランタイム先読み
 
-`jasna/benchmark/basicvsrpp_restoration.py` を新しい `_preprocess_engine` API に更新し `--benchmark basicvsrpp` を動作させる。クロスプラットフォーム。
+`jasna/restorer/rtx_superres_secondary_restorer.py` の `_preload_tensorrt_runtime()` は、`nvvfx` の import より前に `tensorrt_libs` の `libnvinfer.so.10` を `RTLD_GLOBAL` でロードします。nvvfx 0.1.0.1 が同梱していた TensorRT 10.9 への対策でした（jasna の 10.16 と同じ soname のため先にロードされた方が勝ち、10.16 でビルドしたエンジンを逆シリアライズできなくなる）。固定版 0.2.0.0 は TensorRT を同梱しないため今は no-op で、upstream も同じ関数を持ちます（`6545b78`）。0.1.0.1 が残る venv のために残しています。
 
 ---
 
-## 付録 B: 本ブランチの Linux GUI / RTX-VSR 修正の内容
+## 付録 B: 本セットアップの履歴
 
-本ブランチのソースへ適用済みの Linux 固有のランタイム修正です。いずれも Linux/X11 で GUI と RTX Super-Res を動作させるために必要で、Windows ビルドには影響しません。
+ベースごとのソース実行手順の変化と、本ガイドを検証した時点（新しい順）。不要になった手順は要約だけを残し、全文は本ファイルの git 履歴にあります。
 
-### B.1 モーダルダイアログの空表示 (`jasna/gui/app.py`, `jasna/gui/wizard.py`, `jasna/gui/components.py`)
-
-**問題**: Linux/X11 で customtkinter の `CTkToplevel` ダイアログが完全に空（テキストもボタンも無い暗いウィンドウ）で開く。対象: **About**（`app.py` `_show_about`）、**System Check** / 初回ウィザード（`wizard.py` `FirstRunWizard`）、**プリセット作成**と**確認**ダイアログ（`components.py` `PresetDialog`, `ConfirmDialog`）。いずれも生成直後、子ウィジェット描画前に `grab_set()`（場合により `lift()` / `focus_force()`）を呼ぶ。一部のウィンドウマネージャでは、ウィンドウはマップされるが未描画のまま残り、ダイアログがリサイズ不可のため再描画が走らない。
-
-**修正**: 先に全ての子ウィジェットを生成し、その後 `lift()` / `grab_set()` / `focus_force()` を `self.after(200, …)` / `after(250, …)` でイベントループの後続ティックに遅延させ、内容が描画された後にモーダルグラブを確立する。Windows の挙動は不変（同じ呼び出しが 1 ティック遅れて走るだけ）。
-
-### B.2 RTX Super-Res の TensorRT 版数衝突 (`jasna/restorer/rtx_superres_secondary_restorer.py`)
-
-**問題**: RTX Super-Res を有効にすると、jasna の TensorRT エンジン逆シリアライズ中に `IRuntime::deserializeCudaEngine ... Serialization assertion stdVersionRead == kSERIALIZATION_VERSION failed. Version tag does not match` で中断する。`nvidia-vfx`（nvvfx）パッケージは自前の TensorRT **10.9**（`nvvfx/libs/libnvinfer.so.10`）を同梱し、`nvvfx/_lib_loader.py` で `RTLD_GLOBAL` 読み込みする。一方 jasna のパイプラインエンジンは TensorRT **10.16**（`tensorrt_libs`）でビルドされる。両者は soname `libnvinfer.so.10` を共有し、ELF のシンボル解決は「先にグローバルスコープへ入った方」を使う。nvvfx が jasna の TensorRT ランタイムより先にロードされると、`torch-tensorrt` が nvvfx の古い 10.9 にバインドされ、jasna の新しい 10.16 製エンジンを読めない。
-
-**修正**: RTX Super-Res リストアモジュールの import 時（`nvvfx` の import より前）に実行される `_preload_tensorrt_runtime()` を追加。Linux では `tensorrt_libs` を特定し、その `libnvinfer.so.10` / `libnvinfer_plugin.so.10` を `ctypes.RTLD_GLOBAL` で先読みすることで、TensorRT 10.16 のシンボルを先にグローバルスコープへ入れ、後続の nvvfx のロードも 10.16 に解決させる。Windows では no-op。upstream も後に同等修正を独自実装したため（`6545b78`）、関数名は upstream に合わせて収束済み。
-
-**`nvidia-vfx==0.2.0.0` 固定（2026-10-03）以降の状態**: 0.2.0.0 は `libnvinfer` を一切同梱しない（`readelf -d` と `/proc/self/maps`、および nvvfx を先に import した状態で jasna のエンジンを逆シリアライズして確認）ため、衝突は構造的に消えた。先読みは 0.1.0.1 のままの venv 向けと upstream との整合のため無害な no-op として残し、`TestTensorrtLoadOrder` も引き続き通る。
+- **v0.11.1 ベース（2026-10-16 検証、RTX 5080、Ubuntu 26.04）**: upstream が torch 2.12.1 / torchvision 0.27.1 を固定し、`comfy-kitchen==0.2.36` と `ultralytics>=8.4.96`（YOLO export に onnxruntime も onnxslim も要らなくなり、5.2 節は注記だけになった）を追加、`av==18.1.0` を厳密固定、デコードバックエンドの選択を `JASNA_DECODE_BACKEND` だけにした（in-code の `DECODE_BACKEND` トグルは廃止）。VALI フォーク wheel は Kruk2 氏の `0e5c01e`（4.8.8 + ASF/VC-1 タイムスタンプ修正 + decoder-open の GIL 解放）で再ビルド。検証: 同じ deselect と timeout で素の upstream と比較した full pytest（残る失敗はすべて upstream でも失敗）、modi 機能の e2e CLI 実走（native / torchcodec バックエンド、FP8、フレーム生成、SeedVR2、FlashVSR inline、SwiftVR inline / オフライン / distill、`--ltx-crop-vsr`、segments、streaming）、両デコードパスで VALI フォーク wheel が実効。
+- **nvidia-vfx 0.2.0.0 固定（2026-10-03）**: `--frame-gen-backend rtx` の `VideoFrameGeneration` effect のため、ブランチが `nvidia-vfx==0.2.0.0` を固定（upstream は無 pin）。0.2.0.0 は TensorRT を同梱しなくなり、付録 A.3 の `libnvinfer.so.10` 衝突は構造的に消滅、Linux wheel は約 1.1 GB から 443 MB に縮小。それ以前の venv には 0.1.0.1 が入っている: `uv pip install nvidia-vfx==0.2.0.0`。
+- **PyAV を PyPI から（2026-08-24）**: av 18.1.0 が current_ctx API とエンコーダが使う CUDA stream 明示指定を含んで PyPI に公開され、PyAV main（コミット `f6f0a5e`）を BtbN FFmpeg 8.1 shared ビルドにリンクして auditwheel で同梱する暫定手順が終了。暫定 wheel は `18.0.0` を報告するため、5 節のインストールで置き換わる（すぐ替えるなら `uv pip install "av>=18.1"`）。公式 wheel で Linux 実機検証: メディア層テストと、NVDEC デコード・NVENC エンコードを含むフルパイプラインの e2e。
+- **v0.10.0 ベース（2026-08-13）**: 環境変数 `JASNA_DECODE_BACKEND`（`auto` / `vali` / `pyav-hw` / `pyav-sw`）。`python_vali` のピンは 4.8.8（フォークコミット `f4a67f8`）。
+- **v0.9.1 ベース（2026-07-30 検証）**: VALI NVDEC デコードバックエンドが任意の自前ビルド wheel として復活（5.3 節。当時はフォークコミット `3ad0d54` = 4.8.7）。エンコーダが `CudaContext(cuda_stream=...)` で CUDA stream を渡すようになり、av 18.1.0 までは上記の PyAV main wheel が必須だった。TensorRT エンジンは一度全再コンパイル。
+- **d7a99bd ベース（2026-07-23 検証）**: upstream の per-language docs、ロケール分割、composition root。セットアップ手順の変化なし。
+- **v0.8.1 ベース（2026-07-19 検証）**: GPU スタックが `nvidia` / `amd` extras へ（`.[dev,nvidia]` の由来）、`requires-python` は `>=3.12` に緩和、Linux ドライバ最小 580。
+- **v0.8.0 ベース（2026-07-18 検証）**: upstream がメディア層を PyAV（NVDEC/NVENC）へ移し、`python_vali` / `PyNvVideoCodec` をランタイムから撤去。それらのネイティブビルドとともに、旧ガイドの前提だった CUDA Toolkit、cmake / ninja、`libav*-dev`、`FFMPEG_DIR` prefix、`setuptools<80` 固定、`mkvmerge` が不要になった。付録 A.2 の Linux GUI 修正はこの時期のもの（`wait_visibility()` の扱いは upstream、250 ms の遅延はブランチ側）。
