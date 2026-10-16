@@ -181,8 +181,10 @@ outputs at CQ 14).
   23 to 28 s of wall time and adds 2.5 to 2.8 GB of VRAM; SwiftVR takes 50 to 55 s and
   adds 9.8 to 10.8 GB (more than the 7 GB estimated at design time; a 16 GB card, the
   distill student on 12 GB cards). The scan takes 3 s.
-- Pending: the user's visual check, the 768 px canvas, footage whose crops are under half
-  the canvas, footage over 10 minutes, Windows.
+- **The user's visual check** (2026-10-16, SwiftVR at full strength, five clips of 404p to
+  720p footage, 5 to 60 s): the sharpening is as intended, with no objectionable flicker.
+- Pending: the 768 px canvas, footage whose crops are under half the canvas, footage over
+  10 minutes, Windows.
 
 ## Limitations
 
