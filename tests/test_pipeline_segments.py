@@ -409,6 +409,7 @@ def test_run_routes_by_the_job_model_and_segments(model, segments, expected) -> 
     pipeline.segments = segments
     pipeline.input_video = Path("input.mp4")
     pipeline.fmp4 = False
+    pipeline.ltx_crop_vsr = None
     pipeline.ltx_files = MagicMock()
     pipeline._cancel_event = threading.Event()
     pipeline.validate_metadata = MagicMock()
