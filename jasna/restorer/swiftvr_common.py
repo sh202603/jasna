@@ -18,6 +18,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from jasna.restorer.worker_env import external_worker_env
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import argparse
 
@@ -138,8 +140,7 @@ def swiftvr_phase2_command(
             )
         cmd += ["--color-fix-method", color_fix]
 
-    env = dict(os.environ)
-    env.pop("PYTHONPATH", None)
+    env = external_worker_env()
     env.setdefault("TQDM_DISABLE", "1")
     if os.name == "nt":
         # expandable_segments is not supported on Windows; force UTF-8 so a
