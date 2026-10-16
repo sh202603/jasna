@@ -35,6 +35,41 @@ refine の camera は元動画から独立に計算され、SR 入力はその c
 - `--ltx-large-canvas` を付けて走らせた場合、ログに「restoring large mosaics at 512 px」の警告が出ていなければ refine にも付ける。
 - 出力コーデックは hevc（10-bit）を推奨する。refine 側の `--codec` 既定も hevc で 10-bit なので、素通し領域のビット深度が保たれる。
 
+### 実行例
+
+作業は 2 パスである。公式リリースで LTX 復元し、その出力をこのビルドで鮮明化する。
+refine はマスク外も含めて画面全体をもう一度エンコードするので、両パスに同じ低い `--cq` と同じエンコーダー設定を与え、モザイク以外の部分が途中で劣化しないようにする。
+
+```bash
+# パス 1（公式リリース）: LTX 復元を高品質で書き出す。
+jasna --input source.mp4 --output ltx.mkv \
+      --restoration-model-name ltx --detection-model rfdetr-v6 \
+      --codec hevc --cq 14 --encoder-settings "preset=p7,rc-lookahead=32,qmax=28"
+
+# パス 2（このビルド）: LTX 出力のモザイク領域を SwiftVR で鮮明化する。
+jasna --input ltx.mkv --output ltx_sharp.mkv \
+      --ltx-crop-vsr swiftvr --ltx-crop-vsr-source source.mp4 \
+      --detection-model rfdetr-v6 \
+      --swiftvr-repo ~/SwiftVR --swiftvr-model-dir ~/SwiftVR/checkpoints \
+      --codec hevc --cq 14 --encoder-settings "preset=p7,rc-lookahead=32,qmax=28"
+```
+
+SwiftVR の代わりに distill モデルを使う場合のパス 2（checkout も venv も不要。`model_weights/` に `swiftvr-distill.pt` を置く）:
+
+```bash
+jasna --input ltx.mkv --output ltx_sharp.mkv \
+      --ltx-crop-vsr swiftvr-distill --ltx-crop-vsr-source source.mp4 \
+      --detection-model rfdetr-v6 --swiftvr-distill-strength 0.75 \
+      --codec hevc --cq 14 --encoder-settings "preset=p7,rc-lookahead=32,qmax=28"
+```
+
+エンコード関連オプションの意味:
+
+- `--cq 14` は HEVC の既定 28 よりかなり低い（低いほど高品質で大きいファイル。値はそのまま NVENC に渡る）。モザイク以外の画質はパス 1 で決まり、パス 2 はそれを保つだけでよい。低ビットレートの元動画では、パス 1 の極端に低い CQ が自動の出力サイズ上限で頭打ちになることがある（[エンコーダー設定](cli.md#エンコーダー設定)を参照）。パス 2 の入力は高ビットレートの LTX 出力なので影響しない。
+- `--encoder-settings "preset=p7,rc-lookahead=32,qmax=28"`: `preset=p7` は NVENC の最も遅く最も高品質なプリセット（既定 `p5`）、`rc-lookahead=32` はレート制御に 32 フレーム先まで見せる設定、`qmax=28` は VBR が落ちてよい最悪の量子化値の上限（既定 34）。[NVENC のキー一覧](cli.md#nvidianvencのキー全コーデック共通)のどのキーも使え、未知のキーは受理可能なキー一覧を出して停止する。
+- `--codec hevc` は両パスの既定で、素通し領域を 10-bit のまま保つ。LTX 出力を 8-bit の `h264` で書いた場合は refine 側にも `--codec h264` を渡し、ビット深度を変えないようにする。
+- `--ltx-fast`、`--restoration-model-name ltx-undistilled`、`--ltx-seed` はパス 1 だけのもので、パス 2 には影響しない。`--ltx-large-canvas` は両パスに付ける（上記）。`--lut` と `--sharpen` はパス 1 だけに付ける。
+
 ### 拒否される組み合わせ
 
 `--restoration-model-name` が basicvsrpp 以外、`--secondary-restoration`、`--denoise`、`--segments`、`--ltx-auto-split`、`--stream`、`--retarget-high-fps`、`--fmp4`、`--frame-gen`、VR（`--vr-mode` が off 以外に解決された場合）、画像入力、フォルダ入力、`--lut`、`--sharpen`、`--swiftvr-scale 4`、`--swiftvr-view-window` と `--swiftvr-distill-view-window` の既定以外、`--ltx-large-canvas` と `--swiftvr-distill-stabilize` の併用。
