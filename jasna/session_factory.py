@@ -290,6 +290,10 @@ def provide_restoration_models(
     """Load each of ``models`` the session does not hold yet."""
     if "basicvsrpp" in models and session.restoration_pipeline is None:
         session.restoration_pipeline = _build_basicvsrpp_pipeline(config, session.device, log_callback=log_callback)
+    if "seedvr2" in models and session.restoration_pipeline is None:
+        session.restoration_pipeline = _build_basicvsrpp_pipeline(
+            config, session.device, log_callback=log_callback, use_seedvr2=True
+        )
     if "ltx" in models and session.ltx_files is None:
         session.ltx_files = _ltx_model_files(config, session.device, log_callback=log_callback)
     if "ltx" in models and config.secondary_restoration == "rtx-super-res" and session.ltx_super_res is None:
@@ -301,20 +305,27 @@ def provide_restoration_models(
 
 
 def _build_basicvsrpp_pipeline(
-    config: SessionConfig, device: "torch.device", *, log_callback: Callable[[str], None] | None
+    config: SessionConfig,
+    device: "torch.device",
+    *,
+    log_callback: Callable[[str], None] | None,
+    use_seedvr2: bool = False,
 ) -> "RestorationPipeline":
+    """The frame-pipeline restorer: BasicVSR++, or SeedVR2 in its place (``use_seedvr2``)."""
     from jasna.accelerator import is_amd_device
     from jasna.engine_compiler import EngineCompilationRequest, ensure_engines_compiled
     from jasna.restorer.basicvsrpp_mosaic_restorer import BasicvsrppMosaicRestorer
     from jasna.restorer.denoise import DenoiseStep, DenoiseStrength
     from jasna.restorer.restoration_pipeline import RestorationPipeline
 
-    model_path = config.model_path("basicvsrpp")
+    model_path = config.model_path("seedvr2" if use_seedvr2 else "basicvsrpp")
     compile_result = ensure_engines_compiled(
         EngineCompilationRequest(
             device=str(device),
             fp16=bool(config.fp16),
-            basicvsrpp=config.compile_basicvsrpp and not is_amd_device(device),
+            # For seedvr2, the model path is the LoRA checkpoint and BasicVSR++
+            # never loads, so its engine compilation is skipped entirely.
+            basicvsrpp=config.compile_basicvsrpp and not is_amd_device(device) and not use_seedvr2,
             basicvsrpp_model_path=str(model_path),
             detection=True,
             detection_model_name=config.detection_model_name,
@@ -324,14 +335,18 @@ def _build_basicvsrpp_pipeline(
         ),
         log_callback=log_callback,
     )
-    return RestorationPipeline(
-        restorer=BasicvsrppMosaicRestorer(
+    if use_seedvr2:
+        primary_restorer = _build_seedvr2_restorer(config, device)
+    else:
+        primary_restorer = BasicvsrppMosaicRestorer(
             checkpoint_path=str(model_path),
             device=device,
             max_clip_size=int(config.max_clip_size),
             use_tensorrt=compile_result.use_basicvsrpp_tensorrt,
             fp16=bool(config.fp16),
-        ),
+        )
+    return RestorationPipeline(
+        restorer=primary_restorer,
         secondary_restorer=_build_secondary_restorer(config, device),
         denoise_strength=DenoiseStrength(config.denoise_strength),
         denoise_step=DenoiseStep(config.denoise_step),

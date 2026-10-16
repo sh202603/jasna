@@ -412,7 +412,7 @@ class RawPlayerWorker:
         # weights would silently load with random weights, so refuse it here
         # (this loads the checkpoint — worker thread only, never Tk).
         checkpoint = resolve_restoration_checkpoint(
-            getattr(settings, "restoration_model", "")
+            getattr(settings, "restoration_checkpoint", "")
         )
         if not checkpoint_has_ema_weights(checkpoint):
             from jasna.gui.locales import t

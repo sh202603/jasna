@@ -339,7 +339,7 @@ class ABCompareWindow(ctk.CTkToplevel):
     def _default_checkpoint(checkpoints: list[Path]) -> Path | None:
         from jasna.engine_paths import default_restoration_model_path
 
-        default = default_restoration_model_path()
+        default = default_restoration_model_path("basicvsrpp")
         if default in checkpoints:
             return default
         return checkpoints[0] if checkpoints else None

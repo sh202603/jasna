@@ -151,7 +151,7 @@ class AppSettings:
     scene_detection: bool = True
     compile_basicvsrpp: bool = True
     fp8_recon: bool = False  # experimental cuDNN FP8 upsample (needs sm89+ and fp16; falls back to TRT)
-    restoration_model: str = ""  # BasicVSR++ checkpoint stem under model_weights; "" = the default checkpoint
+    restoration_checkpoint: str = ""  # BasicVSR++ checkpoint stem under model_weights; "" = the default checkpoint
     
     # Image restoration (SD 1.5 inpaint; used only for still-image inputs)
     image_restore_steps: int = 25
@@ -240,6 +240,12 @@ def _migrate_preset_dict(preset_dict: dict) -> dict:
             )
     if "codec" in migrated:
         migrated["codec"] = _normalize_preset_codec(migrated["codec"])
+    # Presets saved by modi before v0.11 kept the player's BasicVSR++ checkpoint stem
+    # in "restoration_model", the name upstream now uses for the model choice.
+    model = migrated.get("restoration_model")
+    if model is not None and model not in ("basicvsrpp", "ltx"):
+        migrated.setdefault("restoration_checkpoint", model)
+        migrated["restoration_model"] = "basicvsrpp"
     return migrated
 
 

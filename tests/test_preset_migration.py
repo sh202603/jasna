@@ -1,5 +1,7 @@
 """Old settings.json presets (PyNvVideoCodec-era) must survive loading: unknown
 fields dropped, encoder custom args translated to hevc_nvenc names."""
+import pytest
+
 from jasna.gui.models import AppSettings, _migrate_preset_dict
 from jasna.media.encoder_settings import parse_encoder_settings
 
@@ -73,3 +75,14 @@ def test_unreadable_custom_args_are_kept_with_a_warning(caplog):
 
     assert migrated["encoder_custom_args"] == "not==valid,,=x"
     assert "unreadable custom encoder settings" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("saved", "model", "checkpoint"),
+    [("", "basicvsrpp", ""), ("finetune_v2", "basicvsrpp", "finetune_v2"), ("ltx", "ltx", ""), ("basicvsrpp", "basicvsrpp", "")],
+)
+def test_modi_checkpoint_stem_moves_out_of_restoration_model(saved, model, checkpoint) -> None:
+    # Before v0.11, modi presets kept the player's checkpoint stem in "restoration_model".
+    settings = AppSettings(**_migrate_preset_dict({"restoration_model": saved}))
+
+    assert (settings.restoration_model, settings.restoration_checkpoint) == (model, checkpoint)
