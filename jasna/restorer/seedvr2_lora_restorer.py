@@ -40,6 +40,7 @@ from pathlib import Path
 import torch
 
 from jasna.os_utils import subprocess_no_window_kwargs
+from jasna.restorer.worker_env import external_worker_env
 
 logger = logging.getLogger(__name__)
 
@@ -179,8 +180,7 @@ class Seedvr2LoraRestorer:
             cmd.append("--verbose")
 
         # The SeedVR2 venv must import its own repo, not inherit jasna's PYTHONPATH.
-        env = os.environ.copy()
-        env.pop("PYTHONPATH", None)
+        env = external_worker_env()
         device_index = self.device.index if self.device.index is not None else 0
         env["CUDA_VISIBLE_DEVICES"] = env.get("CUDA_VISIBLE_DEVICES", str(device_index))
         # Same allocator as the lada-ex training/eval harness (bit-parity
