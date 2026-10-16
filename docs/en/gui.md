@@ -65,7 +65,8 @@ Click **Video Player** in the header to watch a video while Jasna restores it.
 No output file is created.
 
 1. Choose the detection model, detection threshold and, if you want, a
-   secondary restoration (**RTX Super Res** or **UNet 4x**).
+   secondary restoration (**RTX Super Res** or **UNet 4x**). *(+modi)* You can
+   also pick the **restoration checkpoint** (see below).
 2. Click **Choose video**.
 3. Press play.
 
@@ -77,7 +78,31 @@ No output file is created.
   again and again, your GPU is too slow for real time with these settings.
   Audio waits until more frames are ready.
 - The player always uses BasicVSR++, not LTX.
+- *(+modi)* The **restoration checkpoint** dropdown lists the BasicVSR++
+  checkpoints directly under `model_weights` (the same rule as the
+  [A/B comparison](segments.md#ab-model-comparison)). A checkpoint whose
+  TensorRT engines are not compiled plays in PyTorch and the status says so
+  (slower, more buffering). Checkpoints without EMA weights are refused because
+  they would produce random output.
 - It works only when the queue and the **Restore preview** are not running.
+
+## Settings added by `+modi`
+
+This fork adds a few controls to the settings panel; each has a tooltip and a
+CLI counterpart in the [CLI reference](cli.md).
+
+- **Basic**: **FP8 Restoration (experimental)**, the cuDNN FP8 upsample backend
+  (`--fp8-recon`, [fp8_recon.md](fp8_recon.md)).
+- **Encoding**: **Frame generation** (factor, backend, RTX mode, RIFE weights
+  path; `--frame-gen`, [frame_generation.md](frame_generation.md)) and
+  **Video Backend** (native / auto / torchcodec; `--video-backend`,
+  [torchcodec_backend.md](torchcodec_backend.md)).
+- **Secondary restoration**: the RTX Super Res **strength** slider and
+  **high-bitrate models** switch (`--rtx-strength`, `--rtx-highbitrate`).
+- **Segment Editor**: **A/B compare…** ([segments.md](segments.md#ab-model-comparison)).
+
+SeedVR2, FlashVSR, SwiftVR and `--ltx-crop-vsr` are CLI only; see
+[changes_vs_upstream.md](changes_vs_upstream.md).
 
 ## Images, one by one
 

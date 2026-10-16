@@ -2,15 +2,15 @@
 
 How to set up Jasna on Linux and run it **from source**.
 
-> **This guide covers the `v0.9.1+modi` branch.** The GPU stack (**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**) is unchanged from the v0.7.2 era, and the pins are already applied in `pyproject.toml` on this branch. TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0` (torch-tensorrt does not support TensorRT 11 yet).
+> **This guide covers the `0.11.1+modi` branch** (upstream `2fc3e899` = the v0.11.1 tag plus one docs commit). The GPU stack (**torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11**, plus upstream's `comfy-kitchen==0.2.36` and `ultralytics>=8.4.96`) follows upstream's pins in `pyproject.toml`; this branch only adds `nvidia-vfx==0.2.0.0`, `nvidia-cudnn-frontend` and the optional `nvidia-rtx` extra ([tensorrt_rtx.md](tensorrt_rtx.md)). TensorRT stays on the **10.16** line because `torch-tensorrt==2.12.0` requires `tensorrt>=10.16.1,<10.17.0`.
 
-> **v0.8.0 simplified the setup considerably.** Upstream v0.8.0 moved the media layer to PyAV (NVDEC/NVENC), which removed the native builds of `python_vali` / `PyNvVideoCodec` entirely. With them went every prerequisite the old guide needed for those builds: the CUDA Toolkit, cmake / ninja, the ffmpeg dev packages (`libav*-dev`), the `FFMPEG_DIR` prefix, the `setuptools<80` pin, and `mkvmerge`. The one special step that remains is **building a PyAV wheel yourself** (Section 4). Since the v0.9.1 base, an **optional** VALI decode backend can be built again (Section 5.3), but nothing requires it.
+> **v0.8.0 simplified the setup considerably.** Upstream v0.8.0 moved the media layer to PyAV (NVDEC/NVENC), which removed the native builds of `python_vali` / `PyNvVideoCodec` entirely. With them went every prerequisite the old guide needed for those builds: the CUDA Toolkit, cmake / ninja, the ffmpeg dev packages (`libav*-dev`), the `FFMPEG_DIR` prefix, the `setuptools<80` pin, and `mkvmerge`. The special step that used to remain, building a PyAV wheel yourself, ended when av 18.1.0 reached PyPI (Section 4). Since the v0.9.1 base, an **optional** VALI decode backend can be built again (Section 5.3), but nothing requires it.
 >
-> **Main additions on this branch:** 2x/4x frame generation via RIFE ([frame_generation.md](frame_generation.md)), the torchcodec backend ([torchcodec_backend.md](torchcodec_backend.md)), the cuDNN FP8 restoration backend ([fp8_recon.md](fp8_recon.md)), SeedVR2 primary restoration ([seedvr2.md](seedvr2.md)), and FlashVSR secondary restoration ([flashvsr.md](flashvsr.md)). The AV1 / 8-bit / BT.601 and BT.2020 output features of v0.7.2+modi were absorbed into upstream v0.8.0. See [changes_vs_upstream.md](changes_vs_upstream.md) for the full delta.
+> **Main additions on this branch:** 2x/4x frame generation with RIFE or RTX Video Frame Generation ([frame_generation.md](frame_generation.md)), the torchcodec backend ([torchcodec_backend.md](torchcodec_backend.md)), the cuDNN FP8 restoration backend ([fp8_recon.md](fp8_recon.md)), the TensorRT-RTX flavor ([tensorrt_rtx.md](tensorrt_rtx.md)), SeedVR2 primary restoration ([seedvr2.md](seedvr2.md)), FlashVSR ([flashvsr.md](flashvsr.md)) and SwiftVR / SwiftVR distill ([swiftvr.md](swiftvr.md)) secondary restoration, and sharpening of LTX outputs ([ltx_crop_vsr.md](ltx_crop_vsr.md)). See [changes_vs_upstream.md](changes_vs_upstream.md) for the full delta, organized by layer.
 
-> **Packaging note:** This public fork runs Jasna **from source**. There is no public way to produce a frozen Linux binary from it (the bundled experimental Nuitka script `scripts/build_nuitka.py` targets Windows, and has not been updated for the v0.8.0 media-layer migration either). If you want a pre-packaged binary, use upstream Kruk2/jasna's official releases.
+> **Packaging note:** This public fork runs Jasna **from source**. There is no frozen Linux binary; the fork's experimental Nuitka script `scripts/build_nuitka.py` targets Windows ([frozen_build.md](frozen_build.md)). If you want a pre-packaged binary, use upstream Kruk2/jasna's official releases (LTX and the supporter models only work there anyway).
 
-> This guide is verified at **`0.9.1+modi` on the upstream `v0.9.1` tag (`a7cdaf8`)** on **Ubuntu 26.04 LTS** with an **RTX 5080** (2026-07-30: full pytest including e2e with a failure set identical to the vanilla v0.9.1 baseline measured on the same machine, plus CLI smokes for native / torchcodec+fp8-recon / fmp4 / rfdetr-v6 / frame-gen / segments / streaming / flashvsr-inline, a GUI launch smoke, and the optional VALI fork wheel of Section 5.3 built and active; earlier bases: d7a99bd 2026-07-23, v0.8.1 2026-07-19, v0.8.0 2026-07-18). Other distributions work too, but package names and the ffmpeg install steps will differ.
+> This guide is verified at **`0.11.1+modi` on upstream `2fc3e899`** on **Ubuntu 26.04 LTS** with an **RTX 5080** (2026-10-16: the full pytest suite compared with pristine upstream under the same deselect and timeout, every remaining failure also failing upstream; end-to-end CLI runs of the modi features (native and torchcodec backends, FP8, frame generation, SeedVR2, FlashVSR inline, SwiftVR inline / offline / distill, `--ltx-crop-vsr`, segments, streaming); and the VALI fork wheel of Section 5.3 rebuilt at 4.8.8 and active). Earlier bases: v0.9.1 2026-07-30, d7a99bd 2026-07-23, v0.8.1 2026-07-19, v0.8.0 2026-07-18. Other distributions work too, but package names and the ffmpeg install steps will differ.
 
 ---
 
@@ -165,7 +165,7 @@ When running from source, ultralytics auto-downloads them on the first export if
 
 ### 5.3 Optional: build the VALI NVDEC decode backend (`python_vali` fork)
 
-Since the v0.9.1 base, the native decode path tries a VALI NVDEC decoder first and escalates to PyAV when it is unavailable (in-code `DECODE_BACKEND` toggle, default `auto`). Section 5 installs the stock PyPI `python_vali` wheel, which lacks the fork-only `DecodeSingleSurfaceAsyncDetailed` API, so the reader logs a warning and falls back to PyAV for every file. Everything works without this section; build the fork wheel only if you want the actual VALI decode path and its corrupt-packet tolerance.
+The native decode path tries a VALI NVDEC decoder first and escalates to PyAV when it is unavailable; the `JASNA_DECODE_BACKEND` environment variable (`auto` / `vali` / `pyav-hw` / `pyav-sw`, default `auto`) selects the chain explicitly, and modi's `--video-backend` sits one layer above it (the chain applies when `native` is selected). Section 5 installs the stock PyPI `python_vali` wheel, which lacks the fork-only `DecodeSingleSurfaceAsyncDetailed` API, so the reader logs a warning and falls back to PyAV for every file. Everything works without this section; build the fork wheel only if you want the actual VALI decode path and its corrupt-packet tolerance.
 
 Additional prerequisites on top of Section 1:
 
@@ -177,6 +177,7 @@ Additional prerequisites on top of Section 1:
 cd "$WORKSPACE"
 git clone https://codeberg.org/Kruk2/vali.git       # skip if you already have the checkout
 cd vali
+git checkout 0e5c01e      # = the 4.8.8 pin: DecodeSingleSurfaceAsyncDetailed, the ASF/VC-1 timestamp fixes, the decoder-open GIL release
 git submodule update --init --recursive
 
 CUDACXX=/usr/local/cuda-13.3/bin/nvcc \
@@ -184,10 +185,10 @@ CUDAToolkit_ROOT=/usr/local/cuda-13.3 \
 CMAKE_ARGS="-DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.3/bin/nvcc" \
 VIRTUAL_ENV="$WORKSPACE/jasna/.venv" \
   uv build --wheel --no-build-isolation
-uv pip install --force-reinstall dist/python_vali-4.8.7-*.whl
+uv pip install --force-reinstall --no-deps dist/python_vali-4.8.8-*.whl
 ```
 
-`--no-build-isolation` is required because vali's `setup.py` imports `pkg_resources`, which an isolated build environment does not provide. `--force-reinstall` is required because the wheel carries the same version (4.8.7) as the PyPI package it replaces.
+`--no-build-isolation` is required because vali's `setup.py` imports `pkg_resources`, which an isolated build environment does not provide. `--force-reinstall` is required because the wheel carries the same version (4.8.8) as the PyPI package it replaces, and `--no-deps` keeps uv from touching the rest of the venv.
 
 Verify:
 
@@ -196,16 +197,16 @@ python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurf
 # a jasna run with --log-level info now prints: "Using VALI NVDEC decoder for <file>"
 ```
 
-> Verified with fork commit `3ad0d54` (= the 4.8.7 pin, 2026-07-30, RTX 5080): both pipeline decode passes go through VALI, the output is md5-identical to the PyAV-decode output on the bundled test clip, and the wheel coexists with the av wheel and the torchcodec backend (those two carry auditwheel-mangled / vendored FFmpeg copies; vali resolves the distro's via ldconfig).
+> Verified with fork commit `0e5c01e` (= the 4.8.8 pin, 2026-10-16, RTX 5080; before that `3ad0d54` = 4.8.7 on 2026-07-30): both pipeline decode passes go through VALI, the output is md5-identical to the PyAV-decode output on the bundled test clip, the decoder tests pass, and the wheel coexists with the av wheel and the torchcodec backend (those two carry auditwheel-mangled / vendored FFmpeg copies; vali resolves the distro's via ldconfig).
 
 ---
 
 ## 6. Model weights and assets
 
-Place these 4 files in `$WORKSPACE/jasna/model_weights/`:
+Place these files in `$WORKSPACE/jasna/model_weights/` (taken from an upstream release package):
 
 - `lada_mosaic_restoration_model_generic_v1.2.pth`
-- `rfdetr-v5.onnx`
+- `rfdetr-v6.onnx` (the default detector since v0.9.0; `rfdetr-v6-large.onnx` for 4K and `rfdetr-vr-v1.onnx` for VR180 are optional, and the old `rfdetr-v5.onnx` still works)
 - `lada_mosaic_detection_model_v4_fast.pt`
 - `lada_vr_mosaic_detection_model_v2_accurate.pt` (added in v0.8.0; the weights behind the VR180 YOLO detection model `zelefans-vr-yolo-v2`)
 
@@ -245,13 +246,19 @@ SeedVR2 (`--restoration-model-name seedvr2`) needs a separate `ComfyUI-SeedVR2_V
 
 ---
 
+### 6.4 Optional: SwiftVR secondary restoration and SwiftVR distill (experimental)
+
+SwiftVR (`--secondary-restoration swiftvr` / `swiftvr-inline`, also the `swiftvr` backend of `--ltx-crop-vsr`) needs the fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) (branch `modi`) checked out with its own `uv sync` venv and the ~20 GB checkpoint. The small distilled model (`--secondary-restoration swiftvr-distill`, also the `swiftvr-distill` backend of `--ltx-crop-vsr`) needs nothing but `swiftvr-distill.pt` from [okatti/swiftvr-distill](https://huggingface.co/okatti/swiftvr-distill) in `model_weights/`. Setup instructions: [swiftvr.md](swiftvr.md).
+
+---
+
 ## 7. Run from source / smoke test
 
 With Sections 1–6 done, run Jasna directly from the source checkout inside the venv:
 
 ```bash
 cd "$WORKSPACE/jasna"
-python -m jasna --version    # -> 0.9.1+modi
+python -m jasna --version    # -> 0.11.1+modi
 python -m jasna --help
 jasna --input assets/test_clip1_1080p.mp4 --output /tmp/out.mp4   # process a short clip
 python -m jasna              # launch the GUI (no arguments)
@@ -261,13 +268,13 @@ python -m jasna              # launch the GUI (no arguments)
 
 `model_weights/` resolves automatically (Appendix A.1) and `ffmpeg`/`ffprobe` (v8) are taken from `PATH`. `mkvmerge` is no longer required. The install path must be ASCII-only (enforced at startup).
 
-> **The first processing run is slow.** On first use the GPU-specific TensorRT engines are compiled (15–60 min). They are cached next to the weights inside `model_weights/` (e.g. `<model>_sub_engines/`) and reused afterwards. When migrating from v0.7.2, some engines recompile because the default max-clip-size changed (90); the loop_body engine caches keep their names and are reused.
+> **The first processing run is slow.** On first use the GPU-specific TensorRT engines are compiled (15–60 min). They are cached next to the weights inside `model_weights/` (e.g. `<model>_sub_engines/`) and reused afterwards. Engine caches from the v0.9.1 base onwards stay valid (the engine layer is unchanged through v0.11.1); `--max-clip-size` no longer triggers a recompile.
 
 ---
 
 ## 8. Packaging / frozen builds
 
-There is currently **no public way to produce a packaged frozen Linux binary from this fork.** Upstream's packaging tooling lives in a **private submodule (`jasna/protection`)** that this public fork does not include. The fork's experimental Nuitka script (`scripts/build_nuitka.py`, [frozen_build.md](frozen_build.md)) targets Windows, and has not been updated for the v0.8.0 media-layer migration (it still assumes bundling the old `python_vali` / `PyNvVideoCodec` DLLs).
+There is currently **no public way to produce a packaged frozen Linux binary from this fork.** Upstream's packaging tooling lives in a **private submodule (`jasna/protection`)** that this public fork does not include. The fork's own experimental Nuitka script (`scripts/build_nuitka.py`, [frozen_build.md](frozen_build.md)) is Windows-only.
 
 The publicly supported path is therefore **running from source** (Section 7). If you need a packaged binary, use upstream Kruk2/jasna's official releases.
 

@@ -54,6 +54,35 @@ The editor can find the mosaic scenes for you.
 The detection model and detection threshold are saved for this video and used for the
 final job. Other videos keep their own settings.
 
+### A/B model comparison
+
+The **A/B compare…** button below the preview puts two detection/restoration
+model combinations side by side on the same frame. When you upgrade a model
+or try a fine-tuned checkpoint, you can see the difference in seconds instead
+of processing the whole video twice.
+
+- Three views: **Restored** (the restored frame), **Detection** (the
+  detection mask overlay with its score), and **Clip** (a short playback,
+  synchronized between both panes).
+- Pick each side's detection model, confidence, and restoration checkpoint
+  (any `.pth` directly under `model_weights`), then press **Run** to process
+  both sides in sequence. A side whose selection or time has changed since
+  the last run shows a "(stale)" marker.
+- Zoom and pan always stay synchronized between the two panes.
+- Each side's badge shows the actual execution path: **TRT** means TensorRT
+  engines, **PyTorch** means the slower fp32 fallback for a checkpoint
+  without compiled engines (minor quality differences vs TRT are expected).
+  The **Compile engines** button builds the engines for that checkpoint
+  (15-60 min on first run).
+- Checkpoints without EMA weights cannot work correctly (they would run with
+  random weights), so they are explicitly refused before running.
+- When the [SeedVR2 primary restorer](seedvr2.md) is set up (its checkout at
+  `$JASNA_SEEDVR2_REPO` or `~/seedvr2_videoupscaler`, and the LoRA in
+  `model_weights`), a **seedvr2** entry joins the checkpoint dropdown, so you
+  can compare BasicVSR++ against the diffusion restorer on the same frame.
+  The first run of a seedvr2 side starts its resident worker (1-2 min); no
+  TRT badge or engine compile applies, and VR videos are refused for it.
+
 ### Suggest a better mask
 
 If a detection is wrong, you can help train better models. Pause on the

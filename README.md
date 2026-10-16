@@ -11,11 +11,18 @@ and a command line, and runs on your GPU.
 
 > ### ⚙️ This is the `+modi` fork of Jasna
 >
-> A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1, adding **frame generation** (`--frame-gen` 2x/4x), an experimental **torchcodec video backend**, an experimental **FP8 restoration backend**, **SeedVR2 primary restoration**, **FlashVSR / SwiftVR secondary restoration**, and **sharpening of LTX outputs** (`--ltx-crop-vsr`, [docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)), among other improvements.
+> A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) **v0.11.1**. It adds:
+>
+> - **Restoration models**: **SeedVR2 + LoRA** primary restoration; **FlashVSR**, **SwiftVR** and **SwiftVR distill** secondary restoration; two extra **RTX Super Res** knobs (`--rtx-strength`, `--rtx-highbitrate`); and **sharpening of LTX outputs** (`--ltx-crop-vsr`).
+> - **Frame generation** (`--frame-gen` 2x/4x with RIFE or RTX Video Frame Generation) and the standalone `jasna-framegen` for already-restored videos.
+> - **Backends**: an experimental **torchcodec video backend**, an experimental **cuDNN FP8 restoration backend**, and the **TensorRT-RTX** flavor (engine builds in seconds instead of minutes).
+> - **GUI**: **A/B model comparison** in the Segment Editor and a **restoration checkpoint** selector in the Video Player.
+>
+> Every change is listed by layer, with its status and detailed guide, in [docs/en/changes_vs_upstream.md](docs/en/changes_vs_upstream.md); the per-feature guides are under [`+modi` guides](#all-guides) below.
 >
 > - **LTX cannot restore video in this build.** This fork is built from the public source, and the LTX model weights are encrypted (`.enc`); only the official release can decrypt them. `--restoration-model-name ltx` and the LTX modes of the GUI do not work here, and `--ltx-trial` only measures speed without restoring. If you want LTX results, restore the video with the official release and, if you like, sharpen that output here with `--ltx-crop-vsr` ([docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)).
+> - **Run from source.** Set this fork up with the build guides ([Linux](docs/en/building_linux.md), [Windows](docs/en/building_windows.md)); an experimental Windows bundle can be built with `scripts/build_nuitka.py` ([docs/en/frozen_build.md](docs/en/frozen_build.md)).
 > - **Source (this fork/branch):** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
-> - **Full list of changes vs upstream:** [docs/en/changes_vs_upstream.md](docs/en/changes_vs_upstream.md)
 > - **Scope — public (free) features only.** The supporter models (**unet-4x** and **SD 1.5 image restoration**) ship as encrypted checkpoints unlocked by a supporter key, and the decryption code lives in a private submodule that is **not part of this public fork** — so those models **cannot be downloaded, decrypted, or run here**. The upstream code for them rides along but stays inert. If you want the supporter models, use upstream [**Kruk2/jasna**](https://github.com/Kruk2/jasna) and become a supporter. Everything else (detection, video restoration, RTX/TVAI secondary, the segment editor, VR180, post-export actions, frame generation) works normally.
 
 <img width="1200" height="907" alt="image" src="https://github.com/user-attachments/assets/d59a914b-482d-4f37-ae72-5c59eb5dc9bb" />
@@ -227,6 +234,25 @@ jasna --input input_folder --output output_folder
 - [Running from source](docs/en/development.md): for developers. From source
   you can use the free BasicVSR++; activation and supporter models need the
   official release.
+
+**`+modi` guides** (features of this fork; English and Japanese only):
+
+- [Changes vs upstream](docs/en/changes_vs_upstream.md): every modi feature by
+  layer, its status, the compatibility matrix and the rebase history.
+- [SeedVR2 primary restoration](docs/en/seedvr2.md), [FlashVSR](docs/en/flashvsr.md)
+  and [SwiftVR / SwiftVR distill](docs/en/swiftvr.md) secondary restoration:
+  external diffusion models in their own venvs (CLI only).
+- [Sharpening an LTX output](docs/en/ltx_crop_vsr.md): `--ltx-crop-vsr` for a
+  video the official release restored with LTX.
+- [Frame generation](docs/en/frame_generation.md): `--frame-gen`, the RIFE and
+  RTX backends, `jasna-framegen`.
+- [torchcodec backend](docs/en/torchcodec_backend.md),
+  [FP8 restoration backend](docs/en/fp8_recon.md),
+  [TensorRT-RTX flavor](docs/en/tensorrt_rtx.md): experimental backends.
+- [Building on Linux](docs/en/building_linux.md),
+  [Building on Windows](docs/en/building_windows.md),
+  [Frozen Windows bundle](docs/en/frozen_build.md): from-source setup and
+  packaging.
 
 ### Benchmarks
 
