@@ -183,8 +183,14 @@ outputs at CQ 14).
   distill student on 12 GB cards). The scan takes 3 s.
 - **The user's visual check** (2026-10-16, SwiftVR at full strength, five clips of 404p to
   720p footage, 5 to 60 s): the sharpening is as intended, with no objectionable flicker.
+- **Windows** (Windows 11, RTX 5060 Ti 16 GB, 2026-10-16, the same two clips): both
+  backends complete on both clips with the same plan, frame count, timing and no skips as
+  on Linux. Wall time is 72 to 76 s with the distill student and 135 to 181 s with SwiftVR
+  (a slower GPU, start-up compilation included). Peak VRAM for the whole GPU is 4.7 to
+  5.1 GB with the distill student and 13.0 to 14.1 GB with SwiftVR (2.4 to 2.5 GB of it
+  the desktop), within 16 GB. The user's visual check passed.
 - Pending: the 768 px canvas, footage whose crops are under half the canvas, footage over
-  10 minutes, Windows.
+  10 minutes.
 
 ## Limitations
 
