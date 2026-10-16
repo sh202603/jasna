@@ -20,7 +20,14 @@ from jasna.os_utils import (
     gpu_check_error,
     install_on_hard_disk,
 )
-from jasna.session_config import LTX_DEFAULT_MODEL, LTX_DEFAULT_SEED, LtxModelName, RestorationModelName, SessionConfig
+from jasna.session_config import (
+    LTX_CROP_VSR_BACKENDS,
+    LTX_DEFAULT_MODEL,
+    LTX_DEFAULT_SEED,
+    LtxModelName,
+    RestorationModelName,
+    SessionConfig,
+)
 
 # CLI restoration model name -> (restoration backend, LTX model variant).
 CLI_RESTORATION_MODELS: dict[str, tuple[RestorationModelName, LtxModelName]] = {
@@ -110,6 +117,10 @@ def _session_config_from_args(
         swiftvr_accel=bool(getattr(args, "swiftvr_accel", True)),
         swiftvr_view_window=int(getattr(args, "swiftvr_view_window", 15)),
         swiftvr_log_level=str(getattr(args, "log_level", "error")),
+        ltx_crop_vsr=getattr(args, "ltx_crop_vsr", None),
+        ltx_crop_vsr_source=(
+            Path(str(args.ltx_crop_vsr_source)) if str(getattr(args, "ltx_crop_vsr_source", "") or "").strip() else None
+        ),
         swiftvr_distill_model=str(getattr(args, "swiftvr_distill_model", "") or ""),
         swiftvr_distill_view_window=int(getattr(args, "swiftvr_distill_view_window", 15)),
         swiftvr_distill_strength=float(getattr(args, "swiftvr_distill_strength", 0.75)),
@@ -652,6 +663,32 @@ def build_parser() -> argparse.ArgumentParser:
              "--swiftvr-distill-strength; not measured on real footage.",
     )
 
+    ltx_refine = parser.add_argument_group("LTX output sharpening (modi)")
+    ltx_refine.add_argument(
+        "--ltx-crop-vsr",
+        type=str,
+        default=None,
+        choices=list(LTX_CROP_VSR_BACKENDS),
+        metavar="BACKEND",
+        help="Sharpen the mosaic areas of a video restored with LTX by the release build. --input is "
+             "the LTX output and --ltx-crop-vsr-source the video it was restored from: the source is "
+             "scanned for the mosaics (the LTX output has none left), the LTX output is cropped with "
+             "LTX's own cameras, each crop is upscaled x2 (swiftvr: the full model through the SwiftVR "
+             "worker; swiftvr-distill: the in-process student) and composited back with LTX's own "
+             "blending. The output keeps the LTX output's resolution, frame count and timestamps; the "
+             "rest of the picture is re-encoded unchanged, so keep both the LTX output and this output "
+             "at a high quality (low --cq). One video at a time; BasicVSR++ is not loaded. Pass "
+             "--ltx-large-canvas only if the LTX run restored at 768 px (no '512 px' warning in its log).",
+    )
+    ltx_refine.add_argument(
+        "--ltx-crop-vsr-source",
+        type=str,
+        default="",
+        metavar="VIDEO",
+        help="The video the LTX output was restored from (the one with the mosaics). Required with "
+             "--ltx-crop-vsr; must have the same frame size, frame count and timing as --input.",
+    )
+
     detection = parser.add_argument_group("Detection")
     detection.add_argument(
         "--detection-model",
@@ -1138,6 +1175,69 @@ def _reject_options_of_other_restoration_backend(
             parser.error(f"{option} needs --restoration-model-name {needed_models}")
 
 
+def _check_ltx_crop_vsr_options(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+    *,
+    input_video: Path | None,
+    is_streaming: bool,
+    input_is_image: bool,
+    input_is_dir: bool,
+    segments_spec: str,
+) -> None:
+    """``--ltx-crop-vsr`` runs its own pass (LTX_REFINE_DESIGN §2.3): the input is an LTX
+    output, so the primary restorer, its options and everything that changes the frame
+    sequence or the whole picture are refused; the SwiftVR options that only apply to
+    the frame pipeline's crops are refused too."""
+    option = f"--ltx-crop-vsr {args.ltx_crop_vsr}"
+    source = str(args.ltx_crop_vsr_source).strip()
+    if not source:
+        parser.error(f"{option} needs --ltx-crop-vsr-source (the video the LTX output was restored from)")
+    source_path = Path(source)
+    if not source_path.is_file():
+        parser.error(f"--ltx-crop-vsr-source not found: {source_path}")
+    if input_video is not None and input_video.is_file() and source_path.resolve() == input_video.resolve():
+        parser.error("--ltx-crop-vsr-source must be the source video, not the LTX output given to --input")
+    if args.restoration_model_name != "basicvsrpp":
+        parser.error(f"{option} needs --restoration-model-name basicvsrpp (no primary restorer loads)")
+    for dest in ("ltx_fast", "ltx_seed", "ltx_trial"):
+        if getattr(args, dest) != parser.get_default(dest):
+            parser.error(f"--{dest.replace('_', '-')} needs --restoration-model-name ltx or ltx-undistilled")
+    explicit_scale = any(value == "--swiftvr-scale" or value.startswith("--swiftvr-scale=") for value in sys.argv[1:])
+    if explicit_scale and int(args.swiftvr_scale) != 2:
+        parser.error(f"{option} runs SwiftVR at scale 2; --swiftvr-scale {args.swiftvr_scale} is not supported")
+    rejected = (
+        (str(args.secondary_restoration).lower() != "none", "--secondary-restoration"),
+        (str(args.denoise).lower() != "none", "--denoise"),
+        (bool(segments_spec), "--segments"),
+        (args.ltx_auto_split is not None, "--ltx-auto-split"),
+        (is_streaming, "--stream"),
+        (bool(args.retarget_high_fps), "--retarget-high-fps"),
+        (bool(args.fmp4), "--fmp4"),
+        (str(args.frame_gen).lower() != str(parser.get_default("frame_gen")).lower(), "--frame-gen"),
+        (str(args.vr_mode).lower() in ("sbs", "sbs-fisheye"), f"--vr-mode {args.vr_mode}"),
+        (input_is_image, "an image input"),
+        (input_is_dir, "a folder input"),
+        (bool(str(args.lut).strip()), "--lut (apply it in the LTX run instead)"),
+        (float(args.sharpen) != 0.0, "--sharpen (apply it in the LTX run instead)"),
+        (
+            int(args.swiftvr_view_window) != parser.get_default("swiftvr_view_window"),
+            "--swiftvr-view-window (the LTX camera is smooth already)",
+        ),
+        (
+            int(args.swiftvr_distill_view_window) != parser.get_default("swiftvr_distill_view_window"),
+            "--swiftvr-distill-view-window (the LTX camera is smooth already)",
+        ),
+        (
+            bool(args.ltx_large_canvas) and int(args.swiftvr_distill_stabilize) > 0,
+            "--ltx-large-canvas and --swiftvr-distill-stabilize together (about 10 GB of VRAM at 768 px)",
+        ),
+    )
+    for condition, what in rejected:
+        if condition:
+            parser.error(f"{option} cannot be combined with {what}")
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -1255,7 +1355,18 @@ def main() -> None:
         parser.error("Image input does not support --stream")
 
     restoration_backend = CLI_RESTORATION_MODELS[args.restoration_model_name][0]
-    if not input_is_image:
+    ltx_crop_vsr = args.ltx_crop_vsr is not None
+    if ltx_crop_vsr:
+        _check_ltx_crop_vsr_options(
+            parser,
+            args,
+            input_video=input_video,
+            is_streaming=is_streaming,
+            input_is_image=input_is_image,
+            input_is_dir=input_is_dir,
+            segments_spec=segments_spec,
+        )
+    elif not input_is_image:
         if restoration_backend == "ltx":
             model_option = f"--restoration-model-name {args.restoration_model_name}"
             if is_streaming:
@@ -1382,7 +1493,7 @@ def main() -> None:
         restoration_model_path = Path(
             args.restoration_model_path or default_restoration_model_path(restoration_backend)
         )
-        if restoration_backend != "ltx" and not restoration_model_path.exists():
+        if restoration_backend != "ltx" and not ltx_crop_vsr and not restoration_model_path.exists():
             parser.error(f"restoration model not found: {restoration_model_path}")
 
     segments = None
@@ -1471,7 +1582,7 @@ def main() -> None:
                 "(run frame generation as a separate pass)"
             )
 
-    if secondary_name == "swiftvr-distill":
+    if secondary_name == "swiftvr-distill" or args.ltx_crop_vsr == "swiftvr-distill":
         # Checked here as well as in the session factory: the factory runs
         # after engine compilation, which can take the better part of an hour.
         from jasna.restorer.swiftvr_distill_model import resolve_swiftvr_distill_model_path

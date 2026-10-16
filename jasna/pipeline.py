@@ -119,6 +119,10 @@ class Pipeline:
         self.ltx_large_canvas = config.ltx_large_canvas
         self.ltx_window_hop = config.ltx_window_hop
         self.ltx_seed = config.ltx_seed
+        self.ltx_crop_vsr = config.ltx_crop_vsr
+        self.ltx_crop_vsr_source = config.ltx_crop_vsr_source
+        self._config = config
+        self._session = session
         self.disable_progress = config.disable_progress
         self.progress_callback = progress_callback
         self.lut_path = config.lut_path
@@ -349,6 +353,52 @@ class Pipeline:
             )
         except Cancelled:
             log.info("LTX restoration cancelled")
+        finally:
+            writer.close()
+        self._log_memory_at_end()
+
+    def _run_ltx_refine(self, metadata) -> None:
+        """``--ltx-crop-vsr``: the input is an LTX output; sharpen its mosaic areas with
+        SwiftVR along the plan scanned from the source video (``jasna.ltx.refine``)."""
+        from jasna.ltx.refine import run_refine
+        from jasna.ltx.restore import Cancelled
+        from jasna.session_factory import build_ltx_crop_vsr_restorer
+
+        if self.vr_resolution.resolved != "off":
+            raise UnsupportedVideoError(
+                f"--ltx-crop-vsr does not support VR video ({self.vr_resolution.resolved}: "
+                f"{self.vr_resolution.reason}); pass --vr-mode off to treat it as flat video"
+            )
+        source_video = Path(self.ltx_crop_vsr_source)
+        source_metadata = get_video_meta_data(str(source_video))
+        frame_rate = self._resolve_frame_rate(metadata)
+        writer = _OfflineFrameWriter(self._video_encoder(metadata, frame_rate), [time.monotonic()])
+        config, session = self._config, self._session
+
+        def release_detector() -> None:
+            self.detection_model = self.job_detection_model = None
+            session.release_detection_model()
+            torch.cuda.empty_cache()
+
+        try:
+            run_refine(
+                ltx_video=self.input_video,
+                ltx_metadata=metadata,
+                source_video=source_video,
+                source_metadata=source_metadata,
+                writer=writer,
+                detector=self.job_detection_model,
+                release_detector=release_detector,
+                make_restorer=lambda: build_ltx_crop_vsr_restorer(config, self.device),
+                batch_size=self.batch_size,
+                device=self.device,
+                large_canvas=self.ltx_large_canvas,
+                disable_progress=self.disable_progress,
+                progress_callback=self.progress_callback,
+                cancel=self._cancel_event,
+            )
+        except Cancelled:
+            log.info("LTX refine cancelled")
         finally:
             writer.close()
         self._log_memory_at_end()
@@ -618,6 +668,8 @@ class Pipeline:
                 )
                 self.fmp4 = False
             self._run_smart(metadata)
+        elif self.ltx_crop_vsr is not None:
+            self._run_ltx_refine(metadata)
         elif self.restoration_model_name == "ltx":
             self._run_ltx(metadata)
         else:
