@@ -473,7 +473,7 @@ def test_seedvr2_side_skips_ema_check(monkeypatch) -> None:
 def test_seedvr2_session_key_and_build_kwargs(monkeypatch) -> None:
     built = []
 
-    def fake_build(settings, *, disable_basicvsrpp_tensorrt, log, restoration_model_path,
+    def fake_build(settings, *, log, restoration_model_path,
                    restoration_model_name="basicvsrpp", seedvr2_repo=""):
         built.append((restoration_model_name, seedvr2_repo, str(restoration_model_path)))
         session = MagicMock()
