@@ -10,12 +10,14 @@ Run: ``jasna --benchmark --benchmark-filter fp8``
 from __future__ import annotations
 
 import gc
+import math
 import json
 import os
 import statistics
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -92,14 +94,39 @@ def _fp32_upsample_ref(generator: nn.Module, x: torch.Tensor) -> torch.Tensor:
     return conv(generator.conv_last, cur)
 
 
+def psnr(ref, out) -> float:
+    """PSNR of two HWC float images on the 0-255 scale (mmagic's ``psnr``, no crop)."""
+    mse = float(np.mean((ref.astype(np.float64) - out.astype(np.float64)) ** 2))
+    return float("inf") if mse == 0 else 20.0 * math.log10(255.0 / math.sqrt(mse))
+
+
+def ssim(ref, out) -> float:
+    """SSIM of two HWC float images on the 0-255 scale, averaged over channels
+    (mmagic's ``ssim``: 11x11 Gaussian window, sigma 1.5, valid region)."""
+    import cv2
+
+    c1, c2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
+    kernel = cv2.getGaussianKernel(11, 1.5)
+    window = np.outer(kernel, kernel.transpose())
+    values = []
+    for channel in range(ref.shape[2]):
+        a = ref[..., channel].astype(np.float64)
+        b = out[..., channel].astype(np.float64)
+        mu1 = cv2.filter2D(a, -1, window)[5:-5, 5:-5]
+        mu2 = cv2.filter2D(b, -1, window)[5:-5, 5:-5]
+        sigma1 = cv2.filter2D(a * a, -1, window)[5:-5, 5:-5] - mu1 ** 2
+        sigma2 = cv2.filter2D(b * b, -1, window)[5:-5, 5:-5] - mu2 ** 2
+        sigma12 = cv2.filter2D(a * b, -1, window)[5:-5, 5:-5] - mu1 * mu2
+        ssim_map = ((2 * mu1 * mu2 + c1) * (2 * sigma12 + c2)) / ((mu1 ** 2 + mu2 ** 2 + c1) * (sigma1 + sigma2 + c2))
+        values.append(ssim_map.mean())
+    return float(np.mean(values))
+
+
 def _frame_metrics(out: torch.Tensor, ref: torch.Tensor) -> tuple[float, float, float]:
     """(mean PSNR, min PSNR, mean SSIM) over frames of [0,1] (T,3,H,W) tensors.
 
     Computed on float arrays (no uint8 rounding, which would cap PSNR at
     ~59dB) — same methodology as the lada-ex reference measurements."""
-    from jasna.models.basicvsrpp.mmagic.psnr import psnr
-    from jasna.models.basicvsrpp.mmagic.ssim import ssim
-
     out_f = out.clamp(0, 1).mul(255.0).permute(0, 2, 3, 1).cpu().numpy()
     ref_f = ref.clamp(0, 1).mul(255.0).permute(0, 2, 3, 1).cpu().numpy()
     psnrs = [float(psnr(ref_f[i], out_f[i])) for i in range(out_f.shape[0])]
