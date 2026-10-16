@@ -2,9 +2,11 @@
 
 How to set up Jasna on Windows and run it **from source**.
 
-> **Branch and base.** This guide covers `0.11.1+modi` (upstream `2fc3e899` = the v0.11.1 tag plus one docs commit). The GPU stack follows upstream's pins in `pyproject.toml` (torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.36 / triton-windows 3.7.1 / ultralytics 8.4.96+); this branch only adds `nvidia-vfx==0.2.0.0`, `nvidia-cudnn-frontend` and the optional `nvidia-rtx` extra. What the branch adds on top of upstream, and why, is in [changes_vs_upstream.md](changes_vs_upstream.md).
+> **Branch and base.** This guide covers `0.11.1+modi` (upstream `2fc3e899` = the v0.11.1 tag plus one docs commit). The GPU stack follows upstream's pins in `pyproject.toml` (torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.36 / triton-windows 3.7.1 / ultralytics 8.4.96+); this branch adds the `nvidia-vfx==0.2.0.0` pin (upstream leaves it unpinned), `nvidia-cudnn-frontend` and, on Windows, `triton-windows>=3.7,<3.8` as regular dependencies for FP8 restoration, the `torchcodec` extra, and the optional `nvidia-rtx` extra (torch 2.12.0 / torchvision 0.27.0 / torch-tensorrt-rtx 2.12.1). What the branch adds on top of upstream, and why, is in [changes_vs_upstream.md](changes_vs_upstream.md).
 >
-> **Verification.** Last verified on real hardware on the **v0.10.0 base** (2026-08-13, Windows 11, RTX 5060 Ti). The current `0.11.1+modi` base is **not yet re-verified on Windows**; what changed since then is listed in [Appendix B](#appendix-b-history-of-this-setup) and is verified on Linux ([building_linux.md](building_linux.md)).
+> **Verification.** The current `0.11.1+modi` base was verified on real hardware on 2026-10-16 (Windows 11, RTX 5060 Ti 16 GB, driver 617.42, Python 3.13.9, CUDA 13.2): a v0.10.0-era venv updated with this guide, the full test suite compared against pristine upstream, CLI runs of the modi features, and the GUI. What changed at each base, and each verification, is in [Appendix B](#appendix-b-history-of-this-setup); for Linux see [building_linux.md](building_linux.md).
+>
+> **VALI is required.** On Windows you build Kruk2's VALI fork (`python_vali` 4.8.8) yourself and install it (Section 5.2). The `[nvidia]` extra pins `python_vali==4.8.8`, which is not published on PyPI (the newest release there is 4.8.7, with Linux wheels only, as of 2026-10-16), and jasna's VALI decoder uses an API only the fork has. This makes VS Build Tools and the CUDA Toolkit prerequisites.
 >
 > **Packaging.** This fork is run from source. Its experimental Nuitka script (`scripts\build_nuitka.py`) builds a standalone `jasna.exe` + `jasna-framegen.exe` distribution from the venv of this guide ([frozen_build.md](frozen_build.md), Section 8). LTX and the supporter models work only in upstream's official release.
 
@@ -19,17 +21,19 @@ How to set up Jasna on Windows and run it **from source**.
 | uv | Latest | `astral-sh.uv` | Manages Python automatically |
 | Python | 3.13 | n/a (managed by uv) | Auto-fetched by `uv venv --python 3.13` if missing. `requires-python` is `>=3.12`, but this guide is verified on 3.13 only (3.14 is unverified against the cu130 GPU stack) |
 | NVIDIA Driver | **610+** | NVIDIA official or the NVIDIA App | The startup check requires 610+ on Windows. GPU must be compute capability 7.5+ |
-| ffmpeg / ffprobe | **v8** (runtime CLI) | [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases), `ffmpeg-n8.1-latest-win64-gpl-shared-*.zip` recommended (see below) | The startup check requires `ffprobe` major version 8 |
-| VS Build Tools | 2022 (Desktop development with C++) | `Microsoft.VisualStudio.2022.BuildTools` | **Only for the optional VALI wheel build** (Section 5.3) and the Nuitka bundle ([frozen_build.md](frozen_build.md)) |
+| ffmpeg / ffprobe | **v8** shared build | [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases), `ffmpeg-n8.1-latest-win64-gpl-shared-*.zip` recommended (see below) | The runtime CLI (the startup check requires `ffprobe` major version 8) and the `include\` / `lib\` / `bin\` of the VALI build |
+| VS Build Tools | 2022 (Desktop development with C++) | `Microsoft.VisualStudio.2022.BuildTools` | **Required**, for the VALI fork wheel build (Section 5.2); also used by the Nuitka bundle ([frozen_build.md](frozen_build.md)) |
+| CUDA Toolkit | 13.x (verified with 13.2) | NVIDIA's installer | **Required**, for `nvcc` in the VALI build; not used at runtime |
 
-The core setup needs no CUDA Toolkit and compiles nothing: the torch / tensorrt wheels bundle the CUDA runtime and PyAV comes as a wheel too. Only the optional VALI backend build (Section 5.3) compiles an extension; its extra prerequisites (VS Build Tools, CUDA Toolkit) are listed there.
+The only thing compiled is the VALI fork wheel (Section 5.2). The torch / tensorrt wheels bundle the CUDA runtime and PyAV comes as a wheel too, so the CUDA Toolkit is needed only for `nvcc` at build time.
 
 ### 1.1 Choosing ffmpeg and adding it to PATH
 
-For the CLI alone (`ffmpeg.exe` / `ffprobe.exe`), gyan.dev's [release-full build](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z) suffices (it is also what the startup check's error message points to). The BtbN **shared build** is recommended because the same extraction also covers:
+For the CLI alone (`ffmpeg.exe` / `ffprobe.exe`), gyan.dev's [release-full build](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z) suffices (it is also what the startup check's error message points to), but the VALI build needs the `include\` / `lib\` / `bin\` of a shared build. The BtbN **shared build** is recommended because the same extraction covers all three:
 
+- the runtime CLI (`ffmpeg.exe` / `ffprobe.exe`)
+- the `include\` and `lib\` the VALI fork build links against (Section 5.2), and the `bin\` DLLs it bundles into the wheel
 - the FFmpeg DLLs (`avcodec-62.dll` etc. in `bin\`) that the optional torchcodec backend needs at runtime
-- the `include\` and `lib\` directories the optional VALI backend build links against (Section 5.3)
 
 Extract it and add `bin\` to PATH:
 
@@ -51,18 +55,18 @@ To make it permanent, add the `bin\` directory to the user `Path` environment va
 winget install --id Git.Git       -e --source winget
 winget install --id astral-sh.uv  -e --source winget
 
-# only for the optional VALI wheel build (Section 5.3) or the Nuitka bundle:
+# for the VALI fork wheel build (Section 5.2):
 winget install --id Microsoft.VisualStudio.2022.BuildTools -e --source winget --silent `
   --override "--wait --quiet --add ProductLang En-us --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 ```
 
-Install the NVIDIA driver (610+) from NVIDIA directly or via the NVIDIA App.
+Install the NVIDIA driver (610+) from NVIDIA directly or via the NVIDIA App. Install CUDA Toolkit 13.x with NVIDIA's installer (default location `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2`).
 
 ---
 
 ## 2. Clone the repository
 
-Only `jasna` needs to be cloned (the VALI fork of Section 5.3 is optional and is cloned there).
+Clone `jasna` here; the VALI fork is cloned in Section 5.2.
 
 ```powershell
 $Workspace = "C:\jasna-dev"          # ← any directory of your choice
@@ -95,96 +99,48 @@ uv's managed Python is fine here.
 
 Nothing to build. The GPU path needs PyAV's current_ctx API (NVDEC/NVENC share the CUDA context torch initialized) and the explicit CUDA stream support of av 18.1; `pyproject.toml` pins `av==18.1.0` (the release upstream's VALI wheel is built against), and the Section 5 install resolves it from PyPI. The wheel bundles its own FFmpeg 8 built with new-enough nv-codec-headers (`hevc_nvenc` accepts `lookahead_level`), so neither the BtbN build nor a delvewheel repair is involved; the BtbN `bin\` on PATH serves only the CLI tools and the optional torchcodec backend.
 
-The official wheel is verified on Linux. On Windows the last verified setup still used the interim self-built wheel, whose commit is contained in 18.1.0; that era, and how to tell whether a venv still has the interim wheel, is in [Appendix B](#appendix-b-history-of-this-setup).
+The official wheel is verified on Linux and on Windows (2026-10-16). The v0.10.0-era Windows setup used the interim self-built wheel, whose commit is contained in 18.1.0; that era, and how to tell whether a venv still has the interim wheel, is in [Appendix B](#appendix-b-history-of-this-setup).
 
 ---
 
 ## 5. Install jasna itself
 
-The GPU stack lives in extras (`nvidia` = the NVIDIA stack, `amd` = the ROCm one). For an NVIDIA build the `nvidia` extra pulls in `torch==2.12.1+cu130` / `torchvision==0.27.1+cu130` / `torch-tensorrt==2.12.0` / `nvidia-vfx==0.2.0.0` / `comfy-kitchen==0.2.36` / `triton-windows==3.7.1.post27`, some of which are not on the default PyPI index. Point uv at the PyTorch wheel index with `--extra-index-url` and add two more flags:
+On Windows, install in this order. The `[nvidia]` extra pins `python_vali==4.8.8`, but 4.8.8 is not on PyPI, so first build the wheel from Kruk2's fork ([codeberg.org/Kruk2/vali](https://codeberg.org/Kruk2/vali)), then hand it to the jasna install with `--find-links`.
+
+1. Install the packages the VALI build needs into the venv (Section 5.1)
+2. Build the VALI fork wheel (Section 5.2)
+3. Install jasna itself (Section 5.3)
+4. Apply the mmengine patch (Section 5.4)
+
+### 5.1 Install the build packages
 
 ```powershell
 cd $Workspace\jasna
-uv pip install -e .[dev,nvidia] `
-    --extra-index-url https://download.pytorch.org/whl/cu130 `
-    --index-strategy unsafe-best-match `
-    --prerelease=allow
+uv pip install cmake ninja scikit-build "setuptools<81"
 ```
 
-> **⚠️ On Windows this command fails to resolve as-is.** The `[nvidia]` extra pins `python_vali==4.8.8`, and PyPI has no Windows wheel for it (you get a `No wheels with a matching platform tag` error). Workaround: create the venv with `[dev,torchcodec]` first (no `nvidia`), build and install the fork wheel (4.8.8) per Section 5.3, then re-run the `[dev,nvidia,...]` command above. The installed 4.8.8 satisfies the pin, so the second run resolves (alternatively, keep the wheel in `dist\` and add `--find-links <workspace>\vali\dist` to resolve in one pass; confirmed on hardware). This describes PyPI as of the last Windows verification (2026-08-13); if the command resolves without the fork wheel, PyPI has since published a Windows wheel and the workaround is moot.
+A venv created with `uv venv` has no setuptools. vali's `setup.py` imports `pkg_resources`, and setuptools 80.x answers that import with a warning that `pkg_resources` is slated for removal and to pin `Setuptools<81`, so pin `<81` (checked with 80.10.2). cmake, ninja and scikit-build also come with the `[dev]` extra in Section 5.3, but the build runs first, so install them here.
 
-Why each flag:
+### 5.2 Build the VALI fork wheel
 
-- `--extra-index-url https://download.pytorch.org/whl/cu130`: source of the `torch+cu130` / `torchvision+cu130` / `torch-tensorrt+cu130` wheels
-- `--index-strategy unsafe-best-match`: needed so `torch-tensorrt==2.12.0` from `pyproject.toml` can be satisfied by `torch-tensorrt==2.12.0+cu130` (local version) on the PyTorch index; the default first-index strategy refuses
-- `--prerelease=allow`: the transitive dependency `nvidia-cuda-runtime-cu13==0.0.0a0` is a prerelease
+Native decode tries the VALI NVDEC decoder first and escalates to PyAV when it is unavailable (the `JASNA_DECODE_BACKEND` environment variable — `auto` / `vali` / `pyav-hw` / `pyav-sw` — selects this chain explicitly; modi's `--video-backend` sits one layer above it, and the chain applies when `native` is selected). jasna's VALI decoder uses `DecodeSingleSurfaceAsyncDetailed`, an API that only the fork has; with a wheel that lacks it, the reader logs a warning and falls back to PyAV every time.
 
-The `[dev]` extra installs `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja`. The `[nvidia]` extra installs the GPU stack (torch cu130 / TensorRT / torch-tensorrt / nvidia-vfx) — **omitting it leaves you without torch and the app will not start**.
+Prerequisites (installed in Section 1):
 
-**Note: `nvidia-vfx` is pinned to 0.2.0.0 (VFX SDK 1.3.0).** The PyPI entry is a stub that downloads the real wheel (436 MB for Windows x64) from `pypi.nvidia.com` during the install above. 0.2.0.0 provides the `VideoFrameGeneration` effect behind `--frame-gen-backend rtx` ([frame_generation.md](frame_generation.md)), bundles no TensorRT, and ships its own `cudart64_12.dll` next to torch's CUDA 13 runtime; the wheel fetch, the DLL loading, the cudart 12/13 coexistence and the cuDNN combination with `--fp8-recon` are verified on Windows (RTX 5080). An older venv with 0.1.0.1 is upgraded in place with `uv pip install nvidia-vfx==0.2.0.0` ([Appendix B](#appendix-b-history-of-this-setup)).
-
-**Optional: the torchcodec backend.** To use the experimental torchcodec decode/encode path (`--video-backend torchcodec`/`auto`), add the `torchcodec` extra and install `.[dev,nvidia,torchcodec]` with the same flags:
-
-```powershell
-uv pip install -e .[dev,nvidia,torchcodec] `
-    --extra-index-url https://download.pytorch.org/whl/cu130 `
-    --index-strategy unsafe-best-match `
-    --prerelease=allow
-```
-
-This installs `torchcodec>=0.15.0`. torchcodec needs the FFmpeg DLLs at runtime, so keep the BtbN shared build's `bin\` on PATH (Section 1.1). It is not needed for a normal setup; the default `native` backend (PyAV) works without torchcodec. Details: [torchcodec_backend.md](torchcodec_backend.md).
-
-**Note: the FP8 restoration backend needs no extra install steps.** Its dependencies `nvidia-cudnn-frontend` and (on Windows) `triton-windows` are regular dependencies in `pyproject.toml` and come in with the command above. The cuDNN runtime (9.17+) ships inside the torch cu130 wheels. The feature is a runtime opt-in (`--fp8-recon`, needs an FP8-capable GPU, sm89+) and falls back to the TensorRT engines where unavailable. Verified on Windows 11 + RTX 5080; run with `--log-level info` to see `CudnnFP8Upsample: enabled` (the default `--log-level error` hides that line). Details: [fp8_recon.md](fp8_recon.md).
-
-**Optional: the TensorRT-RTX flavor.** Installing the `nvidia-rtx` extra *instead of* `nvidia` switches the TensorRT stack to TensorRT-RTX (JIT compilation; engine builds finish in seconds instead of minutes). The two extras are mutually exclusive in one venv, so use a dedicated venv. Engines are cached under `.rtx`-tagged names (`.rtx.win`), so both flavors can share one `model_weights` directory. The mmengine patch (§5.1) applies to this venv too. Note: `python_vali` has no Windows wheel on PyPI; supply a locally built wheel via `--find-links` (see §5). Details and measured numbers (validated on Windows 11 / RTX 5060 Ti): [tensorrt_rtx.md](tensorrt_rtx.md).
-
-
-### 5.1 Apply the mmengine patch (torch 2.6+ compatibility)
-
-Add `weights_only=False` to the `torch.load` calls inside `mmengine.runner.checkpoint`. From torch 2.6 the default flipped to `weights_only=True`, which breaks loading the existing `.pth` checkpoints without this patch.
-
-Apply `patches/fix_loading_mmengine_weights_on_torch26_and_higher.diff` to the venv's `site-packages`. So that `patch.exe` isn't required, install the Python `patch` package temporarily:
-
-```powershell
-cd $Workspace\jasna
-
-uv pip install patch
-uv run --no-project python -m patch -p1 -d .venv\Lib\site-packages `
-    patches\fix_loading_mmengine_weights_on_torch26_and_higher.diff
-uv pip uninstall patch
-```
-
-Verify:
-
-```powershell
-Select-String -Path .venv\Lib\site-packages\mmengine\runner\checkpoint.py -Pattern "weights_only=False"
-# → one matching line means it's applied
-```
-
-> This patch is wiped every time `uv pip install -e .[dev,nvidia]` reinstalls `mmengine`. Re-apply it after reinstalls.
-
-### 5.2 YOLO detection models need no extra packages
-
-A YOLO-backend detection model (`lada-yolo-*`, `zelefans-vr-yolo-v2`) is exported to ONNX by ultralytics before its TensorRT engine is built. `onnx` is a regular dependency and the export runs with `simplify=False`, so neither `onnxslim` nor `onnxruntime` is needed. RF-DETR models ship a pre-built `.onnx` that TensorRT parses directly.
-
-### 5.3 Optional: build the VALI NVDEC decode backend (`python_vali` fork)
-
-Native decode tries the VALI NVDEC decoder first and escalates to PyAV when it is unavailable (since v0.10.0 the `JASNA_DECODE_BACKEND` environment variable — `auto` / `vali` / `pyav-hw` / `pyav-sw` — selects this chain explicitly; modi's `--video-backend` sits one layer above it, and the chain applies when `native` is selected). Without a wheel that has the fork-only API `DecodeSingleSurfaceAsyncDetailed`, the reader logs a warning and falls back to PyAV every time (everything still works without this section). On Windows, resolving the `[nvidia]` extra also needs a 4.8.8 wheel (see the note in Section 5), which makes building the fork wheel a de-facto prerequisite.
-
-Additional prerequisites on top of Section 1:
-
-- **VS Build Tools 2022** (build inside a cmd / Developer PowerShell session that went through vcvars64)
+- **VS Build Tools 2022** (build inside a cmd session that went through vcvars64)
 - **CUDA Toolkit 13.x** (`nvcc`; vali's CMake resolves the toolkit from `CUDA_PATH`)
-- **An FFmpeg 8 shared build**: vali's CMake **hardcodes `FFMPEG_ROOT` to `C:\Program Files\ffmpeg8`**, so place a shared build with `include\`/`lib\`/`bin\` there (e.g. gyan.dev full-shared), or create a junction (`New-Item -ItemType Junction -Path "C:\Program Files\ffmpeg8" -Target <extracted dir>`). The BtbN build (Section 1.1) satisfies the same requirement.
-- cmake, ninja, scikit-build, a setuptools with `pkg_resources` (<80): all already in the venv via `[dev]` (Section 5).
+- **An FFmpeg 8 shared build**: vali's CMake **hardcodes `FFMPEG_ROOT` to `C:\Program Files\ffmpeg8`** (`src\CMakeLists.txt`). Place a shared build with `include\` / `lib\` / `bin\` there, or create a junction to the Section 1.1 extraction (in an elevated PowerShell: `New-Item -ItemType Junction -Path "C:\Program Files\ffmpeg8" -Target $Workspace\ffmpeg-n8.1-shared`).
+- Keep the workspace path short. A build in a deep folder (a vali checkout path of about 150 characters) failed in CMake's compiler check with MSBuild's `error FTK1011` (it could not create its tracking log); the same checkout mapped to a short drive with `subst` built fine.
 
 ```powershell
 cd $Workspace
 git clone https://codeberg.org/Kruk2/vali.git       # skip if you have a checkout
 cd vali
-git checkout 0e5c01e      # = the 4.8.8 pin: DecodeSingleSurfaceAsyncDetailed, the ASF/VC-1 timestamp fixes, the decoder-open GIL release (f4a67f8, the previously verified commit, also works)
+git checkout 0e5c01e      # = the 4.8.8 pin: DecodeSingleSurfaceAsyncDetailed, the ASF/VC-1 timestamp fixes, the decoder-open GIL release
 git submodule update --init --recursive
 ```
+
+When an existing checkout moves to another commit, delete the previous CMake cache `_skbuild\` before rebuilding. CMake downloads pybind11 during the build, so it needs network access.
 
 Build by running `setup.py bdist_wheel` inside a **cmd session** with the MSVC + CUDA environment loaded (a .bat file keeps vcvars64 out of your PowerShell session):
 
@@ -198,15 +154,101 @@ cd /d <workspace>\vali
 REM -> dist\python_vali-4.8.8-cp313-cp313-win_amd64.whl
 ```
 
-Unlike on Linux, the Windows wheel bundles the FFmpeg DLLs inside `python_vali\` (CMake's `PYPI_BUILD=0` default), so no delvewheel step is needed. Install and verify:
+Unlike on Linux, the Windows wheel bundles the FFmpeg DLLs inside `python_vali\` (CMake's `PYPI_BUILD=0` default), so no delvewheel step is needed. Section 5.3 installs the wheel through `--find-links`.
+
+The first part of the log shows `Trying 'Ninja (Visual Studio 18 2026 x64 v145)' generator - failure`, `error MSB8020` and `Configuring incomplete, errors occurred!` a few times. That is scikit-build probing the available generators; as long as a wheel ends up in `dist\`, the build succeeded (checked on 2026-10-16 with the minimal venv of Section 5.1: the build and the presence of `DecodeSingleSurfaceAsyncDetailed`).
+
+> Fork commit `0e5c01e` (= the 4.8.8 pin) is verified on Linux and Windows (2026-10-16; on Windows, RTX 5060 Ti + CUDA 13.2, the batch file above builds it as is, and the video streams from `JASNA_DECODE_BACKEND=vali` and `pyav-hw` are md5-identical). The earlier `f4a67f8` (also the 4.8.8 pin) was verified on the same machine on 2026-08-13. The previous verification was at fork commit `3ad0d54` (= the 4.8.7 pin, 2026-07-30, RTX 5080 + CUDA 13.2 + gyan.dev 8.1 shared): both decode paths of the pipeline go through VALI, the bundled test clip's output is **bitstream-md5-identical** to the PyAV-decoded run, and coexistence with the av wheel and the torchcodec backend is confirmed (av vendors FFmpeg via delvewheel, vali bundles its own copy, torchcodec resolves via PATH — three separate in-process DLL copies, which is fine on Windows because each DLL has its own symbol namespace).
+
+### 5.3 Install jasna itself
+
+The GPU stack lives in extras (`nvidia` = the NVIDIA stack, `amd` = the ROCm one). For an NVIDIA build the `nvidia` extra pulls in `torch==2.12.1+cu130` / `torchvision==0.27.1+cu130` / `tensorrt==10.16.1.11` / `torch-tensorrt==2.12.0` / `nvidia-vfx==0.2.0.0` / `comfy-kitchen==0.2.36` / `triton-windows==3.7.1.post27` / `python_vali==4.8.8`, some of which are not on the default PyPI index. **Point uv at the PyTorch wheel index and at the Section 5.2 wheel, and add two more flags**:
+
+```powershell
+cd $Workspace\jasna
+uv pip install -e .[dev,nvidia] `
+    --find-links $Workspace\vali\dist `
+    --extra-index-url https://download.pytorch.org/whl/cu130 `
+    --index-strategy unsafe-best-match `
+    --prerelease=allow
+```
+
+Why each flag:
+
+- `--find-links $Workspace\vali\dist`: source of the `python_vali-4.8.8` wheel built in Section 5.2. Without it, `python_vali==4.8.8` cannot be resolved and the install fails
+- `--extra-index-url https://download.pytorch.org/whl/cu130`: source of the `torch+cu130` / `torchvision+cu130` / `torch-tensorrt+cu130` wheels
+- `--index-strategy unsafe-best-match`: needed so `torch-tensorrt==2.12.0` from `pyproject.toml` can be satisfied by `torch-tensorrt==2.12.0+cu130` (local version) on the PyTorch index; the default first-index strategy refuses
+- `--prerelease=allow`: the transitive dependency `nvidia-cuda-runtime-cu13==0.0.0a0` is a prerelease
+
+The `[dev]` extra installs `nuitka>=2.4`, `pytest`, `pytest-cov`, `scikit-build`, `cmake`, `ninja`. The `[nvidia]` extra installs the GPU stack (torch cu130 / TensorRT / torch-tensorrt / nvidia-vfx / VALI) — **omitting it leaves you without torch and the app will not start**.
+
+Check that the fork build of VALI is the one installed:
+
+```powershell
+python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurfaceAsyncDetailed'))"   # -> True
+# running jasna with --log-level info prints "Using VALI NVDEC decoder for <file>"
+```
+
+If it prints `False`, a non-fork wheel got installed. Reinstall the Section 5.2 wheel:
 
 ```powershell
 uv pip install --force-reinstall --no-deps (Get-Item $Workspace\vali\dist\python_vali-4.8.8-*.whl)
-python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurfaceAsyncDetailed'))"   # -> True
-# running jasna with --log-level info now prints "Using VALI NVDEC decoder for <file>"
 ```
 
-> The Windows build and a full pipeline run are verified at fork commit `f4a67f8` (= the 4.8.8 pin, 2026-08-13, RTX 5060 Ti + CUDA 13.2); `0e5c01e` is verified on Linux (2026-10-16) and its Windows build is pending. The previous verification was at fork commit `3ad0d54` (= the 4.8.7 pin, 2026-07-30, RTX 5080 + CUDA 13.2 + gyan.dev 8.1 shared): both decode paths of the pipeline go through VALI, the bundled test clip's output is **bitstream-md5-identical** to the PyAV-decoded run, and coexistence with the av wheel and the torchcodec backend is confirmed (av vendors FFmpeg via delvewheel, vali bundles its own copy, torchcodec resolves via PATH — three separate in-process DLL copies, which is fine on Windows because each DLL has its own symbol namespace).
+**Note: `nvidia-vfx` is pinned to 0.2.0.0 (VFX SDK 1.3.0).** The PyPI entry is a stub that downloads the real wheel (436 MB for Windows x64) from `pypi.nvidia.com` during the install above. 0.2.0.0 provides the `VideoFrameGeneration` effect behind `--frame-gen-backend rtx` ([frame_generation.md](frame_generation.md)), bundles no TensorRT, and ships its own `cudart64_12.dll` next to torch's CUDA 13 runtime; the wheel fetch, the DLL loading, the cudart 12/13 coexistence and the cuDNN combination with `--fp8-recon` are verified on Windows (RTX 5080). An older venv with 0.1.0.1 is upgraded in place with `uv pip install nvidia-vfx==0.2.0.0` ([Appendix B](#appendix-b-history-of-this-setup)).
+
+**Optional: the torchcodec backend.** To use the experimental torchcodec decode/encode path (`--video-backend torchcodec`/`auto`), add the `torchcodec` extra and install `.[dev,nvidia,torchcodec]` with the same flags (the torchcodec on PyPI is the CPU-only build; `--extra-index-url` is what lets uv pick the `+cu130` build from the PyTorch index):
+
+```powershell
+uv pip install -e .[dev,nvidia,torchcodec] `
+    --find-links $Workspace\vali\dist `
+    --extra-index-url https://download.pytorch.org/whl/cu130 `
+    --index-strategy unsafe-best-match `
+    --prerelease=allow
+```
+
+This installs `torchcodec>=0.15.0`. torchcodec needs the FFmpeg DLLs at runtime, so keep the BtbN shared build's `bin\` on PATH (Section 1.1). It is not needed for a normal setup; the default `native` backend (PyAV) works without torchcodec. Details: [torchcodec_backend.md](torchcodec_backend.md).
+
+**Note: the FP8 restoration backend needs no extra install steps.** Its dependencies `nvidia-cudnn-frontend` and (on Windows) `triton-windows` are regular dependencies in `pyproject.toml` and come in with the command above. The cuDNN runtime (9.17+) ships inside the torch cu130 wheels. The feature is a runtime opt-in (`--fp8-recon`, needs an FP8-capable GPU, sm89+) and falls back to the TensorRT engines where unavailable. Verified on Windows 11 + RTX 5080; run with `--log-level info` to see `CudnnFP8Upsample: enabled` (the default `--log-level error` hides that line). Details: [fp8_recon.md](fp8_recon.md).
+
+**Optional: the TensorRT-RTX flavor.** Installing the `nvidia-rtx` extra *instead of* `nvidia` switches the TensorRT stack to TensorRT-RTX (JIT compilation; engine builds finish in seconds instead of minutes). The two extras are mutually exclusive in one venv, so use a dedicated venv. Engines are cached under `.rtx`-tagged names (`.rtx.win`), so both flavors can share one `model_weights` directory. The `nvidia-rtx` extra pins torch 2.12.0 / torchvision 0.27.0, unlike the `nvidia` extra's 2.12.1 / 0.27.1. This venv also needs the Section 5.1 build packages (if you build the VALI wheel per venv), the same `--find-links` as Section 5.3 (it pins `python_vali==4.8.8` too), and the Section 5.4 mmengine patch. Details and measured numbers (validated on Windows 11 / RTX 5060 Ti): [tensorrt_rtx.md](tensorrt_rtx.md).
+
+
+### 5.4 Apply the mmengine patch
+
+Apply `patches/fix_loading_mmengine_weights_on_torch26_and_higher.diff` to the venv's mmengine 0.10.7. The diff changes four files:
+
+- `mmengine/runner/checkpoint.py`: adds `weights_only=False` to `torch.load`. From torch 2.6 the default is `weights_only=True`, which cannot read the mmengine `HistoryBuffer` stored in the BasicVSR++ weights (`lada_mosaic_restoration_model_generic_v1.2.pth`) and stops with `Weights only load failed`
+- `mmengine/model/__init__.py` and `mmengine/model/wrappers/__init__.py`: import the FSDP wrapper only when `torch.distributed.is_available()` (so mmengine imports on a torch without distributed support)
+- `mmengine/dist/dist.py`: adds `from __future__ import annotations`
+
+> Upstream changed that one line to `weights_only=True` in `7c64105`, but with that version a source run cannot read the `v1.2.pth` above (checked 2026-10-16). This fork ships the diff with `False` ([changes_vs_upstream.md](changes_vs_upstream.md), Section 8).
+
+Apply it with the GNU patch that ships with Git for Windows (with the venv activated, in `$Workspace\jasna`). Do not use the Python `patch` package (1.16): it silently skips the `model/__init__.py` hunk, which is one line off.
+
+```powershell
+cd $Workspace\jasna
+
+& "C:\Program Files\Git\usr\bin\patch.exe" -p1 --no-backup-if-mismatch -d .venv\Lib\site-packages `
+    -i "$PWD\patches\fix_loading_mmengine_weights_on_torch26_and_higher.diff"
+```
+
+`-d` changes the directory first, so pass `-i` an absolute path. `Hunk #2 succeeded at 34 (offset 1 line).` for `model/__init__.py` is expected.
+
+Verify:
+
+```powershell
+Select-String -Path .venv\Lib\site-packages\mmengine\runner\checkpoint.py -Pattern "weights_only=False"
+Select-String -Path .venv\Lib\site-packages\mmengine\model\__init__.py -Pattern "is_available"
+# → one matching line each means it's applied
+```
+
+> Reinstalling mmengine wipes the patch (`uv pip install` reinstalls it only when its version changes or with `--reinstall`); re-apply it afterwards. Applying it to an already-patched venv fails (`Hunk #1 FAILED` and the like), and so does applying it over an older or the upstream version of the diff; in that case restore pristine mmengine first: `uv pip install --reinstall --no-deps mmengine==0.10.7`.
+
+### 5.5 YOLO detection models need no extra packages
+
+A YOLO-backend detection model (`lada-yolo-*`, `zelefans-vr-yolo-v2`) is exported to ONNX by ultralytics before its TensorRT engine is built. `onnx` is a regular dependency and the export runs with `simplify=False`, so neither `onnxslim` nor `onnxruntime` is needed. RF-DETR models ship a pre-built `.onnx` that TensorRT parses directly.
+
 
 ---
 
@@ -269,11 +311,11 @@ With Sections 1–6 done, run Jasna directly from the source checkout inside the
 cd $Workspace\jasna
 python -m jasna --version    # -> 0.11.1+modi
 python -m jasna --help
-jasna --input assets\test_clip1_1080p.mp4 --output $env:TEMP\out.mp4   # process a short clip
+python -m jasna --input assets\test_clip1_1080p.mp4 --output $env:TEMP\out.mp4   # process a short clip
 python -m jasna              # launch the GUI (no arguments)
 ```
 
-> **Launch the GUI with `python -m jasna` (no arguments).** The console script `jasna` is wired straight to `jasna.main:main` and never goes through the GUI dispatch (`jasna\__main__.py`), even with no arguments. Only the frozen build (`jasna.exe`) enters the GUI on a no-argument launch.
+> **Launch the GUI with `python -m jasna` (no arguments).** The console script `jasna` is wired straight to `jasna.main:main` and never goes through the GUI dispatch (`jasna\__main__.py`), even with no arguments. Only the frozen build (`jasna.exe`) enters the GUI on a no-argument launch. Prefer `python -m jasna` for the CLI too: the console script `jasna` skips what `__main__.py` sets up first (`CUDA_MODULE_LOADING=LAZY`, `OMP_WAIT_POLICY=passive`, and the guard that stops multiprocessing children).
 
 Check:
 
@@ -281,7 +323,7 @@ Check:
 - The NVIDIA driver is **610 or newer** (the startup check rejects older ones).
 - The install path is ASCII-only (enforced at startup; watch out for extraction paths under user names containing non-ASCII characters).
 
-> **The first processing run is slow.** On first use the GPU-specific TensorRT engines are compiled (15–60 min). They are cached next to the weights inside `model_weights\` (e.g. `<model>_sub_engines\`) and reused afterwards. Engine caches from the v0.9.1 base onwards stay valid (the engine layer is unchanged through v0.11.1); `--max-clip-size` no longer triggers a recompile.
+> **The first processing run is slow.** On first use the GPU-specific TensorRT engines are compiled (15–60 min). They are cached next to the weights inside `model_weights\` (e.g. `<model>_sub_engines\`) and reused afterwards. Engine caches from the v0.9.1 base onwards stay valid (the engine code changed through v0.11.1, but TensorRT is still 10.16.1.11 and the engine file names are the same); `--max-clip-size` no longer triggers a recompile.
 
 ---
 
@@ -317,7 +359,16 @@ Upstream's own packaging tooling (also Nuitka-based) lives in a **private submod
 
 ### jasna install
 
-- **`uv pip install -e .[dev,nvidia]` fails with `No solution found ... no version of torch==2.12.0+cu130`**
+- **`uv pip install -e .[dev,nvidia]` cannot resolve `python_vali==4.8.8`**
+  4.8.8 is not on PyPI. Build the VALI fork wheel (Section 5.2) and re-run with `--find-links $Workspace\vali\dist` (Section 5.3).
+
+- **The VALI build fails with `ModuleNotFoundError: No module named 'pkg_resources'`**
+  setuptools 81 or newer is installed. Go back with `uv pip install "setuptools<81"` (Section 5.1).
+
+- **The VALI build fails with `error FTK1011`**
+  The path is too long. Move the workspace to a short path, or map it to a short drive with `subst` (Section 5.2).
+
+- **`uv pip install -e .[dev,nvidia]` fails with `No solution found ... no version of torch==2.12.1+cu130`**
   The PyTorch index is missing. Add `--extra-index-url https://download.pytorch.org/whl/cu130`.
 
 - **`uv pip install -e .[dev,nvidia]` fails with `torch-tensorrt==2.12.0+cu130 ... unsatisfiable`**
@@ -326,10 +377,13 @@ Upstream's own packaging tooling (also Nuitka-based) lives in a **private submod
 ### Runtime
 
 - **Jasna raises `FileNotFoundError` for a `.pth`/`.onnx`/`.pt`**
-  Files missing from `model_weights\`, or the resolver is looking elsewhere. Put the 3 weights in `$Workspace\jasna\model_weights\` (Section 6), or set `JASNA_MODEL_WEIGHTS_DIR` to a folder containing them.
+  Files missing from `model_weights\`, or the resolver is looking elsewhere. Put the Section 6 weights in `$Workspace\jasna\model_weights\`, or set `JASNA_MODEL_WEIGHTS_DIR` to a folder containing them.
 
 - **Startup rejects the NVIDIA driver version**
   The Windows minimum is **610**. Update the driver from NVIDIA.
+
+- **Loading BasicVSR++ fails with `Weights only load failed ... HistoryBuffer`**
+  The mmengine patch is missing, or the upstream version (`weights_only=True`) is applied. Restore pristine mmengine and apply the bundled diff as in Section 5.4.
 
 - **The first launch is extremely slow**
   Not a bug. The initial TensorRT engine compilation takes 15–60 minutes. The engines are cached next to the weights inside `model_weights\` and later runs are fast.
@@ -338,7 +392,7 @@ Upstream's own packaging tooling (also Nuitka-based) lives in a **private submod
 
 ## Appendix A: branch changes this setup relies on
 
-Everything below is applied in the branch's source; no standalone patch files are shipped (the two bundled patches, for mmengine and FlashVSR_plus, are applied to other packages: Section 5.1 and [flashvsr.md](flashvsr.md)). The full list of what the branch changes is [changes_vs_upstream.md](changes_vs_upstream.md).
+Everything below is applied in the branch's source; no standalone patch files are shipped (the two bundled patches, for mmengine and FlashVSR_plus, are applied to other packages: Section 5.4 and [flashvsr.md](flashvsr.md)). The full list of what the branch changes is [changes_vs_upstream.md](changes_vs_upstream.md).
 
 ### A.1 Automatic resolution of the `model_weights\` directory
 
@@ -346,7 +400,7 @@ Everything below is applied in the branch's source; no standalone patch files ar
 
 ### A.2 DLL search paths for the torchcodec backend
 
-Windows does not search `PATH` for the DLL dependencies of extension modules, so the torchcodec backend modules (`jasna/media/torchcodec_decoder.py`, `torchcodec_encoder.py`) register the torchcodec package directory and `CUDA_PATH\bin` (when set) with `os.add_dll_directory()`, and the branch extends upstream's `jasna/packaging/windows_dll_paths.py` with the `torchcodec`, `tensorrt_rtx_libs` and bundled `tools\` (the frozen build's FFmpeg 8 DLLs) directories. The native PyAV path needs none of this. The FFmpeg DLLs torchcodec links by their plain names (`avcodec-62.dll`, ...) still have to come from a shared build on `PATH` (Section 1.1) or from the frozen build's `tools\`.
+Windows does not search `PATH` for the DLL dependencies of extension modules, so the torchcodec backend modules (`jasna/media/torchcodec_decoder.py`, `torchcodec_encoder.py`) register the torchcodec package directory and `CUDA_PATH\bin` (when set) with `os.add_dll_directory()`, and the branch extends upstream's `jasna/packaging/windows_dll_paths.py` with the `torchcodec`, `tensorrt_rtx_libs` and bundled `tools\` (the frozen build's FFmpeg 8 DLLs) directories. `windows_dll_paths.py` acts only in a frozen build and does nothing when running from source (it returns at once unless `is_frozen()`). The native PyAV path needs none of this. The FFmpeg DLLs torchcodec links by their plain names (`avcodec-62.dll`, ...) still have to come from a shared build on `PATH` (Section 1.1) or from the frozen build's `tools\`.
 
 ---
 
@@ -354,13 +408,13 @@ Windows does not search `PATH` for the DLL dependencies of extension modules, so
 
 What changed in the from-source setup at each base, newest first, and when this guide was verified on Windows. Procedures that are no longer needed are summarized; their full text is in this file's git history.
 
-- **v0.11.1 base (not yet verified on Windows)**: upstream pins torch 2.12.1 / torchvision 0.27.1, adds `comfy-kitchen==0.2.36` and `ultralytics>=8.4.96` (whose YOLO export needs neither onnxruntime nor onnxslim, so Section 5.2 shrank to a note), pins `av==18.1.0` exactly, and selects the decode backend only through `JASNA_DECODE_BACKEND` (the in-code `DECODE_BACKEND` toggle is gone). On Linux this base is verified ([building_linux.md](building_linux.md)), including the VALI fork wheel rebuilt at Kruk2's `0e5c01e` (4.8.8 with the ASF/VC-1 timestamp fixes and the decoder-open GIL release); its Windows build is pending.
+- **v0.11.1 base (verified 2026-10-16: Windows 11, RTX 5060 Ti, driver 617.42, Python 3.13.9, CUDA 13.2)**: upstream pins torch 2.12.1 / torchvision 0.27.1, adds `comfy-kitchen==0.2.36` and `ultralytics>=8.4.96` (whose YOLO export needs neither onnxruntime nor onnxslim, so Section 5.5 shrank to a note), pins `av==18.1.0` exactly, and selects the decode backend only through `JASNA_DECODE_BACKEND` (the in-code `DECODE_BACKEND` toggle is gone). On Linux this base is verified ([building_linux.md](building_linux.md)), including the VALI fork wheel rebuilt at Kruk2's `0e5c01e` (4.8.8 with the ASF/VC-1 timestamp fixes and the decoder-open GIL release). On Windows a v0.10.0-era venv was updated with the Section 5 command (`[dev,nvidia,torchcodec]` with `--find-links`) and the `0e5c01e` wheel reinstalled with `--force-reinstall --no-deps`; what changed was torch / torchvision, the new `comfy-kitchen` and `nvidia-ml-py`, `nvidia-vfx` 0.2.0.0 and ultralytics 8.4.178, while TensorRT stayed and the existing `.win` engines were reused. The full-suite failure set matched pristine upstream (the two modi-only failures were test defects, since fixed); fifteen CLI runs of the modi features (secondary restorers, SeedVR2, frame generation, `--segments`, `--ltx-trial`, the LTX/frame-gen refusal), four `--ltx-crop-vsr` runs and the GUI (start-up, migration of v0.10.0-era presets, queue processing, the visual check of the player and the rest) passed. `--ltx-trial` builds its native block only when `cl` is on PATH and otherwise runs through torch.compile (a session with vcvars64 applied, such as a Developer PowerShell, attempts the native build). The same day VALI became a required step on Windows and Section 5 was reordered: build packages (including setuptools<81), the VALI wheel build, the jasna install with `--find-links`, then the mmengine patch. For the mmengine patch, the version upstream changed to `weights_only=True` in `7c64105` was found to break loading `v1.2.pth` in a source run, so the fork keeps shipping it with `False`; the section now describes all four files, and the tool changed from the Python `patch` package (which silently skips the `model/__init__.py` hunk) to the GNU patch of Git for Windows.
 - **nvidia-vfx 0.2.0.0 pin (2026-10-03, verified on Windows: RTX 5080, driver 616.92)**: the branch pins `nvidia-vfx==0.2.0.0` (upstream leaves it unpinned) for the `VideoFrameGeneration` effect behind `--frame-gen-backend rtx`. 0.2.0.0 bundles no TensorRT (which ended the `libnvinfer` clash that mattered on Linux) and ships its own `cudart64_12.dll`. Venvs created earlier hold 0.1.0.1: `uv pip install nvidia-vfx==0.2.0.0`.
-- **PyAV from PyPI (2026-08-24, not re-verified on Windows)**: av 18.1.0 reached PyPI with the current_ctx API and the explicit CUDA stream support the encoder uses, ending the interim self-built wheel of B.1. That interim wheel reports `18.0.0`, so the Section 5 install replaces it (or `uv pip install "av>=18.1"` at once); `Test-Path .venv\Lib\site-packages\av.libs` is true only while the interim wheel is installed. The official wheel is verified on Linux; the last Windows-verified setup (v0.10.0, 2026-08-13) used the interim wheel built from commit `f6f0a5e`, which is contained in 18.1.0.
-- **v0.10.0 base (verified 2026-08-13: Windows 11, RTX 5060 Ti, driver 610.88, Python 3.13.9, CUDA 13.2, ffmpeg 8.1)**: the full-pytest failure set matched the bare v0.10.0 baseline; fifteen CLI runs (including `--cq`, chapter/subtitle preservation, `JASNA_DECODE_BACKEND`, post-export commands, near-lock retarget and streaming restart) and the GUI smoke (restored-video player on the VLC and SoftwareClock paths, queue right-click actions, A/B comparison, Segment Editor) passed; the VALI fork wheel 4.8.8 (`f4a67f8`) was built and verified (Section 5.3). New at this base: the `JASNA_DECODE_BACKEND` environment variable, and the `python_vali==4.8.8` pin, which on Windows made the self-built fork wheel a prerequisite of the `[nvidia]` resolve (Section 5).
+- **PyAV from PyPI (2026-08-24; verified on Windows 2026-10-16)**: av 18.1.0 reached PyPI with the current_ctx API and the explicit CUDA stream support the encoder uses, ending the interim self-built wheel of B.1. That interim wheel reports `18.0.0`, so the Section 5 install replaces it (or `uv pip install "av>=18.1"` at once); if `python -c "import av; print(av.__version__)"` prints `18.0.0`, the interim wheel is still installed. The PyPI Windows wheel (tag `cp311-abi3-win_amd64`) is delvewheel-repaired too and carries `av.libs`, so the presence of `av.libs` tells nothing. The official wheel is verified on Linux and Windows; the last Windows-verified setup (v0.10.0, 2026-08-13) used the interim wheel built from commit `f6f0a5e`, which is contained in 18.1.0.
+- **v0.10.0 base (verified 2026-08-13: Windows 11, RTX 5060 Ti, driver 610.88, Python 3.13.9, CUDA 13.2, ffmpeg 8.1)**: the full-pytest failure set matched the bare v0.10.0 baseline; fifteen CLI runs (including `--cq`, chapter/subtitle preservation, `JASNA_DECODE_BACKEND`, post-export commands, near-lock retarget and streaming restart) and the GUI smoke (restored-video player on the VLC and SoftwareClock paths, queue right-click actions, A/B comparison, Segment Editor) passed; the VALI fork wheel 4.8.8 (`f4a67f8`) was built and verified (now Section 5.2). New at this base: the `JASNA_DECODE_BACKEND` environment variable, and the `python_vali==4.8.8` pin, which on Windows made the self-built fork wheel a prerequisite of the `[nvidia]` resolve (Section 5).
 - **v0.9.1 base (verified 2026-07-30, RTX 5080)**: the VALI NVDEC decode backend returned as an optional, self-built fork wheel (fork commit `3ad0d54` = 4.8.7; both decode paths through VALI, output bitstream-md5-identical to the PyAV run, coexistence with the av wheel and torchcodec confirmed). The encoder started passing a CUDA stream via `CudaContext(cuda_stream=...)`, which until av 18.1.0 required the interim PyAV wheel. All TensorRT engines recompiled once.
 - **v0.8.1 base (verified 2026-07-19)**: the GPU stack moved into the `nvidia` / `amd` extras (hence `.[dev,nvidia]`), `requires-python` relaxed to `>=3.12`.
-- **v0.8.0 base (verified 2026-07-18, Windows 11, RTX 5080)**: upstream moved the media layer to PyAV (NVDEC/NVENC) and removed `python_vali` / `PyNvVideoCodec` from the runtime. With their C++ builds went every prerequisite the earlier guide needed: CUDA Toolkit 13.2 and the pinned `CUDA_PATH`, VS Build Tools 2022, the ffmpeg dev build under `C:\Program Files\ffmpeg8\` with its junction workaround (the `FFMPEG_ROOT` hardcode belonged to vali and matters again only for Section 5.3), the build environment variables (`DISTUTILS_USE_SDK`, `CMAKE_GENERATOR`, `CL=/utf-8`, `FFMPEG_DIR`) and `setup-build-env.ps1`, the `setuptools<80` pin, and MKVToolNix. Leftovers of these do no harm (`CUDA_PATH` is even consulted by Appendix A.2). The NVIDIA driver minimum rose to 610. The FP8 backend was first verified on Windows here.
+- **v0.8.0 base (verified 2026-07-18, Windows 11, RTX 5080)**: upstream moved the media layer to PyAV (NVDEC/NVENC) and removed `python_vali` / `PyNvVideoCodec` from the runtime. With their C++ builds went every prerequisite the earlier guide needed: CUDA Toolkit 13.2 and the pinned `CUDA_PATH`, VS Build Tools 2022, the ffmpeg dev build under `C:\Program Files\ffmpeg8\` with its junction workaround (the `FFMPEG_ROOT` hardcode belonged to vali), the build environment variables (`DISTUTILS_USE_SDK`, `CMAKE_GENERATOR`, `CL=/utf-8`, `FFMPEG_DIR`) and `setup-build-env.ps1`, the `setuptools<80` pin, and MKVToolNix. Of these, VS Build Tools, the CUDA Toolkit and `C:\Program Files\ffmpeg8` are needed again since the v0.10.0 base made the VALI fork build a prerequisite of the `[nvidia]` resolve (Section 5.2). Leftovers of these do no harm (`CUDA_PATH` is even consulted by Appendix A.2). The NVIDIA driver minimum rose to 610. The FP8 backend was first verified on Windows here.
 
 ### B.1 Interim PyAV wheel build (2026-07 to 2026-08)
 
