@@ -9,6 +9,14 @@ models require the official release. LTX trial mode uses random weights and
 does not restore videos. A missing private module disables activation; errors
 inside an installed module still report a failure.
 
+**`+modi` fork.** The from-source setup of this fork, including the optional
+VALI fork wheel, the RIFE weights and the external venvs of SeedVR2, FlashVSR
+and SwiftVR, is written up step by step in [building_linux.md](building_linux.md)
+and [building_windows.md](building_windows.md). Installing the `nvidia-rtx`
+extra instead of `nvidia` gives the TensorRT-RTX flavor (one flavor per venv,
+[tensorrt_rtx.md](tensorrt_rtx.md)). The modi features and their status are
+listed in [changes_vs_upstream.md](changes_vs_upstream.md).
+
 ## Requirements
 
 - Python **3.12+** (releases ship 3.13 on NVIDIA, 3.12 on AMD).

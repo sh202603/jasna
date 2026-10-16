@@ -66,7 +66,7 @@ Jasna はローカルディスク（Windows では NTFS、Linux では ext4、Bt
 出力ファイルは作られません。
 
 1. 検出モデル、検出しきい値、必要なら二次復元（**RTX Super Res** または
-   **UNet 4x**）を選びます。
+   **UNet 4x**）を選びます。*(+modi)* **復元チェックポイント**も選べます（後述）。
 2. **動画を選択**を押します。
 3. 再生を押します。
 
@@ -77,7 +77,31 @@ Jasna はローカルディスク（Windows では NTFS、Linux では ext4、Bt
   なる場合、この設定ではお使いの GPU がリアルタイムに追いつけていません。
   音声はフレームの準備ができるまで待ちます。
 - プレーヤーは LTX ではなく、常に BasicVSR++ を使います。
+- *(+modi)* **復元チェックポイント**のドロップダウンには `model_weights` 直下の
+  BasicVSR++ チェックポイントが並びます（[A/B 比較](segments.md#ab-モデル比較)と
+  同じ規則）。TensorRT エンジンが未コンパイルのチェックポイントを選ぶと
+  PyTorch 実行になり、ステータスにその旨が出ます（低速で、バッファリングが
+  増えます）。EMA 重みを持たないチェックポイントはランダム出力になるため
+  拒否されます。
 - キューと**復元プレビュー**が動いていないときだけ使えます。
+
+## `+modi` で追加された設定
+
+このフォークは設定パネルにいくつかの項目を追加しています。それぞれに
+ツールチップがあり、[CLI リファレンス](cli.md)に対応するオプションがあります。
+
+- **基本**: **FP8 復元（実験的）**。cuDNN FP8 の upsample バックエンドです
+  （`--fp8-recon`、[fp8_recon.md](fp8_recon.md)）。
+- **エンコード**: **フレーム生成**（倍率、バックエンド、RTX モード、RIFE 重みの
+  パス。`--frame-gen`、[frame_generation.md](frame_generation.md)）と
+  **ビデオバックエンド**（native / auto / torchcodec。`--video-backend`、
+  [torchcodec_backend.md](torchcodec_backend.md)）。
+- **二次復元**: RTX Super Res の**強さ**スライダーと**高ビットレートモデル**
+  スイッチ（`--rtx-strength`、`--rtx-highbitrate`）。
+- **区間エディター**: **A/B 比較…**（[segments.md](segments.md#ab-モデル比較)）。
+
+SeedVR2、FlashVSR、SwiftVR、`--ltx-crop-vsr` は CLI 専用です。
+[changes_vs_upstream.md](changes_vs_upstream.md) をご覧ください。
 
 ## 画像を 1 枚ずつ処理
 

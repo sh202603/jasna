@@ -47,6 +47,10 @@ jasna --input input.mp4 --output output.mkv --detection-model rfdetr-v6
 jasna --input input.mp4 --output output.mkv --restoration-model-name ltx
 ```
 
+*(+modi)* 本分支新增第三个视频模型 **SeedVR2 + LoRA**（`--restoration-model-name seedvr2`，
+仅 CLI）：在外部 venv 中运行的单步扩散修复器，对低分辨率、严重劣化的素材效果最好，
+但比 BasicVSR++ 慢很多。见 [seedvr2.md](../en/seedvr2.md)（英文）。
+
 ### LTX 需要什么
 
 - **许可证**：包含 LTX 的许可证码（25 美元，同时包含 UNet 4x 和 SD 1.5，见
@@ -146,6 +150,12 @@ Jasna 把每个马赛克修复成一张 256x256 的图。在大马赛克、特�
   Windows。请使用 `iris-2` 模型。
 
 使用 LTX 时不会用到。
+
+*(+modi)* 本分支还新增三种二级修复，均仅限 CLI，扩散模型需自行安装：**FlashVSR**
+（`flashvsr`、`flashvsr-inline`；[flashvsr.md](../en/flashvsr.md)）、**SwiftVR**
+（`swiftvr`、`swiftvr-inline`，比 FlashVSR 快；[swiftvr.md](../en/swiftvr.md)）和进程内运行的
+小型 **SwiftVR distill**（`swiftvr-distill`，2x，无需 venv）。RTX Super Res 另有
+`--rtx-strength` 与 `--rtx-highbitrate` 两个可选项。均见英文文档。
 
 ```bash
 jasna --input input.mp4 --output output.mkv --secondary-restoration unet-4x

@@ -51,6 +51,11 @@ LTX は、特に大事な動画やシーンに使ってください。選ぶ前�
 jasna --input input.mp4 --output output.mkv --restoration-model-name ltx
 ```
 
+*(+modi)* このフォークは 3 つ目の動画モデル **SeedVR2 + LoRA**
+（`--restoration-model-name seedvr2`、CLI のみ）を追加しています。外部 venv で
+動く one-step 拡散モデルで、低解像度で劣化の大きい素材に最も強く、BasicVSR++
+よりずっと遅いです。[seedvr2.md](seedvr2.md) をご覧ください。
+
 ### LTX に必要なもの
 
 - **ライセンス**: LTX を含むライセンスコード（25 USD、UNet 4x と SD 1.5 も含む、
@@ -162,11 +167,22 @@ NVIDIA のみです。
 - **RTX Super Res**（無料）: 非常に高速で、インストールは不要です。
   品質はまずまずです。一部の動画ではフリッカーが出るので、まず短いクリップで
   試してください。
+  *(+modi)* `--rtx-strength`（0.0〜1.0）は RTX の各パスの効き目を未処理の画の側へ
+  戻し、`--rtx-highbitrate` はクリーンソース向けの拡大モデルに切り替えます。
+  どちらもオプトインです。1080p テストクリップの目視ではアーティファクトは
+  出ませんでしたが、よりよく見えるかは素材次第です。詳しくは [cli.md](cli.md)。
 - **Topaz TVAI**: UNet 4x と同程度ですが、非常に遅いです。
   [Topaz Video](https://www.topazlabs.com/topaz-video) が必要です（有料、
   Windows のみ）。`iris-2` モデルを使ってください。
 
 LTX では使われません。
+
+*(+modi)* このフォークは二次復元をさらに 3 つ追加しています。いずれも CLI
+専用で、拡散モデルは自分で用意します: **FlashVSR**（`flashvsr`、
+`flashvsr-inline`。[flashvsr.md](flashvsr.md)）、**SwiftVR**（`swiftvr`、
+`swiftvr-inline`。FlashVSR より高速。[swiftvr.md](swiftvr.md)）、プロセス内で
+動く小さな **SwiftVR distill**（`swiftvr-distill`、2x、venv 不要。
+[swiftvr.md](swiftvr.md#swiftvr-distill--secondary-restoration-swiftvr-distill)）。
 
 ```bash
 jasna --input input.mp4 --output output.mkv --secondary-restoration unet-4x

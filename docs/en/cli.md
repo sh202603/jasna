@@ -53,8 +53,17 @@ Jasna uses `TMP` first, then `TEMP`. `TMPDIR` is not used.
 
 | Option | Default | Notes |
 | ------ | ------- | ----- |
-| `--restoration-model-name` | `basicvsrpp` | Video restoration model: `basicvsrpp` (fast), `ltx` (more detail, much slower) or `ltx-undistilled` (the Best LTX model: slightly better than `ltx`, about 1.5x slower). See [Choosing models](models.md#restoration-model). |
+| `--restoration-model-name` | `basicvsrpp` | Video restoration model: `basicvsrpp` (fast), `ltx` (more detail, much slower) or `ltx-undistilled` (the Best LTX model: slightly better than `ltx`, about 1.5x slower). See [Choosing models](models.md#restoration-model). *(+modi)* also `seedvr2` (SeedVR2 3B diffusion + LoRA in an external venv, quality mode, much slower; needs `--seedvr2-repo`; cannot be combined with `--frame-gen`, VR or the inline FlashVSR/SwiftVR secondaries). See [seedvr2.md](seedvr2.md). |
 | `--restoration-model-path` | `model_weights/lada_mosaic_restoration_model_generic_v1.2.pth`, or `model_weights/ltx-restore` for LTX | Restoration weights (a folder for LTX). |
+| `--seedvr2-repo` | — | *(+modi)* Path to your `ComfyUI-SeedVR2_VideoUpscaler` checkout. Required for `seedvr2`. |
+| `--seedvr2-python` | `<repo>/.venv/bin/python` | *(+modi)* Python of the SeedVR2 venv. |
+| `--seedvr2-lora` | `model_weights/lada_seedvr2_lora_v6.pt` | *(+modi)* LoRA checkpoint (swap-in point for fine-tunes). |
+| `--seedvr2-window` / `--seedvr2-overlap` | `33` / `9` | *(+modi)* Sliding-window length (4n+1) and cross-fade overlap. |
+| `--seedvr2-color-fix` | `lab` | *(+modi)* Per-clip color correction: `none`, `lab`, `wavelet`. |
+| `--seedvr2-empty-cache` | `auto` | *(+modi)* Per-clip VRAM release in the SeedVR2 worker: `auto`, `always`, `never`. |
+| `--seedvr2-accel` / `--no-seedvr2-accel` | off | *(+modi)* SeedVR2 fused VAE path and FP8 DiT (LoRA merged). Needs a checkout that provides them (the `modi` branch of the fork); the worker drops unavailable parts with a warning. See [seedvr2.md](seedvr2.md). |
+| `--seedvr2-model-dir`, `--seedvr2-dit`, `--seedvr2-lora-rank` | see `--help` | *(+modi)* Base-weights overrides. See [seedvr2.md](seedvr2.md). |
+| `--fp8-recon` / `--no-fp8-recon` | off | *(+modi, experimental)* Run the BasicVSR++ upsample stage as cuDNN FP8 convolutions; lower peak VRAM, falls back to TensorRT on failure. Needs sm89+ and `--fp16`. Auto-enabled by `flashvsr-inline` and `swiftvr-inline`. See [fp8_recon.md](fp8_recon.md). |
 | `--ltx-fast` / `--no-ltx-fast` | off | LTX: about 1.4x faster, slightly less detail. RTX 50-series only; other GPUs stop with an error. |
 | `--ltx-large-canvas` / `--no-ltx-large-canvas` | off | LTX: more detail on large mosaics, about 3x slower on those. Needs about 12 GB of free VRAM; with less, those mosaics are restored normally. |
 | `--ltx-seed` | `20260923` | LTX: another seed gives a slightly different result; the same seed repeats it. |
@@ -92,12 +101,35 @@ The `--ltx-*` options need `--restoration-model-name ltx` or `ltx-undistilled`.
 | `--rtx-quality` | `high` | `low`, `medium`, `high`, `ultra`. |
 | `--rtx-denoise` | `medium` | `none`, `low`, `medium`, `high`, `ultra`. |
 | `--rtx-deblur` | `none` | `none`, `low`, `medium`, `high`, `ultra`. |
+| `--rtx-strength` | `1.0` | *(+modi)* Strength of every RTX pass (upscale, denoise, deblur), `0.0`–`1.0`; lower blends toward the unprocessed picture. Needs `nvidia-vfx` 0.2.0.0+. |
+| `--rtx-highbitrate` | off | *(+modi)* Use the RTX upscale models tuned for clean, high-bitrate sources (`HIGHBITRATE_*`, no compression-artifact suppression). Opt-in; visually clean on the test clip, effect is source-dependent. |
 | `--tvai-ffmpeg-path` | Topaz default install path | Path to Topaz Video `ffmpeg.exe` (Windows only). |
 | `--tvai-model` | `iris-2` | e.g. `iris-2`, `prob-4`, `iris-3`. |
 | `--tvai-scale` | `4` | Output size is `256*scale`; `1` = no scale. |
 | `--tvai-args` | see `--help` | Extra `tvai_up` parameters. |
 | `--tvai-workers` | `2` | Parallel TVAI ffmpeg workers. |
 | `--tvai-denoise` | off | Remove noise before the Topaz model runs. Slower, uses more VRAM. |
+| `--flashvsr-repo` | — | *(+modi)* Path to your `FlashVSR_plus` checkout. Required for both FlashVSR modes. The fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus) is recommended. |
+| `--flashvsr-python` | `<repo>/.venv/bin/python` | *(+modi)* Python of the FlashVSR venv (its base Python must ship the dev headers). |
+| `--flashvsr-model-dir` | `<repo>/models/FlashVSR-v1.1` | *(+modi)* FlashVSR weights directory. |
+| `--flashvsr-version` / `--flashvsr-dtype` | `11` / `bf16` | *(+modi)* Model version and compute dtype. |
+| `--flashvsr-scale` | `4` | *(+modi)* Processing scale for both modes: `4` = model-native 1024px, `2` = 512px (faster, lower VRAM). Output resolution is unchanged. |
+| `--flashvsr-tiles` | `1` | *(+modi)* Horizontal DiT strips for the inline mode (VRAM lever; use `2` for 1080p on 16 GB). |
+| `--flashvsr-accel` | off | *(+modi)* Both modes: use the fork's acceleration (FP8 and fused kernels, about 1.4x faster). Needs an RTX 40 series or newer GPU; anything else falls back to the standard path automatically. See [flashvsr.md](flashvsr.md#acceleration---flashvsr-accel). |
+| `--flashvsr-lora` | none | *(+modi)* Inline only: apply the Lada LoRA for FlashVSR (`lada_flashvsr_secondary_lora_v1.pt`; a bare file name is looked up in `model_weights`). Tones down FlashVSR's over-sharpening; combines with `--flashvsr-accel`. The offline mode rejects it. See [flashvsr.md](flashvsr.md#lora---flashvsr-lora). |
+| `--flashvsr-max-clip-frames`, `--flashvsr-unload-dit`, `--flashvsr-tiled-vae`, `--flashvsr-bundle-dir`, `--flashvsr-keep-bundle` | see `--help` | *(+modi)* Offline-mode memory/disk knobs. See [flashvsr.md](flashvsr.md). |
+| `--swiftvr-repo` | — | *(+modi)* Path to your SwiftVR checkout. Required for `swiftvr` and `swiftvr-inline`. The fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR) (branch `modi`, with `restore_clip()`) is required. |
+| `--swiftvr-python` | `<repo>/.venv/bin/python` | *(+modi)* Python of the SwiftVR venv (created by `uv sync`; on Linux its base Python must ship the dev headers). |
+| `--swiftvr-model-dir` | `<repo>/checkpoints` | *(+modi)* SwiftVR checkpoint directory. |
+| `--swiftvr-scale` | `4` | *(+modi)* Processing scale: `4` = model-native 1024px, `2` = 512px (faster, lower VRAM). Output resolution is unchanged. |
+| `--swiftvr-view-window` | `15` | *(+modi)* Smooth the position and scale of the crop view SwiftVR sees with a moving average over N frames (`0` disables). The primary crops follow the detection box and shift by a few px every frame, and SwiftVR redraws its detail on such shifts, which was the main cause of the scale 2 flicker. The primary restoration and the blend mask are unchanged. See [swiftvr.md](swiftvr.md#crop-view-smoothing---swiftvr-view-window). |
+| `--swiftvr-accel` | on | *(+modi)* FP8 DiT and torch.compile (`--no-swiftvr-accel` disables). Needs an RTX 40 series or newer GPU and a working Triton; unavailable parts are dropped at startup with a warning. See [swiftvr.md](swiftvr.md#acceleration---swiftvr-accel). |
+| `--swiftvr-bundle-dir` | temp | *(+modi)* `swiftvr` (offline) only: persist the intermediate bundle here (enables stage resume). See [swiftvr.md](swiftvr.md#offline-3-phase-mode---secondary-restoration-swiftvr). |
+| `--swiftvr-keep-bundle` | off | *(+modi)* `swiftvr` (offline) only: keep the bundle after completion (implied by `--swiftvr-bundle-dir`). |
+| `--swiftvr-distill-model` | `model_weights/swiftvr-distill.pt` | *(+modi)* Checkpoint for `swiftvr-distill`; a bare file name is looked up in `model_weights`. Not bundled: download it from [okatti/swiftvr-distill](https://huggingface.co/okatti/swiftvr-distill) (AGPL-3.0). |
+| `--swiftvr-distill-view-window` | `15` | *(+modi)* Crop view smoothing for `swiftvr-distill`, like `--swiftvr-view-window` (`0` disables). |
+| `--swiftvr-distill-strength` | `0.75` | *(+modi)* Scale of the detail the model adds to its bilinear 2x upscale (`0`–`2`; `0` = plain upscale, `1` = the model's output). Lower trades detail for less flicker. |
+| `--swiftvr-distill-stabilize` | `0` | *(+modi, experimental)* Blend the added detail over N frames on each side (`0`–`8`) where the inputs agree. On the test footage it only traded detail for flicker like a lower strength. |
 
 ## SD 1.5 image restoration
 
@@ -131,6 +163,12 @@ Still images route here automatically; `--restoration-model-name` is video-only.
 | `--fmp4` | off | Play `.mp4`/`.mov` output while it is still being made; it also survives an interrupted job. Not available with `--stream`, `--segments` or `--ltx-auto-split`. See [Advanced processing](advanced_processing.md). |
 | `--segments` | — | Restore only these ranges of one video, in seconds or `mm:ss`, e.g. `10-25,01:10-01:30.5`. Cannot be combined with `--stream`, `--retarget-high-fps`, `--fmp4` or `--ltx-auto-split`, or with image or folder input. See [Segments](segments.md). |
 | `--working-directory` | output dir | Where temporary files for `--segments` and LTX are written. See [Segments](segments.md). |
+| `--frame-gen` | `none` | *(+modi)* AI frame interpolation to `2x`/`4x` the output frame rate. File output only; not with `--segments`, LTX, `seedvr2`, FlashVSR or SwiftVR. See [frame_generation.md](frame_generation.md). |
+| `--frame-gen-backend` | `rife` | *(+modi)* `rife` (RIFE in PyTorch, any supported GPU, needs `rife.pth`) or `rtx` (NVIDIA RTX Video Frame Generation via `nvidia-vfx` 0.2.0.0+, RTX 40 series or newer, no weights, ~10x faster). |
+| `--frame-gen-model-path` | `model_weights/rife.pth` | *(+modi)* Optional RIFE weights path (TorchScript `.pth` recommended). RIFE only. |
+| `--frame-gen-rtx-mode` | `medium` | *(+modi)* RTX Video Frame Generation quality mode, `low`/`medium`/`high`. `high` is ~6x slower than `medium` for a marginal gain. |
+| `--video-backend` | `native` | *(+modi, experimental)* `native`, `auto`, or `torchcodec`. See [torchcodec_backend.md](torchcodec_backend.md). |
+| `--decode-backend` / `--encode-backend` | `inherit` | *(+modi)* Override the backend per side; `torchcodec` encode is 8-bit only and must be forced. |
 
 ### Choosing a codec
 

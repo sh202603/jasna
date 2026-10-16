@@ -9,11 +9,18 @@ Jasna は JAV の動画と画像のモザイクを復元します。無料で、
 
 > ### ⚙️ これは Jasna の `+modi` フォークです
 >
-> 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) v0.8.1 をベースにした改変ビルドで、**フレーム生成**（`--frame-gen` 2x/4x）、**torchcodec 動画バックエンド**、**FP8 復元バックエンド**、**SeedVR2 一次復元**、**FlashVSR / SwiftVR セカンダリ復元**、**LTX 出力の鮮明化**（`--ltx-crop-vsr`、[docs/ja/ltx_crop_vsr.md](docs/ja/ltx_crop_vsr.md)）などを追加しています。
+> 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) **v0.11.1** をベースにした改変ビルドで、次を追加しています。
+>
+> - **復元モデル**: **SeedVR2 + LoRA** 一次復元、**FlashVSR**・**SwiftVR**・**SwiftVR distill** 二次復元、**RTX Super Res** の追加オプション 2 つ（`--rtx-strength`、`--rtx-highbitrate`）、**LTX 出力の鮮明化**（`--ltx-crop-vsr`）。
+> - **フレーム生成**（`--frame-gen` 2x/4x、RIFE または RTX Video Frame Generation）と、復元済み動画向けのスタンドアロン `jasna-framegen`。
+> - **バックエンド**: 実験的な **torchcodec 動画バックエンド**、実験的な **cuDNN FP8 復元バックエンド**、エンジンを数秒でビルドする **TensorRT-RTX** フレーバー。
+> - **GUI**: 区間エディターの **A/B モデル比較**と、動画プレーヤーの**復元チェックポイント**選択。
+>
+> 全変更は層別に、状態と詳細ガイドへのリンク付きで [docs/ja/changes_vs_upstream.md](docs/ja/changes_vs_upstream.md) にまとめています。機能別のガイドは下の[`+modi` のガイド](#すべてのガイド)にあります。
 >
 > - **このビルドでは LTX による復元はできません。** このフォークは公開ソースから作っており、LTX モデルの重みは暗号化（`.enc`）されていて、復号できるのは公式リリースだけです。`--restoration-model-name ltx` と GUI の LTX モードはここでは動かず、`--ltx-trial` は速度測定だけで復元しません。LTX の結果が欲しい場合は公式リリースで復元し、必要ならその出力をここで `--ltx-crop-vsr` で鮮明化できます（[docs/ja/ltx_crop_vsr.md](docs/ja/ltx_crop_vsr.md)）。
+> - **ソースから実行します。** セットアップはビルドガイド（[Linux](docs/ja/building_linux.md)、[Windows](docs/ja/building_windows.md)）に従ってください。Windows 向けには `scripts/build_nuitka.py` で実験的なバンドルを作れます（[docs/ja/frozen_build.md](docs/ja/frozen_build.md)）。
 > - **ソース（このフォーク/ブランチ）:** [sh202603/jasna @ `modi`](https://github.com/sh202603/jasna/tree/modi)
-> - **上流との変更点一覧:** [docs/ja/changes_vs_upstream.md](docs/ja/changes_vs_upstream.md)
 > - **対象範囲 — 公開（無料）機能のみ。** 支援者モデル（**unet-4x** と **SD 1.5 画像復元**）は支援者キーで解錠される暗号化チェックポイントで、復号コードは**この公開フォークに含まれない**プライベートサブモジュールにあります。そのため、これらのモデルは**ここではダウンロード・復号・実行できません**。上流のコードは同梱されますが inert（不活性）のままです。支援者モデルが必要な場合は上流 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) を使い支援者になってください。それ以外（検出・動画復元・RTX/TVAI セカンダリ・区間エディター・VR180・エクスポート後アクション・フレーム生成）は通常通り動作します。
 
 ## 目次
@@ -213,6 +220,25 @@ jasna --input input_folder --output output_folder
 - [CLI リファレンス](docs/ja/cli.md): すべてのコマンドラインオプション。
 - [ソースから実行](docs/en/development.md): 開発者向け（英語）。ソースからは
   無料の BasicVSR++ を使えます。有効化と支援者向けモデルには公式リリースが必要です。
+
+**`+modi` のガイド**（このフォークの機能。英語と日本語のみ）:
+
+- [上流との変更点](docs/ja/changes_vs_upstream.md): modi の全機能を層別に、
+  状態、互換マトリクス、リベース履歴とともに。
+- [SeedVR2 一次復元](docs/ja/seedvr2.md)、[FlashVSR](docs/ja/flashvsr.md)、
+  [SwiftVR / SwiftVR distill](docs/ja/swiftvr.md) 二次復元: 専用 venv で動く
+  外部の拡散モデル（CLI のみ）。
+- [LTX 出力の鮮明化](docs/ja/ltx_crop_vsr.md): 公式リリースが LTX で復元した
+  動画向けの `--ltx-crop-vsr`。
+- [フレーム生成](docs/ja/frame_generation.md): `--frame-gen`、RIFE と RTX の
+  バックエンド、`jasna-framegen`。
+- [torchcodec バックエンド](docs/ja/torchcodec_backend.md)、
+  [FP8 復元バックエンド](docs/ja/fp8_recon.md)、
+  [TensorRT-RTX フレーバー](docs/ja/tensorrt_rtx.md): 実験的なバックエンド。
+- [Linux でのビルド](docs/ja/building_linux.md)、
+  [Windows でのビルド](docs/ja/building_windows.md)、
+  [Windows 向け凍結バンドル](docs/ja/frozen_build.md): ソースからのセットアップと
+  パッケージング。
 
 ### ベンチマーク
 
