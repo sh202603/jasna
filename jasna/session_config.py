@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Mapping
 
-RestorationModelName = Literal["basicvsrpp", "ltx"]
+RestorationModelName = Literal["basicvsrpp", "ltx", "seedvr2"]
 LtxModelName = Literal["distilled1", "distilled2", "distilled4", "distilled", "undistilled"]
 LTX_DEFAULT_MODEL: LtxModelName = "distilled2"
 
@@ -21,7 +21,10 @@ LTX_AUTO_DEFAULT_PERCENT = 12
 # the crossfade after a window's unfused lead frames.
 LTX_OVERLAP_CHOICES = (17, 25, 33, 41, 49)
 LTX_DEFAULT_OVERLAP = 17
-SecondaryRestorationName = Literal["none", "unet-4x", "tvai", "rtx-super-res"]
+SecondaryRestorationName = Literal[
+    "none", "unet-4x", "tvai", "rtx-super-res", "flashvsr-inline", "swiftvr-inline",
+    "swiftvr-distill",
+]
 LTX_SECONDARY_RESTORATIONS: tuple[SecondaryRestorationName, ...] = ("none", "rtx-super-res")
 """What LTX restoration supports without auto split; the others need BasicVSR++ parts."""
 
@@ -135,9 +138,8 @@ class SessionConfig:
     swiftvr_distill_view_window: int = 15
     swiftvr_distill_strength: float = 0.75
     swiftvr_distill_stabilize: int = 0
-    # Primary restoration model. For "seedvr2", ``restoration_model_path``
+    # SeedVR2 primary (restoration_model_name "seedvr2"): ``restoration_model_path``
     # carries the LoRA checkpoint instead of the BasicVSR++ checkpoint.
-    restoration_model_name: RestorationModelName = "basicvsrpp"
     seedvr2_repo: str = ""
     seedvr2_python: str = ""
     seedvr2_model_dir: str = ""
