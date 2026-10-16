@@ -44,7 +44,7 @@
 | 二次復元 | SwiftVR（inline / オフライン 3 段） | `--secondary-restoration swiftvr-inline` / `swiftvr` | 実験的。Linux・Windows 検証済み | [swiftvr.md](swiftvr.md)、[3.3](#33-swiftvr-二次復元) |
 | 二次復元 | SwiftVR distill（プロセス内の小型 student） | `--secondary-restoration swiftvr-distill` | 実験的。Linux・Windows 検証済み | [swiftvr.md](swiftvr.md#swiftvr-distill--secondary-restoration-swiftvr-distill)、[3.4](#34-swiftvr-distill-二次復元) |
 | 二次復元 | RTX Super Res の追加オプション | `--rtx-strength`、`--rtx-highbitrate` | オプトイン。目視確認済み | [3.5](#35-rtx-super-res-の追加オプション) |
-| LTX 後処理 | LTX 出力を SwiftVR で鮮明化 | `--ltx-crop-vsr swiftvr` / `swiftvr-distill` | Linux 検証済み。ユーザー目視と Windows は未了 | [ltx_crop_vsr.md](ltx_crop_vsr.md)、[3.6](#36-ltx-出力の鮮明化--ltx-crop-vsr) |
+| LTX 後処理 | LTX 出力を SwiftVR で鮮明化 | `--ltx-crop-vsr swiftvr` / `swiftvr-distill` | Linux 検証済み、ユーザー目視合格。Windows は未了 | [ltx_crop_vsr.md](ltx_crop_vsr.md)、[3.6](#36-ltx-出力の鮮明化--ltx-crop-vsr) |
 | フレーム生成 | 2x / 4x のフレームレート倍化 | `--frame-gen 2x\|4x`、`--frame-gen-backend rife\|rtx`、`jasna-framegen` | Linux・Windows 検証済み | [frame_generation.md](frame_generation.md)、[4](#4-フレーム生成) |
 | メディアバックエンド | torchcodec のデコード/エンコード | `--video-backend`、`--decode-backend`、`--encode-backend` | 実験的。Linux・Windows 検証済み | [torchcodec_backend.md](torchcodec_backend.md)、[5.1](#51-torchcodec-動画バックエンド) |
 | エンジンバックエンド | cuDNN FP8 の upsample 段 | `--fp8-recon` | 実験的。Linux・Windows 検証済み | [fp8_recon.md](fp8_recon.md)、[5.2](#52-cudnn-fp8-upsample-バックエンド--fp8-recon) |
@@ -128,7 +128,7 @@
 - **モジュール** `jasna/ltx/refine.py`: 整合確認（2 本をパケット単位で demux し、枚数、解像度、各フレームの stream 先頭からの時刻が半フレーム以内で一致すること）、scan（`scan_span` を 1 segment で。`--ltx-large-canvas` は指定どおり。終了後に検出器を解放）、1 パスの駆動部 `WindowRefiner`（LTX フレームが届くたびに canvas を作り、window が揃ったら ×2、覆う window がすべて終わるまでフレームを pinned ホストバッファに保持（最大 121 枚））。LTX 出力と元動画を並走デコードし、track polygon 内の輝度差平均で LTX が復元した window と触っていない window を見分け（閾値 3/255）、後者は警告して skip します。このビルドの検出器数値差だけで出た track を、モザイクのまま鮮明化しないためです。
 - **配線**: `SessionConfig.ltx_crop_vsr` / `ltx_crop_vsr_source`。`build_restoration_session` は検出器のエンジンだけコンパイルし一次モデルを読みません。`build_ltx_crop_vsr_restorer` が scan 後に restorer を作り（scale 2、view 平滑化なし）、`Pipeline.run` が `_run_ltx_refine` へ分岐します。BasicVSR++ の重みは不要。
 - **拒否**: 一次側のオプション、フレーム列や全画面を変えるもの（`--segments`、`--ltx-auto-split`、`--stream`、`--retarget-high-fps`、`--fmp4`、`--frame-gen`、VR、画像とフォルダ入力、`--lut`、`--sharpen`）、`--swiftvr-scale 4`、view-window 系、`--ltx-large-canvas` と `--swiftvr-distill-stabilize` の併用。
-- **状態**（Linux、2026-10-16）: 30 秒のプローブ素材 2 組（720x480 と 1080p、リリース v0.11.1 の LTX 出力）で両方式が完走し、plan はリリースと同じ（2 track、11 window）、枚数とタイミングは LTX 出力と一致（0.5 ms 以内）。再エンコード基準で texture 115〜122%、揺れの増加 +8〜11%。30 秒素材の壁時計は distill で 23〜28 秒（VRAM 上乗せ 2.5〜2.8 GB）、SwiftVR で 50〜55 秒（9.8〜10.8 GB、16 GB カード向け）。ユーザー目視、768 px canvas、小さいモザイクの素材、Windows は未了。テスト: `tests/test_ltx_refine.py`、`test_ltx_refine_cli.py`、`test_ltx_refine_gpu.py`。詳細は [ltx_crop_vsr.md](ltx_crop_vsr.md)。
+- **状態**（Linux、2026-10-16）: 30 秒のプローブ素材 2 組（720x480 と 1080p、リリース v0.11.1 の LTX 出力）で両方式が完走し、plan はリリースと同じ（2 track、11 window）、枚数とタイミングは LTX 出力と一致（0.5 ms 以内）。再エンコード基準で texture 115〜122%、揺れの増加 +8〜11%。30 秒素材の壁時計は distill で 23〜28 秒（VRAM 上乗せ 2.5〜2.8 GB）、SwiftVR で 50〜55 秒（9.8〜10.8 GB、16 GB カード向け）。ユーザー目視（404p〜720p の実素材 5 本、SwiftVR 強度 1.0）は狙いどおりで合格。768 px canvas、小さいモザイクの素材、Windows は未了。テスト: `tests/test_ltx_refine.py`、`test_ltx_refine_cli.py`、`test_ltx_refine_gpu.py`。詳細は [ltx_crop_vsr.md](ltx_crop_vsr.md)。
 
 ---
 
