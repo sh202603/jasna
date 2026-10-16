@@ -18,7 +18,7 @@ and a command line, and runs on your GPU.
 > A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) **v0.11.1**. It adds:
 >
 > - **Restoration models**: **SeedVR2 + LoRA** primary restoration; **FlashVSR**, **SwiftVR** and **SwiftVR distill** secondary restoration; two extra **RTX Super Res** knobs (`--rtx-strength`, `--rtx-highbitrate`).
-> - **Sharpening of LTX outputs** (`--ltx-crop-vsr`): takes a video the official release restored with LTX together with its source video, re-runs LTX's public mosaic scan, upscales the mosaic areas 2x with SwiftVR or SwiftVR distill and composites them back with LTX's own blending. This is the one way to work with LTX results in this build. See [docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md).
+> - **Sharpening of LTX outputs** (`--ltx-crop-vsr`): takes a video the official release restored with LTX together with its source video, re-runs LTX's public mosaic scan, upscales the mosaic areas 2x with SwiftVR or SwiftVR distill and composites them back with LTX's own blending. It is aimed above all at low-resolution inputs, whose restored crops LTX leaves soft. This is the one way to work with LTX results in this build. See [docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md).
 > - **Frame generation** (`--frame-gen` 2x/4x with RIFE or RTX Video Frame Generation) and the standalone `jasna-framegen` for already-restored videos.
 > - **Backends**: an experimental **torchcodec video backend**, an experimental **cuDNN FP8 restoration backend**, and the **TensorRT-RTX** flavor (engine builds in seconds instead of minutes).
 > - **GUI**: **A/B model comparison** in the Segment Editor and a **restoration checkpoint** selector in the Video Player.
