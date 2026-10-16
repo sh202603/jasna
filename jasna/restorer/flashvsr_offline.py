@@ -54,6 +54,7 @@ import numpy as np
 
 from jasna._frozen import is_frozen
 from jasna.restorer import bundled_script_path
+from jasna.restorer.worker_env import external_worker_env
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import argparse
@@ -1066,8 +1067,7 @@ def _phase2_upscale(
             )
         cmd += ["--color-fix-method", color_fix]
     # The FlashVSR venv must import its own repo, not inherit jasna's PYTHONPATH.
-    env = dict(os.environ)
-    env.pop("PYTHONPATH", None)
+    env = external_worker_env()
     if os.name == "nt":
         # FlashVSR prints a block-character banner at pipeline init; when stdout is
         # a pipe (GUI runs, output redirection) Windows defaults the child's text
