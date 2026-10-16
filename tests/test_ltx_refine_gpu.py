@@ -3,6 +3,7 @@ output's frame count and timing, and every window of the release's plan is resto
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from fractions import Fraction
@@ -30,6 +31,9 @@ pytestmark = pytest.mark.skipif(
 
 def test_distill_refine_keeps_the_ltx_output_frames_and_timing(tmp_path):
     output = tmp_path / "refined.mkv"
+    # A test that imported jasna.__main__ in this process leaves JASNA_MAIN_PID behind, and
+    # the CLI's fork guard then exits the child silently with 0.
+    environment = {k: v for k, v in os.environ.items() if k != "JASNA_MAIN_PID"}
     result = subprocess.run(
         [
             sys.executable, "-m", "jasna",
@@ -37,7 +41,7 @@ def test_distill_refine_keeps_the_ltx_output_frames_and_timing(tmp_path):
             "--ltx-crop-vsr", "swiftvr-distill", "--ltx-crop-vsr-source", str(SOURCE),
             "--cq", "20", "--log-level", "info", "--no-progress",
         ],
-        capture_output=True, text=True, timeout=900,
+        capture_output=True, text=True, timeout=900, env=environment,
     )
     assert result.returncode == 0, result.stderr[-3000:]
     log = result.stderr + result.stdout
