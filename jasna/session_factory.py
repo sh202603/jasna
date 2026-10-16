@@ -11,7 +11,7 @@ All heavy imports (torch, restorers, pipeline) stay inside the functions.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
@@ -68,10 +68,16 @@ class RestorationSession:
             self._detection_key = key
         return self._detection_model
 
-    def close(self) -> None:
+    def release_detection_model(self) -> None:
+        """Free the detector (its VRAM goes to the next model); the next
+        ``detection_model_for`` builds it again."""
         if self._detection_model is not None:
             self._detection_model.close()
             self._detection_model = None
+        self._detection_key = None
+
+    def close(self) -> None:
+        self.release_detection_model()
         if self.restoration_pipeline is not None:
             self.restoration_pipeline.restorer.close()
             if self.restoration_pipeline.secondary_restorer is not None:
@@ -261,10 +267,61 @@ def build_restoration_session(
     ):
         raise ValueError("LTX restoration does not support secondary restoration or denoise")
     session = RestorationSession(device=device, restoration_pipeline=None)
+    if config.ltx_crop_vsr is not None:
+        # The input is an LTX output: only the detector (for the source's scan) and,
+        # after the scan, the SwiftVR restorer run. BasicVSR++ neither loads nor compiles.
+        from jasna.engine_compiler import EngineCompilationRequest, ensure_engines_compiled
+
+        validate_ltx_crop_vsr(config)
+        ensure_engines_compiled(
+            EngineCompilationRequest(
+                device=str(device),
+                fp16=bool(config.fp16),
+                detection=True,
+                detection_model_name=config.detection_model_name,
+                detection_model_path=str(config.detection_model_path),
+                detection_batch_size=int(config.batch_size),
+            ),
+            log_callback=log_callback,
+        )
+        return session
     provide_restoration_models(
         config, session, frozenset({config.restoration_model_name}), log_callback=log_callback
     )
     return session
+
+
+def ltx_crop_vsr_config(config: SessionConfig) -> SessionConfig:
+    """The secondary-restorer settings ``--ltx-crop-vsr`` runs with: SwiftVR at scale 2
+    through the inline worker, or the distill student, both without the crop-view
+    smoothing (the LTX camera is smooth already, and the crops never go through the
+    frame pipeline)."""
+    if config.ltx_crop_vsr == "swiftvr":
+        return replace(config, secondary_restoration="swiftvr-inline", swiftvr_scale=2, swiftvr_view_window=0)
+    if config.ltx_crop_vsr == "swiftvr-distill":
+        return replace(config, secondary_restoration="swiftvr-distill", swiftvr_distill_view_window=0)
+    raise ValueError(f"Unsupported --ltx-crop-vsr backend: {config.ltx_crop_vsr}")
+
+
+def validate_ltx_crop_vsr(config: SessionConfig) -> None:
+    """Resolve the restorer's files now, before the scan, so a wrong path fails early."""
+    refined = ltx_crop_vsr_config(config)
+    if refined.secondary_restoration == "swiftvr-inline":
+        from jasna.restorer.swiftvr_common import resolve_swiftvr_paths
+
+        resolve_swiftvr_paths(
+            refined.swiftvr_repo, refined.swiftvr_python, refined.swiftvr_model_dir, mode="swiftvr-inline"
+        )
+    else:
+        from jasna.restorer.swiftvr_distill_model import resolve_swiftvr_distill_model_path
+
+        resolve_swiftvr_distill_model_path(refined.swiftvr_distill_model)
+
+
+def build_ltx_crop_vsr_restorer(config: SessionConfig, device: "torch.device"):
+    """The x2 restorer of ``--ltx-crop-vsr``; built after the scan so it never shares
+    the GPU with the detector."""
+    return _build_secondary_restorer(ltx_crop_vsr_config(config), device)
 
 
 def provide_restoration_models(
@@ -491,7 +548,8 @@ def build_pipeline(
     models = frozenset(
         segment.restoration.model for segment in resolve_restorations(tuple(segments or ()), default)
     ) or frozenset({config.restoration_model_name})
-    provide_restoration_models(config, session, models, log_callback=None)
+    if config.ltx_crop_vsr is None:
+        provide_restoration_models(config, session, models, log_callback=None)
 
     if decode_backend is None:
         decode_backend = VideoBackend.NATIVE

@@ -28,6 +28,7 @@ VrProjectionName = Literal["auto", "raw", "fisheye", "gnomonic"]
 RtxQualityName = Literal["low", "medium", "high", "ultra"]
 RtxLevelName = Literal["none", "low", "medium", "high", "ultra"]
 CodecName = Literal["hevc", "h264", "av1"]
+LTX_CROP_VSR_BACKENDS = ("swiftvr", "swiftvr-distill")
 
 
 @dataclass(frozen=True)
@@ -114,6 +115,11 @@ class SessionConfig:
     seedvr2_color_fix: str = "lab"
     seedvr2_empty_cache: str = "auto"
     seedvr2_accel: bool = False
+    # ``--ltx-crop-vsr`` (modi): sharpen the mosaic areas of an LTX output (the input)
+    # with SwiftVR; ``ltx_crop_vsr_source`` is the video LTX restored, scanned for the
+    # mosaics. No primary restorer loads.
+    ltx_crop_vsr: str | None = None
+    ltx_crop_vsr_source: Path | None = None
 
     def __post_init__(self) -> None:
         if self.batch_size <= 0:
@@ -132,3 +138,8 @@ class SessionConfig:
             raise ValueError("Detection score threshold must be in [0, 1]")
         if not 0.0 <= self.sharpen_strength <= 1.0:
             raise ValueError("Sharpening must be in [0, 1]")
+        if self.ltx_crop_vsr is not None:
+            if self.ltx_crop_vsr not in LTX_CROP_VSR_BACKENDS:
+                raise ValueError(f"--ltx-crop-vsr must be one of {', '.join(LTX_CROP_VSR_BACKENDS)}")
+            if self.ltx_crop_vsr_source is None:
+                raise ValueError("--ltx-crop-vsr needs --ltx-crop-vsr-source")
