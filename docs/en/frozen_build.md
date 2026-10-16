@@ -12,8 +12,8 @@ Background: upstream switched its packaging from PyInstaller to Nuitka, but its 
 
 - A working **from-source setup** per [building_windows.md](building_windows.md): the venv with all runtime dependencies installed, plus the `[dev]` extra (`uv pip install -e .[dev,nvidia]`), which provides `nuitka>=2.4`. Visual Studio Build Tools (MSVC) must be available — Nuitka compiles jasna to C.
 - The required model weights in `model_weights\`:
-  `lada_mosaic_restoration_model_generic_v1.2.pth`, `rfdetr-v5.onnx`, `lada_mosaic_detection_model_v4_fast.pt`.
-- Optional: `ffmpeg` / `ffprobe` (major version 8, **shared build** recommended) and `mkvmerge` on `PATH`. If found, they are bundled into `tools\` and `mkvtoolnix\`; if not, the build warns and the frozen app falls back to the end user's `PATH` at runtime. The `tools\` DLLs also serve the torchcodec backend: it loads the plain-named FFmpeg 8 DLLs (`avcodec-62.dll`, ...), which nothing else in the bundle provides (`av.libs` only carries delvewheel-mangled copies), so a build without bundled shared-build ffmpeg produces a distribution whose torchcodec backend only works if the end user has FFmpeg 8 DLLs on their own `PATH`.
+  `lada_mosaic_restoration_model_generic_v1.2.pth`, `rfdetr-v6.onnx`, `lada_mosaic_detection_model_v4_fast.pt` (every other file in `model_weights\`, such as `rfdetr-v6-large.onnx`, `rfdetr-vr-v1.onnx`, the VR YOLO weights or `swiftvr-distill.pt`, is copied too; TensorRT engines are not).
+- Optional: `ffmpeg` / `ffprobe` (major version 8, **shared build** recommended) and `mkvmerge` on `PATH` (`mkvmerge` has not been needed at runtime since v0.8.0; the script still bundles it when present). If found, they are bundled into `tools\` and `mkvtoolnix\`; if not, the build warns and the frozen app falls back to the end user's `PATH` at runtime. The `tools\` DLLs also serve the torchcodec backend: it loads the plain-named FFmpeg 8 DLLs (`avcodec-62.dll`, ...), which nothing else in the bundle provides (`av.libs` only carries delvewheel-mangled copies), so a build without bundled shared-build ffmpeg produces a distribution whose torchcodec backend only works if the end user has FFmpeg 8 DLLs on their own `PATH`.
 - Disk: the finished distribution is **~8 GB** (torch + CUDA stack dominate).
 
 ## 2. Building
@@ -73,13 +73,13 @@ dist_nuitka\jasna\
 - **FlashVSR is not bundled**: both `flashvsr` and `flashvsr-inline` require a FlashVSR checkout (the fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus), or an upstream one with the tiny-long patch) with its own virtualenv on the end user's machine (`--flashvsr-repo`), exactly as when running from source. The bundle only ships jasna's orchestration side (including the worker/driver scripts under `jasna\restorer\`).
 - **SeedVR2 is not bundled** either: `--restoration-model-name seedvr2` requires a `ComfyUI-SeedVR2_VideoUpscaler` checkout with its own virtualenv on the end user's machine (`--seedvr2-repo`) plus the LoRA in `model_weights\`. The bundle ships only the worker script (`jasna\restorer\seedvr2_lora_worker.py`).
 - The distribution must be extracted to a **user-writable, ASCII-only path** (TRT engines are written into `model_weights\` next to the exe; the ASCII requirement is the same RTX Super-Res limitation as for source installs).
-- End users still need an NVIDIA GPU (compute ≥ 7.5) and driver ≥ 590. `ffmpeg`/`mkvmerge` are only needed on their `PATH` if they were not bundled at build time.
+- End users still need an NVIDIA GPU (compute ≥ 7.5) and driver ≥ 610 (the startup check rejects older Windows drivers). `ffmpeg`/`mkvmerge` are only needed on their `PATH` if they were not bundled at build time.
 
 ## 6. Verifying a build
 
 ```powershell
 cd dist_nuitka\jasna
-.\jasna.exe --version                 # -> 0.8.1+modi (script already asserts this)
+.\jasna.exe --version                 # -> 0.11.1+modi (the script asserts the version of the installed package)
 .\jasna.exe --input assets\test_clip1_1080p.mp4 --output %TEMP%\out.mkv
 .\jasna-framegen.exe --input %TEMP%\out.mkv --output %TEMP%\out2x.mkv --factor 2x   # needs --bundle-rife weights
 ```

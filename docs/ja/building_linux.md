@@ -2,15 +2,15 @@
 
 Linux で Jasna のセットアップを行い、**ソースから実行**する手順です。
 
-> **本ガイドは `v0.9.1+modi` ブランチの手順です。** GPU スタック（**torch 2.12.0+cu130 / torchvision 0.27.0+cu130 / torch-tensorrt 2.12.0+cu130 / tensorrt 10.16.1.11**）は v0.7.2 期から変わらず、依存ピンは本ブランチの `pyproject.toml` に適用済みです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです（torch-tensorrt は TensorRT 11 に未対応）。
+> **本ガイドは `0.11.1+modi` ブランチの手順です**（upstream `2fc3e899` = v0.11.1 タグ + docs コミット 1 つ）。GPU スタック（**torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11**、加えて upstream の `comfy-kitchen==0.2.36` と `ultralytics>=8.4.96`）は `pyproject.toml` の upstream のピンに追従しており、本ブランチが足しているのは `nvidia-vfx==0.2.0.0`、`nvidia-cudnn-frontend`、任意の `nvidia-rtx` extra（[tensorrt_rtx.md](tensorrt_rtx.md)）だけです。TensorRT が 10.16 系に留まるのは、`torch-tensorrt==2.12.0` が `tensorrt>=10.16.1,<10.17.0` を要求するためです。
 
-> **v0.8.0 でビルド手順は大幅に簡素化されました。** upstream v0.8.0 でメディア層が PyAV（NVDEC/NVENC）へ移行し、`python_vali` / `PyNvVideoCodec` のネイティブビルドが丸ごと不要になりました。これに伴い、旧ガイドの前提だった CUDA Toolkit、cmake / ninja、ffmpeg dev パッケージ（`libav*-dev`）、`FFMPEG_DIR` prefix、`setuptools<80` の固定、`mkvmerge` はすべて不要です。残る特殊手順は **PyAV wheel の自前ビルド**（4 節）だけです。v0.9.1 ベースからは**任意**で VALI デコードバックエンドを再びビルドできます（5.3 節）が、必須ではありません。
+> **v0.8.0 でビルド手順は大幅に簡素化されました。** upstream v0.8.0 でメディア層が PyAV（NVDEC/NVENC）へ移行し、`python_vali` / `PyNvVideoCodec` のネイティブビルドが丸ごと不要になりました。これに伴い、旧ガイドの前提だった CUDA Toolkit、cmake / ninja、ffmpeg dev パッケージ（`libav*-dev`）、`FFMPEG_DIR` prefix、`setuptools<80` の固定、`mkvmerge` はすべて不要です。かつて残っていた特殊手順の PyAV wheel 自前ビルドも、av 18.1.0 の PyPI 公開で不要になりました（4 節）。v0.9.1 ベースからは**任意**で VALI デコードバックエンドを再びビルドできます（5.3 節）が、必須ではありません。
 >
-> **このブランチの主な追加機能:** RIFE による 2x/4x フレーム生成（[frame_generation.md](frame_generation.md)）、torchcodec バックエンド（[torchcodec_backend.md](torchcodec_backend.md)）、cuDNN FP8 復元（[fp8_recon.md](fp8_recon.md)）、SeedVR2 一次復元（[seedvr2.md](seedvr2.md)）、FlashVSR 二次復元（[flashvsr.md](flashvsr.md)）。v0.7.2+modi にあった AV1 / 8bit / BT.601 と BT.2020 出力は upstream v0.8.0 に吸収されました。全差分は [changes_vs_upstream.md](changes_vs_upstream.md) を参照してください。
+> **このブランチの主な追加機能:** RIFE または RTX Video Frame Generation による 2x/4x フレーム生成（[frame_generation.md](frame_generation.md)）、torchcodec バックエンド（[torchcodec_backend.md](torchcodec_backend.md)）、cuDNN FP8 復元（[fp8_recon.md](fp8_recon.md)）、TensorRT-RTX フレーバー（[tensorrt_rtx.md](tensorrt_rtx.md)）、SeedVR2 一次復元（[seedvr2.md](seedvr2.md)）、FlashVSR（[flashvsr.md](flashvsr.md)）と SwiftVR / SwiftVR distill（[swiftvr.md](swiftvr.md)）の二次復元、LTX 出力の鮮明化（[ltx_crop_vsr.md](ltx_crop_vsr.md)）。層別に整理した全差分は [changes_vs_upstream.md](changes_vs_upstream.md) を参照してください。
 
-> **パッケージングについて:** この公開フォークは Jasna を**ソースから実行**します。Linux 向けに frozen バイナリを生成する公開手段はありません（同梱の実験的 Nuitka スクリプト `scripts/build_nuitka.py` は Windows 向けで、しかも v0.8.0 のメディア層移行に未追従です）。パッケージ済みバイナリが必要なら upstream Kruk2/jasna の公式リリースを使ってください。
+> **パッケージングについて:** この公開フォークは Jasna を**ソースから実行**します。Linux 向けの frozen バイナリはありません（フォークの実験的 Nuitka スクリプト `scripts/build_nuitka.py` は Windows 向け。[frozen_build.md](frozen_build.md)）。パッケージ済みバイナリが必要なら upstream Kruk2/jasna の公式リリースを使ってください（LTX と支援者モデルはそもそも公式リリースでしか動きません）。
 
-> 本ガイドは **Ubuntu 26.04 LTS** + **RTX 5080** で **upstream `v0.9.1` タグ（`a7cdaf8`）ベースの `0.9.1+modi` を検証済み**です（2026-07-30、full pytest（e2e 込み）の失敗集合が同一マシンで測った素の v0.9.1 ベースラインと完全一致、CLI スモークは native / torchcodec+fp8-recon / fmp4 / rfdetr-v6 / frame-gen / segments / streaming / flashvsr-inline、GUI 起動スモーク、5.3 節の VALI fork wheel のビルドと実効確認込み。過去ベース: d7a99bd 2026-07-23、v0.8.1 2026-07-19、v0.8.0 2026-07-18）。他のディストリでも動作しますが、パッケージ名や ffmpeg の導入手順は異なります。
+> 本ガイドは **Ubuntu 26.04 LTS** + **RTX 5080** で **upstream `2fc3e899` ベースの `0.11.1+modi` を検証済み**です（2026-10-16: 同じ deselect と timeout で素の upstream と比較した full pytest は、残る失敗がすべて upstream でも失敗するもののみ。modi 機能の e2e CLI 実走（native / torchcodec バックエンド、FP8、フレーム生成、SeedVR2、FlashVSR inline、SwiftVR inline / オフライン / distill、`--ltx-crop-vsr`、segments、streaming）。5.3 節の VALI fork wheel を 4.8.8 で再ビルドして実効確認）。過去ベース: v0.9.1 2026-07-30、d7a99bd 2026-07-23、v0.8.1 2026-07-19、v0.8.0 2026-07-18。他のディストリでも動作しますが、パッケージ名や ffmpeg の導入手順は異なります。
 
 ---
 
@@ -169,7 +169,7 @@ uv pip install onnx onnxslim onnxruntime
 
 ### 5.3 オプション: VALI NVDEC デコードバックエンドのビルド（`python_vali` フォーク）
 
-v0.9.1 ベースの native デコードは、まず VALI NVDEC デコーダを試し、使えなければ PyAV へエスカレーションします（in-code トグル `DECODE_BACKEND`、既定 `auto`）。5 節で入る PyPI の素の `python_vali` wheel にはフォーク専用 API `DecodeSingleSurfaceAsyncDetailed` がないため、リーダーは警告を出して毎回 PyAV にフォールバックします。本節なしでもすべて動作します。実際に VALI デコード経路（と corrupt packet 耐性）を使いたい場合にだけ、フォーク wheel をビルドしてください。
+native デコードは、まず VALI NVDEC デコーダを試し、使えなければ PyAV へエスカレーションします。環境変数 `JASNA_DECODE_BACKEND`（`auto` / `vali` / `pyav-hw` / `pyav-sw`、既定 `auto`）でこの連鎖を明示指定でき、modi の `--video-backend` はその上位層です（`native` を選んだときにこの連鎖が働きます）。5 節で入る PyPI の素の `python_vali` wheel にはフォーク専用 API `DecodeSingleSurfaceAsyncDetailed` がないため、リーダーは警告を出して毎回 PyAV にフォールバックします。本節なしでもすべて動作します。実際に VALI デコード経路（と corrupt packet 耐性）を使いたい場合にだけ、フォーク wheel をビルドしてください。
 
 1 節に対する追加の前提:
 
@@ -181,6 +181,7 @@ v0.9.1 ベースの native デコードは、まず VALI NVDEC デコーダを�
 cd "$WORKSPACE"
 git clone https://codeberg.org/Kruk2/vali.git       # 既存 checkout があれば省略
 cd vali
+git checkout 0e5c01e      # = 4.8.8 ピン: DecodeSingleSurfaceAsyncDetailed、ASF/VC-1 タイムスタンプ修正、decoder-open の GIL 解放
 git submodule update --init --recursive
 
 CUDACXX=/usr/local/cuda-13.3/bin/nvcc \
@@ -188,10 +189,10 @@ CUDAToolkit_ROOT=/usr/local/cuda-13.3 \
 CMAKE_ARGS="-DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.3/bin/nvcc" \
 VIRTUAL_ENV="$WORKSPACE/jasna/.venv" \
   uv build --wheel --no-build-isolation
-uv pip install --force-reinstall dist/python_vali-4.8.7-*.whl
+uv pip install --force-reinstall --no-deps dist/python_vali-4.8.8-*.whl
 ```
 
-`--no-build-isolation` が必要なのは、vali の `setup.py` が `pkg_resources` を import しており、隔離ビルド環境にはそれが無いためです。`--force-reinstall` が必要なのは、wheel のバージョンが置き換え先の PyPI パッケージと同じ（4.8.7）ためです。
+`--no-build-isolation` が必要なのは、vali の `setup.py` が `pkg_resources` を import しており、隔離ビルド環境にはそれが無いためです。`--force-reinstall` が必要なのは、wheel のバージョンが置き換え先の PyPI パッケージと同じ（4.8.8）ためで、`--no-deps` は uv が venv の他のパッケージに触らないようにするためです。
 
 確認:
 
@@ -200,16 +201,16 @@ python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurf
 # jasna を --log-level info で実行すると "Using VALI NVDEC decoder for <file>" が出ます
 ```
 
-> フォークコミット `3ad0d54`（= 4.8.7 ピン、2026-07-30、RTX 5080）で検証済み: パイプラインの 2 つのデコードパスが両方 VALI を通り、同梱テストクリップの出力は PyAV デコード時と md5 完全一致、av wheel および torchcodec バックエンドとの共存も確認（この 2 つは auditwheel でマングル/同梱した FFmpeg を持ち、vali は distro の FFmpeg を ldconfig 経由で解決する）。
+> フォークコミット `0e5c01e`（= 4.8.8 ピン、2026-10-16、RTX 5080。前回は `3ad0d54` = 4.8.7、2026-07-30）で検証済み: パイプラインの 2 つのデコードパスが両方 VALI を通り、同梱テストクリップの出力は PyAV デコード時と md5 完全一致、デコーダのテストも合格、av wheel および torchcodec バックエンドとの共存も確認（この 2 つは auditwheel でマングル/同梱した FFmpeg を持ち、vali は distro の FFmpeg を ldconfig 経由で解決する）。
 
 ---
 
 ## 6. モデルウェイトとアセットの配置
 
-`$WORKSPACE/jasna/model_weights/` に以下 4 ファイルを置く:
+`$WORKSPACE/jasna/model_weights/` に以下のファイルを置く（upstream のリリースパッケージから取り出す）:
 
 - `lada_mosaic_restoration_model_generic_v1.2.pth`
-- `rfdetr-v5.onnx`
+- `rfdetr-v6.onnx`（v0.9.0 以降の既定検出器。4K 向け `rfdetr-v6-large.onnx` と VR180 向け `rfdetr-vr-v1.onnx` は任意、旧 `rfdetr-v5.onnx` も引き続き使える）
 - `lada_mosaic_detection_model_v4_fast.pt`
 - `lada_vr_mosaic_detection_model_v2_accurate.pt`（v0.8.0 で追加。VR180 向け YOLO 検出モデル `zelefans-vr-yolo-v2` の実体）
 
@@ -249,13 +250,19 @@ SeedVR2（`--restoration-model-name seedvr2`）は別リポジトリ `ComfyUI-Se
 
 ---
 
+### 6.4 オプション: SwiftVR 二次復元と SwiftVR distill（実験的）
+
+SwiftVR（`--secondary-restoration swiftvr` / `swiftvr-inline`。`--ltx-crop-vsr` の `swiftvr` バックエンドも同じ）は fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR)（`modi` ブランチ）のチェックアウトと `uv sync` の専用 venv、約 20 GB のチェックポイントを必要とする。小さな蒸留モデル（`--secondary-restoration swiftvr-distill`。`--ltx-crop-vsr` の `swiftvr-distill` バックエンドも同じ）は [okatti/swiftvr-distill](https://huggingface.co/okatti/swiftvr-distill) の `swiftvr-distill.pt` を `model_weights/` に置くだけでよい。セットアップ手順は [swiftvr.md](swiftvr.md) を参照。
+
+---
+
 ## 7. ソースから実行 / 動作確認
 
 1〜6節が完了したら、venv 内でソースチェックアウトから直接 Jasna を実行します:
 
 ```bash
 cd "$WORKSPACE/jasna"
-python -m jasna --version    # -> 0.9.1+modi
+python -m jasna --version    # -> 0.11.1+modi
 python -m jasna --help
 jasna --input assets/test_clip1_1080p.mp4 --output /tmp/out.mp4   # 短いクリップを処理
 python -m jasna              # GUI を起動（引数なし）
@@ -265,13 +272,13 @@ python -m jasna              # GUI を起動（引数なし）
 
 `model_weights/` は自動解決され（付録 A.1）、`ffmpeg`/`ffprobe`（v8）はシステムの `PATH` から使われます。`mkvmerge` は不要になりました。インストールパスは ASCII のみ（起動時に強制）。
 
-> **最初の処理実行は遅い。** 初回使用時に GPU 向け TensorRT エンジンがコンパイルされます（15〜60 分）。`model_weights/` 内のウェイト隣（`<モデル名>_sub_engines/` 等）にキャッシュされ、以降は再利用されます。v0.7.2 から移行した場合は、既定 max-clip-size の変更（90）に伴い一部エンジンが再コンパイルされます（loop_body 系のキャッシュは名前が変わらないため再利用されます）。
+> **最初の処理実行は遅い。** 初回使用時に GPU 向け TensorRT エンジンがコンパイルされます（15〜60 分）。`model_weights/` 内のウェイト隣（`<モデル名>_sub_engines/` 等）にキャッシュされ、以降は再利用されます。v0.9.1 ベース以降のエンジンキャッシュはそのまま有効です（エンジン層は v0.11.1 まで無変更）。`--max-clip-size` の変更で再コンパイルされることもなくなりました。
 
 ---
 
 ## 8. パッケージング / frozen ビルド
 
-現時点で、このフォークから **Linux 向けのパッケージ化された frozen バイナリを生成する公開手段はありません。** upstream のパッケージングツールはプライベートな submodule（`jasna/protection`）にあり、この公開フォークには含まれません。フォーク同梱の実験的 Nuitka スクリプト（`scripts/build_nuitka.py`、[frozen_build.md](frozen_build.md)）は Windows 向けで、v0.8.0 のメディア層移行に未追従です（旧 `python_vali` / `PyNvVideoCodec` の DLL 同梱を前提としたまま）。
+現時点で、このフォークから **Linux 向けのパッケージ化された frozen バイナリを生成する公開手段はありません。** upstream のパッケージングツールはプライベートな submodule（`jasna/protection`）にあり、この公開フォークには含まれません。フォーク独自の実験的 Nuitka スクリプト（`scripts/build_nuitka.py`、[frozen_build.md](frozen_build.md)）は Windows 専用です。
 
 したがって公開でサポートされる経路は**ソースから実行**（7節）です。パッケージ済みバイナリが必要なら upstream Kruk2/jasna の公式リリースを使ってください。
 
