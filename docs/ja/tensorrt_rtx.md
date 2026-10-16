@@ -20,6 +20,7 @@ Linux / RTX 5080 (sm120, 16GB) と、Windows 11 / RTX 5060 Ti (sm120, 16GB) で�
 
 ```bash
 uv pip install -e .[dev,nvidia-rtx] \
+    --find-links "$WORKSPACE/vali/dist" \
     --extra-index-url https://download.pytorch.org/whl/cu130 \
     --index-strategy unsafe-best-match \
     --prerelease=allow
@@ -27,7 +28,7 @@ uv pip install -e .[dev,nvidia-rtx] \
 
 `torch-tensorrt` と `torch-tensorrt-rtx` は同じ `torch_tensorrt` パッケージを提供するため、**両 extra は 1 つの venv に共存できない**。
 フレーバーを切り替えたいときは venv を分ける。
-torch は同じ 2.12.0+cu130 のままで済み、mmengine パッチ（ビルドガイド §5.1）はこの venv にも必要になる。
+`nvidia-rtx` extra は torch 2.12.0+cu130 を固定する（`nvidia` extra は 2.12.1）。`nvidia` と同じく PyPI に無い `python_vali==4.8.8` も固定しているので、`--find-links` をビルドガイド §5.2 でビルドした VALI フォーク wheel の置き場所に向ける（Windows では `$Workspace\vali\dist`）。mmengine パッチ（ビルドガイド §5.4）もこの venv に必要になる。
 
 インストール後の追加設定は不要である。
 フレーバーは `tensorrt_rtx` wheel の有無から自動判別され（`jasna.engine_paths.trt_flavor()`）、CLI と GUI の両方に効く。
