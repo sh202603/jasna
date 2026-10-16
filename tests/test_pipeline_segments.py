@@ -161,6 +161,8 @@ def test_amf_h264_full_reencode_preserves_selected_ranges(tmp_path) -> None:
     pipeline.retarget_high_fps = False
     pipeline.fmp4 = False
     pipeline.segments = (SegmentRange(2.5, 3.0),)
+    pipeline.frame_gen_multiplier = 1
+    pipeline.encode_backend = "native"
     pipeline._run_pass = MagicMock()
 
     metadata = MagicMock(
@@ -186,7 +188,7 @@ def test_amf_h264_full_reencode_preserves_selected_ranges(tmp_path) -> None:
     with (
         patch("jasna.pipeline.vendor_for_device", return_value=AcceleratorVendor.AMD),
         patch("jasna.pipeline.validate_smart_render", return_value="h264"),
-        patch("jasna.pipeline.VideoEncoder"),
+        patch("jasna.pipeline.make_video_encoder"),
     ):
         pipeline._run_smart(metadata)
 
