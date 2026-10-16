@@ -14,12 +14,13 @@ Install the `nvidia-rtx` extra instead of `nvidia`:
 
 ```bash
 uv pip install -e .[dev,nvidia-rtx] \
+    --find-links "$WORKSPACE/vali/dist" \
     --extra-index-url https://download.pytorch.org/whl/cu130 \
     --index-strategy unsafe-best-match \
     --prerelease=allow
 ```
 
-`torch-tensorrt` and `torch-tensorrt-rtx` both ship the `torch_tensorrt` package, so **the two extras cannot coexist in one venv** — use a dedicated venv per flavor. torch stays at the same 2.12.0+cu130, and the mmengine patch (build guide §5.1) is required in this venv too.
+`torch-tensorrt` and `torch-tensorrt-rtx` both ship the `torch_tensorrt` package, so **the two extras cannot coexist in one venv** — use a dedicated venv per flavor. The `nvidia-rtx` extra pins torch 2.12.0+cu130 (the `nvidia` extra pins 2.12.1). Like `nvidia`, it pins `python_vali==4.8.8`, which is not on PyPI, so `--find-links` must point at the VALI fork wheel built per the build guide §5.2 (on Windows, `$Workspace\vali\dist`); the mmengine patch (build guide §5.4) is required in this venv too.
 
 No configuration is needed after installing. The flavor is detected from the presence of the `tensorrt_rtx` wheel (`jasna.engine_paths.trt_flavor()`) and applies to both the CLI and the GUI. The environment variable `JASNA_TRT_FLAVOR` (`rtx` | `standard`) exists as an emergency override; forcing a flavor whose wheel is missing fails early with ImportError (intended).
 
