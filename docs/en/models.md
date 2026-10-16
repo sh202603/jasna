@@ -52,6 +52,11 @@ and run **Trial mode** to see if your PC can run it and how long it takes. Pick 
 jasna --input input.mp4 --output output.mkv --restoration-model-name ltx
 ```
 
+*(+modi)* This fork adds a third video model, **SeedVR2 + LoRA**
+(`--restoration-model-name seedvr2`, CLI only): a one-step diffusion restorer in
+an external venv, strongest on low-resolution, heavily degraded sources, much
+slower than BasicVSR++. See [seedvr2.md](seedvr2.md).
+
 ### What LTX needs
 
 - **License**: a License code that includes LTX ($25 USD, also gives UNet 4x and SD 1.5, see
@@ -177,11 +182,23 @@ NVIDIA only.
   and [Supporting the project](../../README.md#supporting-the-project).
 - **RTX Super Res** (free): very fast, nothing to install. Quality is
   OK. Some videos flicker, so test a short clip first.
+  *(+modi)* `--rtx-strength` (0.0–1.0) dials every RTX pass back toward the
+  unprocessed picture, and `--rtx-highbitrate` switches to the clean-source
+  upscale models. Both are opt-in; a visual check on the 1080p test clip
+  found no artifacts, but whether they look better depends on the source.
+  See [cli.md](cli.md).
 - **Topaz TVAI**: similar to UNet 4x, but very slow. Needs
   [Topaz Video](https://www.topazlabs.com/topaz-video), which is paid and
   Windows only. Use the `iris-2` model.
 
 Not used with LTX.
+
+*(+modi)* This fork adds three more secondary restorers, all CLI only and all
+using diffusion models you install yourself: **FlashVSR** (`flashvsr`,
+`flashvsr-inline`; [flashvsr.md](flashvsr.md)), **SwiftVR** (`swiftvr`,
+`swiftvr-inline`; faster than FlashVSR; [swiftvr.md](swiftvr.md)) and the small
+in-process **SwiftVR distill** (`swiftvr-distill`, 2x, no venv;
+[swiftvr.md](swiftvr.md#swiftvr-distill---secondary-restoration-swiftvr-distill)).
 
 ```bash
 jasna --input input.mp4 --output output.mkv --secondary-restoration unet-4x

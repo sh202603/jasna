@@ -53,8 +53,17 @@ Jasna は `TMP`、次に `TEMP` を使います。`TMPDIR` は使いません。
 
 | オプション | デフォルト | 説明 |
 | ------ | ------- | ----- |
-| `--restoration-model-name` | `basicvsrpp` | 動画復元モデル：`basicvsrpp`（高速）、`ltx`（標準画質の LTX：より精細、かなり遅い。おすすめ）、`ltx-4step`（良好画質：`ltx` より少し精細で約 1.5 倍遅い）、`ltx-8step`（高画質：`ltx` より精細で約 2.5 倍遅い）、`ltx-undistilled`（最高画質：少し良く、`ltx` より約 5 倍遅い）。[モデルの選び方](models.md#復元モデル)を参照。 |
+| `--restoration-model-name` | `basicvsrpp` | 動画復元モデル：`basicvsrpp`（高速）、`ltx`（標準画質の LTX：より精細、かなり遅い。おすすめ）、`ltx-4step`（良好画質：`ltx` より少し精細で約 1.5 倍遅い）、`ltx-8step`（高画質：`ltx` より精細で約 2.5 倍遅い）、`ltx-undistilled`（最高画質：少し良く、`ltx` より約 5 倍遅い）。[モデルの選び方](models.md#復元モデル)を参照。 *(+modi)* さらに `seedvr2`（外部 venv で動く SeedVR2 3B diffusion + LoRA。品質モードでかなり遅い。`--seedvr2-repo` 必須。`--frame-gen`、VR、inline の FlashVSR/SwiftVR とは併用不可）。詳細: [seedvr2.md](seedvr2.md)。 |
 | `--restoration-model-path` | `model_weights/lada_mosaic_restoration_model_generic_v1.2.pth`、LTX では `model_weights/ltx-restore` | 復元モデルの重み（LTX はフォルダー）。 |
+| `--seedvr2-repo` | — | *(+modi)* `ComfyUI-SeedVR2_VideoUpscaler` checkout のパス。`seedvr2` で必須。 |
+| `--seedvr2-python` | `<repo>/.venv/bin/python` | *(+modi)* SeedVR2 venv の Python。 |
+| `--seedvr2-lora` | `model_weights/lada_seedvr2_lora_v6.pt` | *(+modi)* LoRA checkpoint（fine-tune 品への差し替え口）。 |
+| `--seedvr2-window` / `--seedvr2-overlap` | `33` / `9` | *(+modi)* スライディングウィンドウ長（4n+1）とクロスフェード幅。 |
+| `--seedvr2-color-fix` | `lab` | *(+modi)* クリップ単位の色補正: `none`、`lab`、`wavelet`。 |
+| `--seedvr2-empty-cache` | `auto` | *(+modi)* SeedVR2 worker のクリップ毎 VRAM 返却: `auto`、`always`、`never`。 |
+| `--seedvr2-accel` / `--no-seedvr2-accel` | オフ | *(+modi)* SeedVR2 の VAE 融合経路と FP8 DiT（LoRA をマージ）。対応する checkout（fork の `modi` ブランチ）が必要で、使えない部品は worker が外して警告する。詳細: [seedvr2.md](seedvr2.md)。 |
+| `--seedvr2-model-dir`、`--seedvr2-dit`、`--seedvr2-lora-rank` | `--help` 参照 | *(+modi)* base 重み関連の上書き。詳細: [seedvr2.md](seedvr2.md)。 |
+| `--fp8-recon` / `--no-fp8-recon` | オフ | *(+modi、実験的)* BasicVSR++ のアップサンプル段を cuDNN FP8 畳み込みで実行。ピーク VRAM が下がり、失敗時は TensorRT にフォールバック。sm89 以上と `--fp16` が必要。`flashvsr-inline` と `swiftvr-inline` は自動で有効にする。詳細: [fp8_recon.md](fp8_recon.md)。 |
 | `--ltx-fast` / `--no-ltx-fast` | オフ | LTX：約 1.4 倍高速、ディテールはわずかに減ります。RTX 50 シリーズのみ。他の GPU ではエラーで止まります。 |
 | `--ltx-large-canvas` / `--no-ltx-large-canvas` | オフ | LTX：大きなモザイクをより精細に。その部分は約 3 倍遅くなります。空き VRAM が約 12 GB 必要です。足りない場合、そのモザイクは通常どおり復元します。 |
 | `--experimental-ltx-less-overlap` / `--no-experimental-ltx-less-overlap` | オン | LTX（実験的）：モザイクが 4 秒以上続く場面で約 13% 速くなります。オフにすると、重なりの多い従来のモードになります。 |
@@ -93,12 +102,35 @@ Jasna は `TMP`、次に `TEMP` を使います。`TMPDIR` は使いません。
 | `--rtx-quality` | `high` | `low`、`medium`、`high`、`ultra`。 |
 | `--rtx-denoise` | `medium` | `none`、`low`、`medium`、`high`、`ultra`。 |
 | `--rtx-deblur` | `none` | `none`、`low`、`medium`、`high`、`ultra`。 |
+| `--rtx-strength` | `1.0` | *(+modi)* RTX の各パス（拡大、ノイズ除去、ブレ除去）の効果の強さ。`0.0`〜`1.0`、低いほど未処理の画に近づく。`nvidia-vfx` 0.2.0.0 以降が必要。 |
+| `--rtx-highbitrate` | オフ | *(+modi)* 高ビットレートのクリーンなソース向け RTX 拡大モデル（`HIGHBITRATE_*`、圧縮アーティファクト抑制なし）を使う。オプトイン。テストクリップの目視では問題なし、効果は素材依存。 |
 | `--tvai-ffmpeg-path` | Topaz のデフォルトインストールパス | Topaz Video の `ffmpeg.exe` のパス（Windows のみ）。 |
 | `--tvai-model` | `iris-2` | 例: `iris-2`、`prob-4`、`iris-3`。 |
 | `--tvai-scale` | `4` | 出力サイズは `256*scale`。`1` = 拡大なし。 |
 | `--tvai-args` | `--help` を参照 | 追加の `tvai_up` パラメータ。 |
 | `--tvai-workers` | `2` | 並列で動かす TVAI ffmpeg ワーカー数。 |
 | `--tvai-denoise` | オフ | Topaz モデルの前にノイズを除去します。遅くなり、VRAM を多く使います。 |
+| `--flashvsr-repo` | — | *(+modi)* `FlashVSR_plus` checkout のパス。FlashVSR 両モードで必須。fork [`sh202603/FlashVSR_plus`](https://github.com/sh202603/FlashVSR_plus) を推奨。 |
+| `--flashvsr-python` | `<repo>/.venv/bin/python` | *(+modi)* FlashVSR venv の Python（基底 Python が開発ヘッダを持つこと）。 |
+| `--flashvsr-model-dir` | `<repo>/models/FlashVSR-v1.1` | *(+modi)* FlashVSR 重みのディレクトリ。 |
+| `--flashvsr-version` / `--flashvsr-dtype` | `11` / `bf16` | *(+modi)* モデルバージョンと計算 dtype。 |
+| `--flashvsr-scale` | `4` | *(+modi)* 両モード共通の処理倍率。`4` = モデルネイティブの 1024px、`2` = 512px（高速・低 VRAM）。出力解像度は変わりません。 |
+| `--flashvsr-tiles` | `1` | *(+modi)* inline モードの DiT 水平ストリップ数（VRAM 調整用。16 GB の 1080p は `2`）。 |
+| `--flashvsr-accel` | オフ | *(+modi)* 両モード共通。fork の高速化（FP8 と融合カーネル、約 1.4 倍速）を使う。RTX 40 系以降が必要で、それ以外は自動で標準の処理に戻る。詳細: [flashvsr.md](flashvsr.md#高速化--flashvsr-accel)。 |
+| `--flashvsr-lora` | なし | *(+modi)* inline 専用。FlashVSR 用の Lada LoRA（`lada_flashvsr_secondary_lora_v1.pt`。パスを含まないファイル名は `model_weights` から探す）を使い、FlashVSR の過鮮鋭を抑える。`--flashvsr-accel` と併用できる。オフラインでは使えない。詳細: [flashvsr.md](flashvsr.md#lora--flashvsr-lora)。 |
+| `--flashvsr-max-clip-frames`、`--flashvsr-unload-dit`、`--flashvsr-tiled-vae`、`--flashvsr-bundle-dir`、`--flashvsr-keep-bundle` | `--help` 参照 | *(+modi)* オフラインモードのメモリ/ディスク調整。詳細: [flashvsr.md](flashvsr.md)。 |
+| `--swiftvr-repo` | — | *(+modi)* SwiftVR checkout のパス。`swiftvr` と `swiftvr-inline` で必須。fork [`sh202603/SwiftVR`](https://github.com/sh202603/SwiftVR)（`modi` ブランチ、`restore_clip()` を持つ）が必要。 |
+| `--swiftvr-python` | `<repo>/.venv/bin/python` | *(+modi)* SwiftVR venv の Python（`uv sync` が作る。Linux では基底 Python に開発ヘッダが要る）。 |
+| `--swiftvr-model-dir` | `<repo>/checkpoints` | *(+modi)* SwiftVR チェックポイントのディレクトリ。 |
+| `--swiftvr-scale` | `4` | *(+modi)* 処理倍率。`4` = モデルネイティブの 1024px、`2` = 512px（高速・低 VRAM）。出力解像度は変わりません。 |
+| `--swiftvr-view-window` | `15` | *(+modi)* SwiftVR に渡す切り出し（view）の位置と倍率を前後 N フレームの移動平均で平滑化する（`0` で無効）。一次復元のクロップは検出枠に追従して毎フレーム数 px ずれ、SwiftVR はそのずれに反応してディテールを描き直すので、これが scale 2 の揺れの主因だった。一次復元と blend の mask は変わらない。詳細: [swiftvr.md](swiftvr.md#切り出し-view-の平滑化--swiftvr-view-window)。 |
+| `--swiftvr-accel` | オン | *(+modi)* FP8 DiT と torch.compile（`--no-swiftvr-accel` で無効）。RTX 40 系以降と動く Triton が必要で、使えない部品は起動時に外して警告する。詳細: [swiftvr.md](swiftvr.md#高速化--swiftvr-accel)。 |
+| `--swiftvr-bundle-dir` | temp | *(+modi)* `swiftvr`（オフライン）専用。中間 bundle をここに永続化する（失敗した段からの再開が可能になる）。詳細: [swiftvr.md](swiftvr.md#オフライン-3-段--secondary-restoration-swiftvr)。 |
+| `--swiftvr-keep-bundle` | オフ | *(+modi)* `swiftvr`（オフライン）専用。完了後も bundle を残す（`--swiftvr-bundle-dir` 指定時は暗黙的に有効）。 |
+| `--swiftvr-distill-model` | `model_weights/swiftvr-distill.pt` | *(+modi)* `swiftvr-distill` のチェックポイント。パスを含まないファイル名は `model_weights` から探す。同梱せず、[okatti/swiftvr-distill](https://huggingface.co/okatti/swiftvr-distill)（AGPL-3.0）から取得する。 |
+| `--swiftvr-distill-view-window` | `15` | *(+modi)* `swiftvr-distill` の切り出し view の平滑化。`--swiftvr-view-window` と同じ（`0` で無効）。 |
+| `--swiftvr-distill-strength` | `0.75` | *(+modi)* モデルが双線形 2 倍に足す細部の比率（`0`〜`2`。`0` = 双線形拡大そのまま、`1` = モデルの出力）。低いほど細部と引き換えに揺れが減る。 |
+| `--swiftvr-distill-stabilize` | `0` | *(+modi、実験的)* 足した細部を、入力が近い範囲で前後 N フレーム（`0`〜`8`）と混ぜる。テスト素材では強さを下げたのと同じ引き換えにしかならなかった。 |
 
 ## SD 1.5 画像復元
 
@@ -132,6 +164,12 @@ Jasna は `TMP`、次に `TEMP` を使います。`TMPDIR` は使いません。
 | `--fmp4` | オフ | 作成中の `.mp4` / `.mov` 出力をそのまま再生できます。中断してもファイルは再生可能なままです。`--stream`、`--segments`、`--ltx-auto-split` とは併用できません。詳しくは[高度な処理](advanced_processing.md)。 |
 | `--segments` | — | 1 本の動画のこの区間だけを復元します。秒または `mm:ss` で指定。例: `10-25,01:10-01:30.5`。`--stream`、`--retarget-high-fps`、`--fmp4`、`--ltx-auto-split` とは併用できず、画像やフォルダーの入力にも使えません。詳しくは[区間](segments.md)。 |
 | `--working-directory` | 出力ディレクトリ | `--segments` と LTX の一時ファイルの書き込み先。詳しくは[区間](segments.md)。 |
+| `--frame-gen` | `none` | *(+modi)* AI フレーム補間で出力フレームレートを `2x`/`4x` に。ファイル出力のみ。`--segments`、LTX、`seedvr2`、FlashVSR、SwiftVR とは併用不可。詳細: [frame_generation.md](frame_generation.md)。 |
+| `--frame-gen-backend` | `rife` | *(+modi)* `rife`（PyTorch 上の RIFE、対応 GPU 全般、`rife.pth` が必要）または `rtx`（`nvidia-vfx` 0.2.0.0 以降の NVIDIA RTX Video Frame Generation、RTX 40 シリーズ以降限定、重み不要、約 10 倍速）。 |
+| `--frame-gen-model-path` | `model_weights/rife.pth` | *(+modi)* RIFE 重みの任意パス（TorchScript `.pth` 推奨）。RIFE 専用。 |
+| `--frame-gen-rtx-mode` | `medium` | *(+modi)* RTX Video Frame Generation の品質モード。`low`/`medium`/`high`。`high` は `medium` の約 6 倍遅く、改善はわずか。 |
+| `--video-backend` | `native` | *(+modi、実験的)* `native`、`auto`、`torchcodec`。詳細: [torchcodec_backend.md](torchcodec_backend.md)。 |
+| `--decode-backend` / `--encode-backend` | `inherit` | *(+modi)* デコード側・エンコード側を個別に上書き。`torchcodec` エンコードは 8bit 専用で強制指定時のみ。 |
 
 ### コーデックの選び方
 
