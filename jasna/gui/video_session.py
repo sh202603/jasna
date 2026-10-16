@@ -27,7 +27,7 @@ def video_session_key(settings: AppSettings) -> tuple:
         settings.max_clip_size,
         settings.compile_basicvsrpp,
         getattr(settings, "fp8_recon", False),
-        getattr(settings, "restoration_model", ""),
+        getattr(settings, "restoration_checkpoint", ""),
         settings.denoise_strength,
         settings.denoise_step,
         settings.secondary_restoration,
@@ -63,15 +63,18 @@ def video_session_config(
     codec: str,
     encoder_settings: Mapping[str, object],
     restoration_model_path: Path | None = None,
-    restoration_model_name: str = "basicvsrpp",
+    restoration_model_name: str | None = None,
     seedvr2_repo: str = "",
 ) -> SessionConfig:
     from jasna.ltx.plan import window_hop
     from jasna.mosaic.detection_registry import coerce_detection_model_name, require_detection_model_weights
+    from jasna.engine_paths import default_restoration_model_path
     from jasna.restorer.checkpoint_info import resolve_restoration_checkpoint
 
     det_name = coerce_detection_model_name(str(settings.detection_model))
-    standard_model = settings.restoration_model == "basicvsrpp"
+    # An explicit model (the A/B compare's SeedVR2 side) overrides the settings' choice.
+    model_name = restoration_model_name or settings.restoration_model
+    standard_model = model_name != "ltx"
     secondary_restoration = settings.secondary_restoration if standard_model else "none"
     return SessionConfig(
         device="cuda:0",
@@ -83,8 +86,14 @@ def video_session_config(
         max_detection_gap=int(settings.max_detection_gap),
         min_detection_duration=int(settings.min_detection_duration),
         scene_detection=bool(settings.scene_detection),
-        restoration_model_name=settings.restoration_model,
-        restoration_model_path=default_restoration_model_path(settings.restoration_model),
+        restoration_model_name=model_name,
+        restoration_model_path=(
+            restoration_model_path
+            if restoration_model_path is not None
+            else resolve_restoration_checkpoint(getattr(settings, "restoration_checkpoint", ""))
+            if model_name == "basicvsrpp"
+            else default_restoration_model_path(model_name)
+        ),
         ltx_large_canvas=bool(settings.ltx_large_canvas),
         ltx_window_hop=window_hop(bool(settings.ltx_less_overlap)),
         ltx_seed=int(settings.ltx_seed),
@@ -123,7 +132,6 @@ def video_session_config(
         working_dir=Path(settings.working_directory) if settings.working_directory else None,
         # For "seedvr2", restoration_model_path above carries the LoRA
         # checkpoint (same convention as the CLI).
-        restoration_model_name=restoration_model_name,
         seedvr2_repo=seedvr2_repo,
     )
 
@@ -133,7 +141,7 @@ def build_video_session(
     *,
     log: Callable[[str], None],
     restoration_model_path: Path | None = None,
-    restoration_model_name: str = "basicvsrpp",
+    restoration_model_name: str | None = None,
     seedvr2_repo: str = "",
 ) -> RestorationSession:
     from jasna._suppress_noise import install as _install_noise_filters
@@ -152,7 +160,14 @@ def build_video_session(
     else:
         os.environ.pop("JASNA_FP8_RECON", None)
 
-    config = video_session_config(settings, codec=settings.codec, encoder_settings={})
+    config = video_session_config(
+        settings,
+        codec=settings.codec,
+        encoder_settings={},
+        restoration_model_path=restoration_model_path,
+        restoration_model_name=restoration_model_name,
+        seedvr2_repo=seedvr2_repo,
+    )
     encrypted = config.secondary_restoration == "unet-4x" and not unet4x_plaintext_available()
     if config.restoration_model_name == "ltx" and not config.ltx_trial:
         from jasna.ltx import model_files

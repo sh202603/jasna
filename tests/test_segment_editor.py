@@ -867,7 +867,7 @@ def test_ab_compare_button_builds_and_locks_during_scan(monkeypatch) -> None:
 
 def test_open_ab_compare_is_blocked_while_gpu_is_busy() -> None:
     editor = object.__new__(SegmentEditor)
-    editor._state = SegmentEditorState(duration=10, fps=30)
+    editor._state = SegmentEditorState(duration=10, fps=30, segments=(), default_restoration=SegmentRestoration("basicvsrpp", None))
     editor._ab_window = None
     editor._scan_panel = SimpleNamespace(active=False)
     editor._is_gpu_busy = MagicMock(return_value=True)
@@ -885,7 +885,7 @@ def test_open_ab_compare_stops_restore_preview_and_hands_over_context(monkeypatc
     opened = MagicMock()
     monkeypatch.setattr(ab_compare, "ABCompareWindow", opened)
     editor = object.__new__(SegmentEditor)
-    editor._state = SegmentEditorState(duration=10, fps=30)
+    editor._state = SegmentEditorState(duration=10, fps=30, segments=(), default_restoration=SegmentRestoration("basicvsrpp", None))
     editor._ab_window = None
     editor._scan_panel = SimpleNamespace(active=False, detection_model="rfdetr-v6", threshold=0.4)
     editor._is_gpu_busy = MagicMock(return_value=False)

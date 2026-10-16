@@ -788,6 +788,9 @@ def test_player_always_plays_with_the_standard_model() -> None:
         _model=SimpleNamespace(get=lambda: "rfdetr-v6"),
         _threshold=SimpleNamespace(get=lambda: 0.4),
         _secondary=SimpleNamespace(get_value=lambda: "none"),
+        _restoration_checkpoint_menu=SimpleNamespace(get=lambda: "finetune_v2"),
     )
 
-    assert VideoPlayerDialog._playback_settings(dialog).restoration_model == "basicvsrpp"
+    settings = VideoPlayerDialog._playback_settings(dialog)
+    assert settings.restoration_model == "basicvsrpp"
+    assert settings.restoration_checkpoint == "finetune_v2"

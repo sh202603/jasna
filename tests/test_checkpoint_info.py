@@ -83,7 +83,7 @@ def test_resolve_restoration_checkpoint_falls_back_to_default(tmp_path, monkeypa
 
     default = tmp_path / "default_model.pth"
     monkeypatch.setattr(
-        engine_paths, "default_restoration_model_path", lambda: default
+        engine_paths, "default_restoration_model_path", lambda model_name: default
     )
     (tmp_path / "existing.pth").write_bytes(b"x")
 

@@ -426,6 +426,10 @@ class Processor:
             # skipped for segment jobs (matches the CLI guard).
             self._log("WARNING", "Frame generation is skipped for segment jobs (incompatible with smart rendering)")
             frame_gen_multiplier = 1
+        if frame_gen_multiplier > 1 and config.restoration_model_name == "ltx":
+            # The LTX pass writes its frames straight to the encoder, past the frame-gen writer.
+            self._log("WARNING", "Frame generation is skipped for LTX jobs")
+            frame_gen_multiplier = 1
         frame_generator = None
         if frame_gen_multiplier > 1:
             from jasna.framegen import build_frame_generator

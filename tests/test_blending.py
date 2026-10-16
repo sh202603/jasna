@@ -186,3 +186,21 @@ def test_dilate_ellipse_uses_scans_only_for_nvidia(monkeypatch) -> None:
     module.dilate_ellipse(mask, 3)
 
     assert prefix.call_count == 1 and scan.call_count == 1
+
+
+def test_bbox_blend_mask_near_edge_mask_is_free_field() -> None:
+    """A mask within kernel reach of the bbox edge must get the free-field
+    falloff there, not the reflect-pad pinning of a bare-slice blur (which
+    printed the bbox rectangle into the composite under sharp restorers)."""
+    mask = torch.zeros((64, 64), dtype=torch.bool)
+    mask[20:40, 20:40] = True
+    # dilation=falloff=3px at this size; mask edge (40) sits 4px inside the
+    # bbox edge (44) — inside the 6px reach, so a bare-slice blur would differ.
+    bbox = (16, 16, 44, 44)
+    frame_shape = (64, 64)
+
+    ref = _reference_fullres_blend_mask(mask, bbox, frame_shape)
+    out = create_bbox_blend_mask(mask, bbox, frame_shape)
+    assert torch.allclose(out, ref, atol=1e-5)
+    # The falloff must actually be under way on the bbox edge row.
+    assert float(out[-1].max()) < 0.999
