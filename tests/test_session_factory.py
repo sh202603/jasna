@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from jasna.engine_paths import default_restoration_model_path
+from jasna.media.backend import VideoBackend
 from jasna.segments import SegmentRange, SegmentRestoration
 from factories import session_config
 from jasna.session_config import SessionConfig
