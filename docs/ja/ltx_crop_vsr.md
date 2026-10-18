@@ -80,7 +80,7 @@ GUI は対象外（CLI のみ、単一ファイルのみ）。
 実装は `jasna/ltx/refine.py`。BasicVSR++ は読み込まず、エンジンのコンパイルも検出器の分だけ行う。
 
 1. **整合確認**: 2 本をパケット単位で demux し（デコード無し、数秒）、枚数と解像度が一致し、各フレームの時刻 (pts − start_pts) × time_base が半フレーム以内で一致することを確かめる。生の pts は比べない。jasna のエンコーダは元動画の start_pts を引くし、MKV なら time_base も変わるためである。
-2. **scan**: 元動画に対して upstream の `scan_span` を走らせ、LTX と同じ track、camera、window を得る。`LTX plan: N frames, C scene cuts, T tracks, W windows` の info ログはリリース版のログと照合できる。scan が終わると検出器を解放し、それから SwiftVR を起動する。
+2. **scan**: 元動画に対して upstream の `scan_span` を走らせ、LTX と同じ track、camera、window を得る。`LTX plan: N frames, C scene cuts, T tracks, W windows` の info ログはリリース版のログと照合できる。window の送り幅は `--experimental-ltx-less-overlap` の選択に従う（v0.11.2 から既定は 104、`--no-experimental-ltx-less-overlap` で 88）ので、window 数がリリースのログと一致するのは同じ送り幅で走らせたときだけである。window が一致する必要はない。crop box は track ごとの camera から決まり、window はどの 121 枚をまとめて ×2 するかと crossfade の位置を決めるだけである。scan が終わると検出器を解放し、それから SwiftVR を起動する。
 3. **鮮明化と合成（1 パス）**: LTX 出力と元動画を 2 本の NVDEC で並走デコードする。各 window について、フレームが届くたびに LTX 出力から crop を切り出し、canvas サイズへ縮小（pixel area）または拡大（bicubic）して reflect pad する。window の全フレームが揃ったら ×2 し、結果を `CropFrame` を 2 倍した版と組にして upstream の `composite_frame` で LTX 出力フレームへ合成する。feather マスク、window 間 crossfade、track 間 handover、マスク外の素通しは LTX 本体と同じになる。色合わせ（リング中央値差 × 0.75）は SwiftVR の色ずれを LTX 出力へ寄せる向きに効く。
 4. **LTX が触っていない window の skip**: 並走している元動画との輝度差を track polygon 内で平均し、閾値（3/255）未満の window は SR も合成もせず warning を出す。リリースと modi の検出エンジンの数値差で refine 側だけに track が出た場合（LTX 出力にモザイクが残ったまま鮮明化される）と、`--ltx-crop-vsr-source` に同じ枚数の別カットを渡した事故を拾う。逆方向（LTX にあって refine に無い track）はその区間が LTX のまま残るだけで無害。
 5. **エンコード**: 既存の NVENC 経路。writer には LTX 出力の pts をそのまま渡すので、出力の pts 列は LTX 出力と同じになる。

@@ -119,8 +119,13 @@ detector's engine is compiled.
    MKV changes the time base.
 2. **Scan.** Upstream's `scan_span` runs on the source and yields the same tracks,
    cameras and windows as LTX. The `LTX plan: N frames, C scene cuts, T tracks, W windows`
-   log line can be checked against the release's log. The detector is released after the
-   scan, before SwiftVR starts.
+   log line can be checked against the release's log. The windows follow the hop selected
+   by `--experimental-ltx-less-overlap` (104 by default since v0.11.2, 88 with
+   `--no-experimental-ltx-less-overlap`), so the window count matches the release's log
+   only when both ran with the same hop. The windows do not have to match: the crop boxes
+   come from the per-track camera, and a window only sets which 121 frames are upscaled
+   together and where the crossfade sits. The detector is released after the scan, before
+   SwiftVR starts.
 3. **Sharpen and composite in one pass.** The LTX output and the source are decoded in
    lockstep by two NVDEC readers. For every window, as each frame arrives, the crop is
    cut from the LTX output, shrunk (pixel area) or enlarged (bicubic) to the canvas size
