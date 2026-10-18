@@ -239,3 +239,32 @@ def test_composite_matches_the_plumbing_free_reference():
         far = ltx[i].clone()
         far[:, : 40 + 2 * feather + 2, : 40 + 2 * feather + 2] = frame[:, : 40 + 2 * feather + 2, : 40 + 2 * feather + 2]
         assert torch.equal(frame, far)
+
+
+def test_scan_source_hands_the_window_hop_to_ltx_scan(monkeypatch):
+    """The refine scan must plan with the hop LTX used (v0.11.2 made it a required
+    argument of ``scan_span``); the plans come back as the first segment's list."""
+    import threading
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    seen = {}
+    plan_a = SimpleNamespace(windows=(SimpleNamespace(canvas=512),))
+    plan_b = SimpleNamespace(windows=(SimpleNamespace(canvas=512), SimpleNamespace(canvas=768)))
+
+    def fake_scan_span(frames, segments, detector, **kwargs):
+        seen.update(kwargs)
+        seen["segments"] = segments
+        return [[plan_a, plan_b]]
+
+    monkeypatch.setattr(refine, "scan_span", fake_scan_span)
+    monkeypatch.setattr(refine, "video_frames", lambda *args, **kwargs: iter(()))
+    metadata = SimpleNamespace(num_frames=3, video_height=48, video_width=64)
+    plans = refine.scan_source(
+        Path("source.mp4"), metadata, detector=None, batch_size=2, device=torch.device("cpu"),
+        large_canvas=False, window_hop=104, disable_progress=True, cancel=threading.Event(),
+    )
+    assert plans == [plan_a, plan_b]
+    assert seen["window_hop"] == 104
+    assert seen["large_canvas"] is False and seen["frame_h"] == 48 and seen["frame_w"] == 64
+    assert len(seen["segments"]) == 1
