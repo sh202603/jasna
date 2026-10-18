@@ -393,6 +393,7 @@ class Pipeline:
                 batch_size=self.batch_size,
                 device=self.device,
                 large_canvas=self.ltx_large_canvas,
+                window_hop=self.ltx_window_hop,
                 disable_progress=self.disable_progress,
                 progress_callback=self.progress_callback,
                 cancel=self._cancel_event,
