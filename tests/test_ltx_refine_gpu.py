@@ -1,5 +1,8 @@
 """``--ltx-crop-vsr swiftvr-distill`` end to end on the probe clip: the output has the LTX
-output's frame count and timing, and every window of the release's plan is restored."""
+output's frame count and timing, and every window of the release's plan is restored.
+The clip was restored by release v0.11.1 (window hop 88), so the refine runs with
+``--no-experimental-ltx-less-overlap`` to plan the same 11 windows; the v0.11.2 default
+(hop 104) plans 9."""
 
 from __future__ import annotations
 
@@ -39,6 +42,7 @@ def test_distill_refine_keeps_the_ltx_output_frames_and_timing(tmp_path):
             sys.executable, "-m", "jasna",
             "--input", str(LTX_OUTPUT), "--output", str(output),
             "--ltx-crop-vsr", "swiftvr-distill", "--ltx-crop-vsr-source", str(SOURCE),
+            "--no-experimental-ltx-less-overlap",
             "--cq", "20", "--log-level", "info", "--no-progress",
         ],
         capture_output=True, text=True, timeout=900, env=environment,

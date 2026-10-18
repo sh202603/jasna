@@ -342,11 +342,14 @@ def scan_source(
     batch_size: int,
     device: torch.device,
     large_canvas: bool,
+    window_hop: int,
     disable_progress: bool,
     cancel: threading.Event,
 ) -> list[TrackPlan]:
-    """LTX's own scan of the source video as one segment. ``large_canvas`` is taken as
-    given: whether LTX rendered at 768 px was decided on the machine that ran it."""
+    """LTX's own scan of the source video as one segment. ``large_canvas`` and
+    ``window_hop`` are taken as given: whether LTX rendered at 768 px, and how far its
+    windows advanced, were decided on the machine that ran it (the windows only set the
+    x2 batches and the crossfade here; the crop boxes come from the per-track camera)."""
     frames = video_frames(
         source, metadata, batch_size=batch_size, device=device, frame_stride=1, seek_ts=None, end_pts=None
     )
@@ -359,6 +362,7 @@ def scan_source(
             frame_h=int(metadata.video_height),
             frame_w=int(metadata.video_width),
             large_canvas=large_canvas,
+            window_hop=window_hop,
             bar=bar,
             cancel=cancel,
         )[0]
@@ -407,6 +411,7 @@ def run_refine(
     batch_size: int,
     device: torch.device,
     large_canvas: bool,
+    window_hop: int,
     disable_progress: bool,
     progress_callback: ProgressCallback | None,
     cancel: threading.Event,
@@ -430,6 +435,7 @@ def run_refine(
         batch_size=batch_size,
         device=device,
         large_canvas=large_canvas,
+        window_hop=window_hop,
         disable_progress=disable_progress,
         cancel=cancel,
     )
