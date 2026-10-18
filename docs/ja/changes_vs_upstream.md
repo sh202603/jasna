@@ -1,9 +1,9 @@
-# 変更点サマリ: `modi`（`0.11.1+modi`）vs upstream
+# 変更点サマリ: `modi`（`0.11.2+modi`）vs upstream
 
 このブランチが upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) に対して加えている変更を、「いつ追加したか」ではなく「**今、何が違うか**」で整理したものです。
 
 - ブランチ: `modi`（fork `https://github.com/sh202603/jasna.git`）
-- バージョン: `0.11.1+modi`。upstream `2fc3e899`（`v0.11.1` タグ `6a4d3ac2` + upstream の docs コミット 1 つ）にリベース済み
+- バージョン: `0.11.2+modi`。upstream `b623466f`（`v0.11.2` タグ）にリベース済み
 - リベース方針: **重複する機能は upstream 優先。** upstream が自前で実装した項目はブランチから外し、本文ではなく[付録 A](#付録-a-upstream-に吸収されたまたは-drop-した変更)に記載します。
 
 本書の読み方:
@@ -52,7 +52,7 @@
 | GUI | A/B モデル比較 | 区間エディターの **A/B 比較…** | Linux・Windows 検証済み | [segments.md](segments.md#ab-モデル比較)、[6.1](#61-ab-モデル比較区間エディター) |
 | GUI | 動画プレーヤーの復元チェックポイント選択 | プレーヤーの設定カード | Linux・Windows 検証済み | [gui.md](gui.md#動画プレーヤー)、[6.2](#62-動画プレーヤーの復元チェックポイント選択) |
 | パッケージング | Windows 向け Nuitka バンドル | `scripts/build_nuitka.py` | 実験的、Windows のみ | [frozen_build.md](frozen_build.md)、[8](#8-ビルド依存パッケージング) |
-| ビルド | ソースからのセットアップガイド | — | Linux・Windows とも本ベースで検証済み（2026-10-16） | [building_linux.md](building_linux.md)、[building_windows.md](building_windows.md) |
+| ビルド | ソースからのセットアップガイド | — | Linux は本ベースで検証済み（2026-10-18）。Windows の検証は v0.11.1 ベースが最後（2026-10-16） | [building_linux.md](building_linux.md)、[building_windows.md](building_windows.md) |
 
 外部モデル系の機能は GUI には出ず、CLI 専用です。GUI に出るのはフレーム生成、動画バックエンド、FP8 トグル、RTX Super Res の追加オプション、A/B 比較、プレーヤーのチェックポイントです（[6.3](#63-modi-機能の設定項目)）。
 
@@ -224,7 +224,7 @@ BasicVSR++ の **upsample** サブエンジンを cuDNN graph API の FP8 畳み
 
 ## 8. ビルド・依存・パッケージング
 
-- **`pyproject.toml` の差分**: `nvidia-vfx==0.2.0.0` を固定（upstream は無 pin。`rtx` フレーム生成バックエンドが 0.2.0.0 で初めて公開された `VideoFrameGeneration` effect を必要とし、無 pin のままでは新規 venv に旧スタブが想定しない API の版が黙って入るため。副作用: 0.2.0.0 は TensorRT を同梱しなくなり旧 `libnvinfer.so.10` 衝突は構造的に消滅、Linux wheel は約 1.1 GB から 443 MB に縮小）。`nvidia-cudnn-frontend` と `triton-windows`（FP8 バックエンド）。**`nvidia-rtx` extra**（torch-tensorrt-rtx 2.12.1、`onnxconverter-common`。1 venv で `nvidia` と排他）。console script `jasna-framegen`。optional の `torchcodec`。GPU スタックのピン自体は upstream に追従（torch 2.12.1+cu130 / torchvision 0.27.1 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.36 / `av==18.1.0` / `python_vali==4.8.8`）。`python_vali` 4.8.8 は PyPI に無く（PyPI の最新は 4.8.7。2026-10-16 時点）、jasna の VALI デコーダはフォークにしかない `DecodeSingleSurfaceAsyncDetailed` を使う。そのため両 OS のビルドガイドとも、先に Kruk2 氏の VALI フォーク wheel をビルドし、`--find-links` でインストールに渡す（ビルドガイド §5.1〜5.3）。
+- **`pyproject.toml` の差分**: `nvidia-vfx==0.2.0.0` を固定（upstream は無 pin。`rtx` フレーム生成バックエンドが 0.2.0.0 で初めて公開された `VideoFrameGeneration` effect を必要とし、無 pin のままでは新規 venv に旧スタブが想定しない API の版が黙って入るため。副作用: 0.2.0.0 は TensorRT を同梱しなくなり旧 `libnvinfer.so.10` 衝突は構造的に消滅、Linux wheel は約 1.1 GB から 443 MB に縮小）。`nvidia-cudnn-frontend` と `triton-windows`（FP8 バックエンド）。**`nvidia-rtx` extra**（torch-tensorrt-rtx 2.12.1、`onnxconverter-common`。1 venv で `nvidia` と排他）。console script `jasna-framegen`。optional の `torchcodec`。GPU スタックのピン自体は upstream に追従（torch 2.12.1+cu130 / torchvision 0.27.1 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.38 / `av==18.1.0` / `python_vali==4.8.8`）。`python_vali` 4.8.8 は PyPI に無く（PyPI の最新は 4.8.7。2026-10-16 時点）、jasna の VALI デコーダはフォークにしかない `DecodeSingleSurfaceAsyncDetailed` を使う。そのため両 OS のビルドガイドとも、先に Kruk2 氏の VALI フォーク wheel をビルドし、`--find-links` でインストールに渡す（ビルドガイド §5.1〜5.3）。
 - **`model_weights/` の自動解決**（`jasna/model_weights_resolver.py`）: 環境変数 `JASNA_MODEL_WEIGHTS_DIR`、パッケージ親フォールバック、ロギング。upstream の frozen バイナリ向け `engine_paths.model_weights_dir()` の呼び出し箇所もここを通ります。
 - **Windows の DLL ロード補助**（`jasna/packaging/windows_dll_paths.py`）: torchcodec バックエンド向けの FFmpeg 8 DLL 解決（`CUDA_PATH` とバンドルの `tools\` を参照）。働くのは frozen ビルドだけで、ソース実行では即 return する。
 - **同梱パッチ**: `patches/fix_loading_mmengine_weights_on_torch26_and_higher.diff`（venv の mmengine に当てる。Windows・Linux ビルドガイドとも §5.4。upstream は `7c64105` で `checkpoint.py` の 1 行を `weights_only=True` に変えたが、その版ではソース実行で BasicVSR++ の `v1.2.pth` が `HistoryBuffer` を理由に読めないため、フォークは `weights_only=False` のまま同梱する）と `patches/flashvsr_plus_tinylong_multichunk_fix.patch`（upstream の FlashVSR_plus checkout 向け、[3.2](#32-flashvsr-二次復元)）。
@@ -287,6 +287,12 @@ BasicVSR++ の **upsample** サブエンジンを cuDNN graph API の FP8 畳み
 ## 付録 B: リベース履歴
 
 各ベースへのリベースで取り込んだ upstream の主変更と本フォークの対応の記録（新しい順）。
+
+### `v0.11.2` ベース（2026-10-18 取り込み）
+
+upstream は v0.11.2 をリリースした（`2fc3e899` から 23 コミット、うち 13 は protection の pin 更新）。主要点: **LTX の less-overlap モード**（`--experimental-ltx-less-overlap`、既定 ON。121 フレームの window の送り幅が 88 から 104 になり、隣接 window が共有する latent は 4 枚から 2 枚、長い track では window 数が約 13% 減る。`--no-experimental-ltx-less-overlap` で v0.11.1 の出力に戻る。`SessionConfig.ltx_window_hop` が必須フィールドとして増え、`plan_video()` が `window_hop` を取る）、**LTX ストリーム重みの正確なサイズでの page-lock**（torch の 2 の冪に切り上げる pinned allocator をやめて `cuMemHostRegister` を直接使う。Windows は `RAM/2 − 2 GiB` の予算内で page-lock し、超えた分は警告を出して pageable RAM で続行するので、8 GB GPU + 16 GB RAM でも LTX が load できる）、**comfy-kitchen 0.2.38**（vendored SageAttention を再取り込み。カーネルの変更は SM 8.9 未満のみで、Ada 以降は bit 一致）、起動時の **HDD インストール警告**（Linux は sysfs の `rotational`、Windows は `IOCTL_STORAGE_QUERY_PROPERTY`。判定できないときは黙る）、INT8 attention のロード失敗理由の表示（#510）、LTX worker の停止タイムアウトでなく本当の失敗を報告（#513、protection）、README と About からの「JAV」の削除、activation における「新しい PC」の定義。`protection` のポインタは `64f4a12c` から `c084d22e` へ（当方では従来どおり未初期化）。
+
+fork 側: modi の 134 コミットを `b623466f` の上に 1 回で再生した。衝突はバージョン行 2 箇所と `gui/video_session.py` の import ブロック（modi が並べ替えた import の隣に upstream が `window_hop` の import を追加）だけ。追従は 2 箇所: `--ltx-crop-vsr` の scan は upstream の `scan_span` を呼び、これが `window_hop` を必須にしたので、`scan_source()` / `run_refine()` が hop を受け取り、pipeline が `SessionConfig.ltx_window_hop` を渡す（GPU 専用の CLI テストで発覚。転送を固定する CPU テストを追加）。`tests/test_ltx_refine.py` の plan は `window_hop=WINDOW_HOP`（88）で作り、期待値を変えない。したがって refine はコマンドラインで選んだ hop に従う（[ltx_crop_vsr.md](ltx_crop_vsr.md) 参照）。エンジンの再コンパイルも VALI の再ビルドも不要で、venv は `comfy-kitchen` を 0.2.36 から 0.2.38 に上げるだけ。検証（Linux、RTX 5080、2026-10-18）: モデル重みのある checkout での全テストを、同じ deselect と timeout で素の upstream `b623466f` と比較し、失敗は upstream と同じ箇所だけ（protection、gcc-15 での native LTX ビルド、表示環境、ultralytics）。10 秒のテストクリップで modi 機能の CLI 実走（BasicVSR++ の FP8 あり/なし、torchcodec、fMP4、RTX Super Res、SwiftVR distill、SwiftVR offline、SeedVR2、RIFE と RTX のフレーム生成、`--segments`、30 秒プローブ素材での `--ltx-crop-vsr swiftvr-distill`、両方の hop での `--ltx-trial`、LTX + frame-gen の拒否）。HDD 判定は本機（NVMe）で False。`comfy-kitchen` 0.2.38 を既存 venv に入れ、kitchen 関連テスト合格。既知の罠: `model_weights/` の**無い** checkout で全テストを流すと `tests/test_fp8_upsample.py::test_fp8_forward_parity_small` で pytest プロセスごと abort する（`cudnn.create_handle()` が abort、exit 134）。v0.11.1 ベースでも同じで新規ではなく、単体では再現しない。
 
 ### `v0.11.1` ベース（2026-10-16 取り込み）
 
