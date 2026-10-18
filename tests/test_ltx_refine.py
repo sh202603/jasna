@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 from jasna.ltx import camera, plan as plan_module, refine
 from jasna.ltx.compose import Candidate, composite_frame, crop_to_canvas
-from jasna.ltx.plan import Region, feather_pixels, plan_video
+from jasna.ltx.plan import WINDOW_HOP, Region, feather_pixels, plan_video
 from jasna.media.probe import UnsupportedVideoError
 
 FPS = Fraction(30000, 1001)
@@ -125,7 +125,7 @@ def _square(x1, y1, x2, y2) -> Region:
 
 def _plans(frames: int, mosaics: list[tuple[Region, range]], *, cuts=(), size=(64, 64)):
     regions = [[region for region, span in mosaics if i in span] for i in range(frames)]
-    return plan_video(regions, set(cuts), frame_w=size[1], frame_h=size[0], large_canvas=False)
+    return plan_video(regions, set(cuts), frame_w=size[1], frame_h=size[0], large_canvas=False, window_hop=WINDOW_HOP)
 
 
 def _frames(count: int, *, seed: int, size=(64, 64)) -> list[torch.Tensor]:
