@@ -13,7 +13,7 @@ Jasna 修复视频和图片中的马赛克。Jasna 免费，提供简单的应�
 >
 > **本分支只包含 Jasna 源码中公开的部分。** 私有子模块 `jasna/protection`（许可证激活以及加密的支持者模型的解密）**不在其中**，因此 **LTX、UNet 4x 和 SD 1.5 在本构建中不可用**。LTX 模型权重以加密形式（`.enc`）分发，只有官方发布版能解密：`--restoration-model-name ltx` 和 GUI 的 LTX 模式在这里会失败，`--ltx-trial` 只测速度、不做任何修复。如需 LTX 或支持者模型，请使用官方 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) 发布版。官方发布版用 LTX 修复过的视频，可以在这里用 `--ltx-crop-vsr` 锐化（[docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)）。其他一切（检测、BasicVSR++ 修复、RTX/TVAI 二级修复、区间编辑器、VR180、流媒体、导出后操作）均正常工作。
 >
-> 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) **v0.11.1** 的改版构建，新增：
+> 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) **v0.11.2** 的改版构建，新增：
 >
 > - **修复模型**：**SeedVR2 + LoRA** 一级修复；**FlashVSR**、**SwiftVR** 和 **SwiftVR distill** 二级修复；**RTX Super Res** 的两个附加选项（`--rtx-strength`、`--rtx-highbitrate`）。
 > - **LTX 输出锐化**（`--ltx-crop-vsr`）：输入官方发布版用 LTX 修复过的视频及其原视频，重新运行 LTX 公开的马赛克扫描，用 SwiftVR 或 SwiftVR distill 把马赛克区域放大 2 倍，再用 LTX 自己的合成方式放回。主要针对低分辨率输入：LTX 修复出的裁切区域在这类素材上偏模糊。这是本构建中处理 LTX 结果的唯一途径。见 [docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)。

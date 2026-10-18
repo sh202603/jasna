@@ -79,7 +79,7 @@ dist_nuitka\jasna\
 
 ```powershell
 cd dist_nuitka\jasna
-.\jasna.exe --version                 # -> 0.11.1+modi (the script asserts the version of the installed package)
+.\jasna.exe --version                 # -> 0.11.2+modi (the script asserts the version of the installed package)
 .\jasna.exe --input assets\test_clip1_1080p.mp4 --output %TEMP%\out.mkv
 .\jasna-framegen.exe --input %TEMP%\out.mkv --output %TEMP%\out2x.mkv --factor 2x   # needs --bundle-rife weights
 ```
