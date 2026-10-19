@@ -202,11 +202,11 @@ mmengine パッチ（5.4 節）はこの venv にも必要です。
 
 `patches/fix_loading_mmengine_weights_on_torch26_and_higher.diff` を venv の mmengine 0.10.7 に当てます。diff は 4 ファイルを変更します:
 
-- `mmengine/runner/checkpoint.py`: `torch.load` に `weights_only=False` を足す。torch 2.6 以降は既定が `weights_only=True` で、BasicVSR++ の重み（`lada_mosaic_restoration_model_generic_v1.2.pth`）に入っている mmengine の `HistoryBuffer` を読めずに `Weights only load failed` で止まるため
+- `mmengine/runner/checkpoint.py`: `torch.load` に `weights_only=False` を足す。torch 2.6 以降は既定が `weights_only=True` で、学習チェックポイント形式の BasicVSR++ の重み（287 MB の full 版の `lada_mosaic_restoration_model_generic_v1.2.pth` など）に入っている mmengine の `HistoryBuffer` を読めずに `Weights only load failed` で止まるため。6 節で置く通常版（78 MB）はこの変更がなくても読める
 - `mmengine/model/__init__.py` と `mmengine/model/wrappers/__init__.py`: FSDP ラッパーの import を `torch.distributed.is_available()` のときだけにする（分散機能を持たない torch でも import できるようにする）
 - `mmengine/dist/dist.py`: `from __future__ import annotations` を足す
 
-> upstream は `7c64105` でこの diff の 1 行を `weights_only=True` に変えましたが、その版を当てるとソース実行では上記の `v1.2.pth` が読めません（2026-10-16 に確認）。このフォークは `False` のまま同梱しています（[changes_vs_upstream.md](changes_vs_upstream.md) 8 節）。
+> upstream は `7c64105` でこの diff の 1 行を `weights_only=True` に変えました。その版でも 6 節の通常版の `v1.2.pth` は読めますが、同じ名前の full 版（287 MB の学習チェックポイント）は読めません。このフォークは full 版などの学習チェックポイントも読めるよう `False` のまま同梱しています（[changes_vs_upstream.md](changes_vs_upstream.md) 8 節）。full 版を `weights_only=True` でも読める形に変換する手順は [models.md の付録 A](models.md#付録-a-weights_onlytrue-で読めない復元モデルを変換する) にあります。
 
 ```bash
 cd "$WORKSPACE/jasna"
@@ -230,7 +230,7 @@ YOLO 系検出モデル（`lada-yolo-*`、`zelefans-vr-yolo-v2`）は、TensorRT
 
 `$WORKSPACE/jasna/model_weights/` に以下のファイルを置く（upstream のリリースパッケージから取り出す）:
 
-- `lada_mosaic_restoration_model_generic_v1.2.pth`
+- `lada_mosaic_restoration_model_generic_v1.2.pth`（78 MB の通常版。同じ名前で 287 MB の full 版も出回っている。違いは [models.md の付録 A](models.md#付録-a-weights_onlytrue-で読めない復元モデルを変換する)）
 - `rfdetr-v6.onnx`（v0.9.0 以降の既定検出器。4K 向け `rfdetr-v6-large.onnx` と VR180 向け `rfdetr-vr-v1.onnx` は任意、旧 `rfdetr-v5.onnx` も引き続き使える）
 - `lada_mosaic_detection_model_v4_fast.pt`
 - `lada_vr_mosaic_detection_model_v2_accurate.pt`（VR180 向け YOLO 検出モデル `zelefans-vr-yolo-v2` の実体）
@@ -339,7 +339,7 @@ python -m jasna              # GUI を起動（引数なし）
   `model_weights/` のファイル欠落、またはリゾルバが別の場所を見ている。6 節のウェイトを `$WORKSPACE/jasna/model_weights/` に置くか、`JASNA_MODEL_WEIGHTS_DIR` をそれらが入ったフォルダに設定する。
 
 - **BasicVSR++ の読み込みが `Weights only load failed ... HistoryBuffer` で失敗する**
-  mmengine パッチが当たっていないか、upstream 版（`weights_only=True`）が当たっている。5.4 節のとおり mmengine を素に戻して同梱の diff を当てる。
+  置いてある `v1.2.pth` が 287 MB の full 版（学習チェックポイント）で、mmengine パッチが当たっていないか、upstream 版（`weights_only=True`）が当たっている。5.4 節のとおり mmengine を素に戻して同梱の diff を当てるか、6 節の通常版に差し替えるか、[models.md の付録 A](models.md#付録-a-weights_onlytrue-で読めない復元モデルを変換する) の手順で full 版を変換する。
 
 - **RTX Super-Res で `IRuntime::deserializeCudaEngine ... Version tag does not match`**
   `nvidia-vfx` 0.1.0.1 以前に限る症状。それらの wheel は TensorRT 10.9 を同梱し、jasna の TensorRT 10.16 と soname `libnvinfer.so.10` を共有するため、nvvfx 側が先にロードされるとエンジンを読めなくなる。固定版の 0.2.0.0 は TensorRT を同梱せず、衝突を避ける先読みガードも残っている（付録 A.3）。この症状が出たら `uv pip install nvidia-vfx==0.2.0.0`。
@@ -378,7 +378,7 @@ About ダイアログと初回ウィザードは、upstream の `grab_modal()` �
 ベースごとのソース実行手順の変化と、本ガイドを検証した時点（新しい順）。不要になった手順は要約だけを残し、全文は本ファイルの git 履歴にあります。
 
 - **v0.11.2 ベース（2026-10-18 検証、RTX 5080、Ubuntu 26.04）**: ピンの変更は `comfy-kitchen` 0.2.36 → 0.2.38 だけ（カーネルの変更は SM 8.9 未満のみ。既存 venv なら `uv pip install comfy-kitchen==0.2.38` で足りる）。upstream は LTX の less-overlap モードと HDD インストール警告を追加。VALI の再ビルド（`0e5c01e` のまま）もエンジンの再コンパイルも不要。検証（Linux、RTX 5080、2026-10-18）: モデル重みのある checkout での全テストを、同じ deselect と timeout で素の upstream `b623466f` と比較し、失敗は upstream と同じ箇所だけ（protection、gcc-15 での native LTX ビルド、表示環境、ultralytics）。10 秒のテストクリップで modi 機能の CLI 実走（BasicVSR++ の FP8 あり/なし、torchcodec、fMP4、RTX Super Res、SwiftVR distill、SwiftVR offline、SeedVR2、RIFE と RTX のフレーム生成、`--segments`、30 秒プローブ素材での `--ltx-crop-vsr swiftvr-distill`、両方の hop での `--ltx-trial`、LTX + frame-gen の拒否）。HDD 判定は本機（NVMe）で False。`comfy-kitchen` 0.2.38 を既存 venv に入れ、kitchen 関連テスト合格。既知の罠: `model_weights/` の**無い** checkout で全テストを流すと `tests/test_fp8_upsample.py::test_fp8_forward_parity_small` で pytest プロセスごと abort する（`cudnn.create_handle()` が abort、exit 134）。v0.11.1 ベースでも同じで新規ではなく、単体では再現しない。
-- **v0.11.1 ベース（2026-10-16 検証、RTX 5080、Ubuntu 26.04）**: upstream が torch 2.12.1 / torchvision 0.27.1 を固定し、`comfy-kitchen==0.2.36` と `ultralytics>=8.4.96`（YOLO export に onnxruntime も onnxslim も要らなくなり、5.5 節は注記だけになった）を追加、`av==18.1.0` を厳密固定、デコードバックエンドの選択を `JASNA_DECODE_BACKEND` だけにした（in-code の `DECODE_BACKEND` トグルは廃止）。VALI フォーク wheel は Kruk2 氏の `0e5c01e`（4.8.8 + ASF/VC-1 タイムスタンプ修正 + decoder-open の GIL 解放）で再ビルド。検証: 同じ deselect と timeout で素の upstream と比較した full pytest（残る失敗はすべて upstream でも失敗）、modi 機能の e2e CLI 実走（native / torchcodec バックエンド、FP8、フレーム生成、SeedVR2、FlashVSR inline、SwiftVR inline / オフライン / distill、`--ltx-crop-vsr`、segments、streaming）、両デコードパスで VALI フォーク wheel が実効。同日、`python_vali==4.8.8` が PyPI に無い（素の venv では `[nvidia]` が解決できない）ことを受けて VALI を必須と位置づけ、5 節を「ビルド用パッケージ（setuptools<81 を含む）→ VALI wheel のビルド → `--find-links` 付きの jasna インストール → mmengine パッチ」の順に組み替えた。mmengine パッチは、upstream が `7c64105` で `weights_only=True` に変えた版だとソース実行で `v1.2.pth` が読めないことを確認し、フォーク側で `False` のまま同梱することにした（4 ファイル分の説明を追加）。新しい 5 節は、空の venv と新規 clone の vali から通しで確認した（`[nvidia]` が `--find-links` で解決、`DecodeSingleSurfaceAsyncDetailed` が `True`、mmengine パッチ後に `load_model()` が `v1.2.pth` を読める）。
+- **v0.11.1 ベース（2026-10-16 検証、RTX 5080、Ubuntu 26.04）**: upstream が torch 2.12.1 / torchvision 0.27.1 を固定し、`comfy-kitchen==0.2.36` と `ultralytics>=8.4.96`（YOLO export に onnxruntime も onnxslim も要らなくなり、5.5 節は注記だけになった）を追加、`av==18.1.0` を厳密固定、デコードバックエンドの選択を `JASNA_DECODE_BACKEND` だけにした（in-code の `DECODE_BACKEND` トグルは廃止）。VALI フォーク wheel は Kruk2 氏の `0e5c01e`（4.8.8 + ASF/VC-1 タイムスタンプ修正 + decoder-open の GIL 解放）で再ビルド。検証: 同じ deselect と timeout で素の upstream と比較した full pytest（残る失敗はすべて upstream でも失敗）、modi 機能の e2e CLI 実走（native / torchcodec バックエンド、FP8、フレーム生成、SeedVR2、FlashVSR inline、SwiftVR inline / オフライン / distill、`--ltx-crop-vsr`、segments、streaming）、両デコードパスで VALI フォーク wheel が実効。同日、`python_vali==4.8.8` が PyPI に無い（素の venv では `[nvidia]` が解決できない）ことを受けて VALI を必須と位置づけ、5 節を「ビルド用パッケージ（setuptools<81 を含む）→ VALI wheel のビルド → `--find-links` 付きの jasna インストール → mmengine パッチ」の順に組み替えた。mmengine パッチは、upstream が `7c64105` で `weights_only=True` に変えた版だとソース実行で full 版の `v1.2.pth` が読めないことを確認し、フォーク側で `False` のまま同梱することにした（4 ファイル分の説明を追加）。新しい 5 節は、空の venv と新規 clone の vali から通しで確認した（`[nvidia]` が `--find-links` で解決、`DecodeSingleSurfaceAsyncDetailed` が `True`、mmengine パッチ後に `load_model()` が `v1.2.pth` を読める）。
 - **nvidia-vfx 0.2.0.0 固定（2026-10-03）**: `--frame-gen-backend rtx` の `VideoFrameGeneration` effect のため、ブランチが `nvidia-vfx==0.2.0.0` を固定（upstream は無 pin）。0.2.0.0 は TensorRT を同梱しなくなり、付録 A.3 の `libnvinfer.so.10` 衝突は構造的に消滅、Linux wheel は約 1.1 GB から 443 MB に縮小。それ以前の venv には 0.1.0.1 が入っている: `uv pip install nvidia-vfx==0.2.0.0`。
 - **PyAV を PyPI から（2026-08-24）**: av 18.1.0 が current_ctx API とエンコーダが使う CUDA stream 明示指定を含んで PyPI に公開され、PyAV main（コミット `f6f0a5e`）を BtbN FFmpeg 8.1 shared ビルドにリンクして auditwheel で同梱する暫定手順が終了。暫定 wheel は `18.0.0` を報告するため、5 節のインストールで置き換わる（すぐ替えるなら `uv pip install "av>=18.1"`）。公式 wheel で Linux 実機検証: メディア層テストと、NVDEC デコード・NVENC エンコードを含むフルパイプラインの e2e。
 - **v0.10.0 ベース（2026-08-13）**: 環境変数 `JASNA_DECODE_BACKEND`（`auto` / `vali` / `pyav-hw` / `pyav-sw`）。`python_vali` のピンは 4.8.8（フォークコミット `f4a67f8`）。
