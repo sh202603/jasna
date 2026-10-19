@@ -57,6 +57,10 @@ jasna --input input.mp4 --output output.mkv --restoration-model-name ltx
 an external venv, strongest on low-resolution, heavily degraded sources, much
 slower than BasicVSR++. See [seedvr2.md](seedvr2.md).
 
+*(+modi)* If BasicVSR++ weights fail with `Weights only load failed ... HistoryBuffer`,
+convert them as in
+[Appendix A](#appendix-a-converting-a-restoration-model-that-weights_onlytrue-cannot-load).
+
 ### What LTX needs
 
 - **License**: a License code that includes LTX ($25 USD, also gives UNet 4x and SD 1.5, see
@@ -253,3 +257,66 @@ To try seeds one by one in the GUI, use
 Examples:
 [SD 1.5 examples on SLS Discord](https://discord.com/channels/1196376491815092265/1199059436199759943/1492139124348420106)
 and [more](https://discord.com/channels/1196376491815092265/1199059436199759943/1516571355317800990).
+
+## Appendix A: Converting a restoration model that weights_only=True cannot load
+
+*(+modi)* From torch 2.6, `torch.load` defaults to `weights_only=True` and refuses files that contain anything beyond allowed data such as tensors and dicts.
+A BasicVSR++ restoration model saved as a raw training checkpoint contains the training log (mmengine's `HistoryBuffer`), so with this default it stops with:
+
+```
+Weights only load failed ... Unsupported global: GLOBAL mmengine.logging.history_buffer.HistoryBuffer
+```
+
+This fork's bundled mmengine patch sets `weights_only=False`, so a source run can still read such a file.
+Upstream, however, switched that patch to `weights_only=True` in `7c64105`, and placing such a file in an upstream release package makes the engine compilation fail with this error.
+To use it with an upstream release package, or to avoid `weights_only=False` (which leaves room for arbitrary code execution), convert it into a file that holds only the weights inference needs, as follows.
+
+### Which file
+
+Two different files circulate under the name `lada_mosaic_restoration_model_generic_v1.2.pth`:
+
+| | Size | sha256 (prefix) | weights_only=True |
+| --- | --- | --- | --- |
+| Standard (bundled with the Jasna release package) | 78,441,770 bytes | `d404152576ce64fb` | loads |
+| Full (training checkpoint) | 287,493,811 bytes | `8c52ccb5cbbf60ae` | fails |
+
+Only the full one needs converting.
+To check any other `.pth` without executing it, run the command below.
+An empty list `[]` means it loads with `weights_only=True` as is.
+
+```bash
+python -I -c "import torch,sys; print(torch.serialization.get_unsafe_globals_in_checkpoint(sys.argv[1]))" model.pth
+```
+
+### Requirements
+
+- Run it with the python of the Jasna venv. Opening the full file imports mmengine and numpy 2.x, so without mmengine it stops with `No module named 'mmengine.logging'`.
+- `-I` ignores `PYTHONPATH` and the user site-packages. If torch and friends were installed with `pip install --user`, drop `-I`.
+- The input must be a training checkpoint (one with a `state_dict` inside). The standard file raises `KeyError: 'state_dict'`, but it never needs converting.
+- The file is opened once with `weights_only=False`, so only convert files from a source you trust.
+- It uses about 1 GB of memory.
+
+### Converting
+
+```bash
+python -I -c "import torch,sys; sd=torch.load(sys.argv[1],map_location='cpu',weights_only=False)['state_dict']; torch.save({k:v for k,v in sd.items() if k.startswith(('generator.','generator_ema.'))}, sys.argv[2])" full.pth converted.pth
+```
+
+From the full file this produces 812 keys, about 78 MB (around 78,352,587 bytes).
+It only drops the discriminator (`discriminator.`), the perceptual loss (`perceptual_loss.`), the training log and the optimizer state; the weight values are unchanged.
+The output's hash and size vary slightly with the output file name.
+
+Check that it loads with `weights_only=True`:
+
+```bash
+python -I -c "import torch,sys; print(len(torch.load(sys.argv[1],map_location='cpu',weights_only=True)))" converted.pth
+# 812
+```
+
+Put the converted file in `model_weights/` and pass it with `--restoration-model-path`, or replace the original file with it.
+
+### Caveats
+
+- **Keep `generator_ema.`.** Jasna's inference uses the EMA weights (`generator_ema.`). A file with only `generator.` loads without an error; the CLI only logs a warning and restores with random weights. The GUI's restoration checkpoint selector (player and A/B comparison) rejects files without EMA weights up front.
+- **The full and standard files hold different weights.** Only the optical-flow part (SPyNet) matches; the other layers come from a different point in training. Converting does not give you the standard file, so record which one you used when comparing results.
+- **Rebuild the TensorRT engines.** BasicVSR++ engines are looked up by the model file name only (`<file name>_sub_engines/`), and the weights are not checked. After swapping the standard file and the full (or converted) file under the same name, delete the matching `_sub_engines` folder in `model_weights/`. Otherwise restoration silently runs on engines built from the old weights. Replacing the full file with its converted version keeps the same weights, so no rebuild is needed.
