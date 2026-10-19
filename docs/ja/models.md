@@ -56,6 +56,10 @@ jasna --input input.mp4 --output output.mkv --restoration-model-name ltx
 動く one-step 拡散モデルで、低解像度で劣化の大きい素材に最も強く、BasicVSR++
 よりずっと遅いです。[seedvr2.md](seedvr2.md) をご覧ください。
 
+*(+modi)* BasicVSR++ の重みが `Weights only load failed ... HistoryBuffer` で
+読めないときは、[付録 A](#付録-a-weights_onlytrue-で読めない復元モデルを変換する)
+の手順で変換できます。
+
 ### LTX に必要なもの
 
 - **ライセンス**: LTX を含むライセンスコード（25 USD、UNet 4x と SD 1.5 も含む、
@@ -241,3 +245,66 @@ GUI でシードを 1 つずつ試すには、
 例:
 [SLS Discord の SD 1.5 例](https://discord.com/channels/1196376491815092265/1199059436199759943/1492139124348420106)
 と[その他の例](https://discord.com/channels/1196376491815092265/1199059436199759943/1516571355317800990)。
+
+## 付録 A: weights_only=True で読めない復元モデルを変換する
+
+*(+modi)* torch 2.6 以降、`torch.load` は既定で `weights_only=True` になり、テンソルや辞書などの許可されたデータ以外を含むファイルを読み込みません。
+BasicVSR++ の復元モデルのうち、学習時のチェックポイントをそのまま保存したファイルは学習ログ（mmengine の `HistoryBuffer`）を含むため、この設定では次のエラーで止まります。
+
+```
+Weights only load failed ... Unsupported global: GLOBAL mmengine.logging.history_buffer.HistoryBuffer
+```
+
+このフォークは同梱の mmengine パッチで `weights_only=False` にしているので、ソースから実行する限りこのファイルも読めます。
+一方、upstream は `7c64105` 以降このパッチを `weights_only=True` にしており、upstream のリリースパッケージにこのファイルを置くとエンジンのコンパイルがこのエラーで失敗します。
+upstream のリリースパッケージで使う場合や、任意コード実行の余地を残す `weights_only=False` を避けたい場合は、以下の手順で推論に要る重みだけを取り出したファイルに変換してください。
+
+### 対象のファイル
+
+`lada_mosaic_restoration_model_generic_v1.2.pth` という名前で、中身の違う 2 種類のファイルが出回っています。
+
+| | サイズ | sha256（先頭） | weights_only=True |
+| --- | --- | --- | --- |
+| 通常版（Jasna のリリースパッケージに同梱） | 78,441,770 バイト | `d404152576ce64fb` | 読める |
+| full 版（学習チェックポイント） | 287,493,811 バイト | `8c52ccb5cbbf60ae` | 読めない |
+
+変換が必要なのは full 版だけです。
+ほかの `.pth` が読めるかどうかは、ファイルを実行せずに次のコマンドで確かめられます。
+空のリスト `[]` が表示されれば、変換せずにそのまま `weights_only=True` で読めます。
+
+```bash
+python -I -c "import torch,sys; print(torch.serialization.get_unsafe_globals_in_checkpoint(sys.argv[1]))" model.pth
+```
+
+### 変換の前提
+
+- Jasna の venv の python で実行してください。full 版を開くときに mmengine と numpy 2.x が import されるため、mmengine の入っていない環境では `No module named 'mmengine.logging'` で止まります。
+- `-I` は `PYTHONPATH` とユーザー site-packages を無視します。torch などを `pip install --user` で入れている場合は `-I` を外してください。
+- 入力は学習チェックポイント形式（中に `state_dict` を持つもの）に限ります。通常版を渡すと `KeyError: 'state_dict'` になりますが、通常版はもともと変換不要です。
+- 変換時の 1 回だけ `weights_only=False` で開くので、入手元を信頼できるファイルにだけ使ってください。
+- メモリを 1 GB ほど使います。
+
+### 変換する
+
+```bash
+python -I -c "import torch,sys; sd=torch.load(sys.argv[1],map_location='cpu',weights_only=False)['state_dict']; torch.save({k:v for k,v in sd.items() if k.startswith(('generator.','generator_ema.'))}, sys.argv[2])" full.pth converted.pth
+```
+
+full 版からは、812 キー、約 78 MB（78,352,587 バイト前後）のファイルができます。
+推論に使わない識別器（`discriminator.`）、知覚損失（`perceptual_loss.`）、学習ログ、オプティマイザの状態を取り除くだけで、重みの値は変わりません。
+出力ファイルのハッシュとサイズは、出力ファイル名によってわずかに変わります。
+
+`weights_only=True` で読めることは次のコマンドで確かめられます。
+
+```bash
+python -I -c "import torch,sys; print(len(torch.load(sys.argv[1],map_location='cpu',weights_only=True)))" converted.pth
+# 812
+```
+
+変換したファイルは、`model_weights/` に置いて `--restoration-model-path` で指定するか、元のファイルと差し替えてください。
+
+### 注意
+
+- **`generator_ema.` を落とさないでください。** Jasna の推論に使われるのは EMA 重み（`generator_ema.`）です。`generator.` だけを残したファイルは読み込みエラーにならず、CLI では警告だけを出してランダムな重みのまま復元します。GUI の復元チェックポイント選択（プレーヤーと A/B 比較）は、EMA 重みのないファイルを事前に拒否します。
+- **full 版と通常版は別の重みです。** 一致するのは光学フロー推定（SPyNet）の部分だけで、残りの層は学習の時点が異なります。変換しても通常版にはならないので、結果を比べるときはどちらのファイルを使ったかを記録してください。
+- **TensorRT エンジンを作り直してください。** BasicVSR++ のエンジンはモデルファイル名だけで引かれ（`<ファイル名>_sub_engines/`）、重みの中身は照合されません。同じファイル名のまま通常版と full 版（または変換版）を入れ替えたら、`model_weights/` の該当する `_sub_engines` フォルダを削除してください。削除しないと、古い重みのエンジンでエラーも出ずに復元されます。full 版を変換版に差し替えるだけなら重みは同じなので、作り直しは不要です。
