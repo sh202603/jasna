@@ -47,6 +47,15 @@ class TestAlignment:
         with pytest.raises(UnsupportedVideoError, match="frame size"):
             _check(_times([0, 1001]), _times([0, 1001], size=(32, 48)))
 
+    def test_reads_a_source_whose_tags_are_not_utf8(self, tmp_path):
+        """Alignment reads the streams with tolerant metadata decoding, like every
+        other av.open in jasna (upstream 6c20eca8): a title holding a raw 0x90 byte
+        used to raise UnicodeDecodeError before the first frame was looked at."""
+        from factories import write_non_utf8_metadata_source
+
+        times = refine.read_stream_times(write_non_utf8_metadata_source(tmp_path / "tags.mp4"))
+        assert len(times.pts) == 24 and (times.width, times.height) == (256, 256)
+
 
 def _write_video(path, frames: int, *, rate: int = 30) -> None:
     with av.open(str(path), "w") as container:
