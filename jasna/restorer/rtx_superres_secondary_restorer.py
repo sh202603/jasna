@@ -107,7 +107,49 @@ def _make_effect(VideoSuperRes, *, gpu: int, quality, strength: float, output_si
     return effect
 
 
+class _EffectChain:
+    """The RTX passes for one input side: the upscale, then the optional denoise and
+    deblur at the upscaled size. Every pass is bound to its output size by ``load()``,
+    so a chain serves exactly one input side."""
+
+    def __init__(
+        self, VideoSuperRes, *, gpu: int, input_size: int, scale: int, quality, denoise, deblur, strength: float
+    ) -> None:
+        self.input_size = int(input_size)
+        self.output_size = self.input_size * int(scale)
+        # The same strength applies to every pass: it is "how strong is the RTX
+        # chain", not a per-pass knob.
+        self.sr = _make_effect(VideoSuperRes, gpu=gpu, quality=quality, strength=strength, output_size=self.output_size)
+        self.denoise = (
+            _make_effect(VideoSuperRes, gpu=gpu, quality=denoise, strength=strength, output_size=self.output_size)
+            if denoise is not None else None
+        )
+        self.deblur = (
+            _make_effect(VideoSuperRes, gpu=gpu, quality=deblur, strength=strength, output_size=self.output_size)
+            if deblur is not None else None
+        )
+
+    def run(self, frame: torch.Tensor, stream_ptr: int) -> torch.Tensor:
+        result = torch.from_dlpack(self.sr.run(frame, stream_ptr=stream_ptr).image).clone()
+        if self.denoise is not None:
+            result = torch.from_dlpack(self.denoise.run(result, stream_ptr=stream_ptr).image).clone()
+        if self.deblur is not None:
+            result = torch.from_dlpack(self.deblur.run(result, stream_ptr=stream_ptr).image).clone()
+        return result
+
+    def close(self) -> None:
+        for effect in (self.sr, self.denoise, self.deblur):
+            if effect is not None:
+                effect.close()
+        self.sr = self.denoise = self.deblur = None
+
+
 class RtxSuperresSecondaryRestorer:
+    """``input_size`` is the side of the square crops the frame pipeline hands over (256);
+    ``None`` sizes the passes from the frames instead, one chain per input side met, so
+    a caller whose crops come at several sides (the LTX canvases of ``--ltx-crop-vsr``,
+    512 and 768 px) never reloads an effect."""
+
     name = "rtx-super-res"
     num_workers = 1
     prefers_cpu_input = False
@@ -122,61 +164,76 @@ class RtxSuperresSecondaryRestorer:
         deblur: Optional[str] = None,
         strength: float = 1.0,
         highbitrate: bool = False,
-        input_size: int = RTX_SUPERRES_INPUT_SIZE,
+        input_size: Optional[int] = RTX_SUPERRES_INPUT_SIZE,
     ) -> None:
         from nvvfx import VideoSuperRes
 
-        if input_size < 1:
+        if input_size is not None and input_size < 1:
             raise ValueError("input_size must be positive")
         if not 0.0 <= float(strength) <= 1.0:
             raise ValueError(f"strength must be in [0.0, 1.0], got {strength}")
-        output_size = input_size * scale
 
         self.device = torch.device(device)
-        self.input_size = int(input_size)
-        self.output_size = int(output_size)
+        self.scale = int(scale)
+        self.input_size = None if input_size is None else int(input_size)
+        self.output_size = None if self.input_size is None else self.input_size * self.scale
         self.strength = float(strength)
         self.highbitrate = bool(highbitrate)
-        gpu = self.device.index or 0
+        self._gpu = self.device.index or 0
         self._stream_ptr = torch.cuda.current_stream(self.device).cuda_stream
-
-        # The same strength applies to every pass: it is "how strong is the RTX
-        # chain", not a per-pass knob.
-        self._sr = _make_effect(
-            VideoSuperRes, gpu=gpu,
-            quality=_resolve_quality(quality, highbitrate=self.highbitrate),
-            strength=self.strength, output_size=output_size,
+        self._VideoSuperRes = VideoSuperRes
+        self._quality = _resolve_quality(quality, highbitrate=self.highbitrate)
+        self._denoise_quality = (
+            _resolve_denoise(denoise) if denoise is not None and denoise.lower() != "none" else None
         )
-
-        self._denoise = None
-        if denoise is not None and denoise.lower() != "none":
-            self._denoise = _make_effect(
-                VideoSuperRes, gpu=gpu, quality=_resolve_denoise(denoise),
-                strength=self.strength, output_size=output_size,
-            )
-
-        self._deblur = None
-        if deblur is not None and deblur.lower() != "none":
-            self._deblur = _make_effect(
-                VideoSuperRes, gpu=gpu, quality=_resolve_deblur(deblur),
-                strength=self.strength, output_size=output_size,
-            )
+        self._deblur_quality = _resolve_deblur(deblur) if deblur is not None and deblur.lower() != "none" else None
+        self._chains: dict[int, _EffectChain] = {}
+        if self.input_size is not None:
+            self._chain_for(self.input_size)
 
         logger.info(
-            "RtxSuperresSecondaryRestorer: scale=%dx quality=%s%s denoise=%s deblur=%s strength=%.2f (%dx%d -> %dx%d)",
-            scale, quality, " (highbitrate)" if self.highbitrate else "", denoise, deblur, self.strength,
-            self.input_size, self.input_size, output_size, output_size,
+            "RtxSuperresSecondaryRestorer: scale=%dx quality=%s%s denoise=%s deblur=%s strength=%.2f (%s)",
+            self.scale, quality, " (highbitrate)" if self.highbitrate else "", denoise, deblur, self.strength,
+            f"{self.input_size}x{self.input_size} -> {self.output_size}x{self.output_size}"
+            if self.input_size is not None else "sized from the frames",
         )
+
+    def _chain_for(self, size: int) -> _EffectChain:
+        chain = self._chains.get(size)
+        if chain is None:
+            chain = self._chains[size] = _EffectChain(
+                self._VideoSuperRes, gpu=self._gpu, input_size=size, scale=self.scale, quality=self._quality,
+                denoise=self._denoise_quality, deblur=self._deblur_quality, strength=self.strength,
+            )
+            if self.input_size is None:
+                logger.info("RtxSuperresSecondaryRestorer: passes loaded for %dx%d -> %dx%d",
+                            size, size, chain.output_size, chain.output_size)
+        return chain
+
+    # The passes of the configured input side (None when sized from the frames).
+    @property
+    def _sr(self):
+        chain = self._chains.get(self.input_size) if self.input_size is not None else None
+        return chain.sr if chain is not None else None
+
+    @property
+    def _denoise(self):
+        chain = self._chains.get(self.input_size) if self.input_size is not None else None
+        return chain.denoise if chain is not None else None
+
+    @property
+    def _deblur(self):
+        chain = self._chains.get(self.input_size) if self.input_size is not None else None
+        return chain.deblur if chain is not None else None
 
     def restore(self, frames: torch.Tensor, *, keep_start: int, keep_end: int) -> list[torch.Tensor]:
         t = int(frames.shape[0])
         if t == 0:
             return []
-        if frames.ndim != 4 or tuple(frames.shape[1:]) != (
-            3,
-            self.input_size,
-            self.input_size,
-        ):
+        if frames.ndim != 4 or frames.shape[1] != 3 or frames.shape[2] != frames.shape[3]:
+            raise ValueError(f"expected frames shaped (T, 3, S, S), got {tuple(frames.shape)}")
+        size = int(frames.shape[-1])
+        if self.input_size is not None and size != self.input_size:
             raise ValueError(
                 f"expected frames shaped (T, 3, {self.input_size}, {self.input_size}), "
                 f"got {tuple(frames.shape)}"
@@ -189,28 +246,16 @@ class RtxSuperresSecondaryRestorer:
         frames = frames[ks:ke]
         t = int(frames.shape[0])
 
+        chain = self._chain_for(size)
         out: list[torch.Tensor] = []
         for i in range(t):
             frame = frames[i].to(device=self.device, dtype=torch.float32).contiguous()
-
-            result = torch.from_dlpack(self._sr.run(frame, stream_ptr=self._stream_ptr).image).clone()
-            if self._denoise is not None:
-                result = torch.from_dlpack(self._denoise.run(result, stream_ptr=self._stream_ptr).image).clone()
-            if self._deblur is not None:
-                result = torch.from_dlpack(self._deblur.run(result, stream_ptr=self._stream_ptr).image).clone()
-
-            out_u8 = result.clamp(0, 1).mul(255.0).round().clamp(0, 255).to(dtype=torch.uint8)
-            out.append(out_u8)
+            result = chain.run(frame, self._stream_ptr)
+            out.append(result.clamp(0, 1).mul(255.0).round().clamp(0, 255).to(dtype=torch.uint8))
 
         return out
 
     def close(self) -> None:
-        if self._sr is not None:
-            self._sr.close()
-            self._sr = None
-        if self._denoise is not None:
-            self._denoise.close()
-            self._denoise = None
-        if self._deblur is not None:
-            self._deblur.close()
-            self._deblur = None
+        for chain in self._chains.values():
+            chain.close()
+        self._chains.clear()
