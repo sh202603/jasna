@@ -52,7 +52,7 @@ Every feature has its own detailed document (design, measurements, verification 
 | GUI | A/B model comparison | Segment Editor, **A/B compare…** | Linux + Windows verified | [segments.md](segments.md#ab-model-comparison), [6.1](#61-ab-model-comparison-segment-editor) |
 | GUI | Restoration checkpoint in the Video Player | player settings card | Linux + Windows verified | [gui.md](gui.md#video-player), [6.2](#62-restoration-checkpoint-selection-in-the-video-player) |
 | Packaging | Windows Nuitka bundle | `scripts/build_nuitka.py` | experimental, Windows only | [frozen_build.md](frozen_build.md), [8](#8-build-dependencies-and-packaging) |
-| Build | From-source guides | — | Linux verified on this base (2026-10-22); Windows last verified on the v0.11.2 base (2026-10-18) | [building_linux.md](building_linux.md), [building_windows.md](building_windows.md) |
+| Build | From-source guides | — | Linux and Windows verified on this base (2026-10-22; Windows on an RTX 5060 Ti) | [building_linux.md](building_linux.md), [building_windows.md](building_windows.md) |
 
 None of the external-model features is exposed in the GUI; they are CLI only. The GUI does expose frame generation, the video backend, the FP8 toggle, the RTX Super Res extras, the A/B comparison and the player checkpoint ([6.3](#63-settings-exposed-for-the-modi-features)).
 
