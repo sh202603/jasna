@@ -228,6 +228,15 @@ outputs at CQ 14).
   sharper than the LTX output; the distill student is softer but its detail looks more
   natural. On the 1080p clip the backends hardly differ from the LTX output, so the
   sharpening is barely needed there.
+- **RTX Super Res on Windows** (Windows 11, RTX 5060 Ti 16 GB, 2026-10-22, the same two
+  clips, hop 88, CQ 14): both clips give the same plan as on Linux (2 tracks, 11 windows,
+  nothing skipped) with the LTX output's frame count and timing, and
+  `RtxSuperresSecondaryRestorer: passes loaded for 512x512 -> 1024x1024` appears once. Wall
+  time 36 s / 48 s (scan 7 s, sharpen and compose 24 / 34 s); peak VRAM for the whole GPU
+  4.2 / 5.0 GB (2.9 GB of it the desktop). The distill student at the default hop of 104
+  plans 9 windows and takes 57 s. `tests/test_ltx_refine_gpu.py` passes with both backends
+  (96 s). The user's visual check (2026-10-22, the 720x480 output against the Linux result)
+  passed too.
 - Pending: the 768 px canvas, footage whose crops are under half the canvas, footage over
   10 minutes.
 
