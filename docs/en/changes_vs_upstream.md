@@ -1,9 +1,9 @@
-# Changes vs upstream: `modi` (`0.11.2+modi`)
+# Changes vs upstream: `modi` (`0.11.3+modi`)
 
 What this branch adds on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna), organized by what differs **today**, not by when it was added.
 
 - Branch: `modi` (fork `https://github.com/sh202603/jasna.git`)
-- Version: `0.11.2+modi`, rebased onto upstream `b623466f` (the `v0.11.2` tag)
+- Version: `0.11.3+modi`, rebased onto upstream `cf8a968c` (the `v0.11.3` tag)
 - Rebase policy: **upstream wins on overlapping features.** Anything upstream has since implemented itself is removed from the branch and listed in [Appendix A](#appendix-a-absorbed-by-upstream-or-dropped), not in the body.
 
 How to read this document:
@@ -29,7 +29,7 @@ Every feature has its own detailed document (design, measurements, verification 
 ## 1. Scope of this public build
 
 - **Supporter models are inert.** `unet-4x`, SD 1.5 image restoration and the activation flow need the private `jasna/protection` submodule, which this public fork does not have. The upstream code rides along and does nothing. For those models use the official upstream release.
-- **LTX cannot restore video here.** The LTX weights ship encrypted (`.enc`) and only the official release decrypts them. `--restoration-model-name ltx` / `ltx-undistilled` and the GUI's LTX modes do not work; `--ltx-trial` runs with random weights and only measures speed. LTX's public parts (the mosaic scan and the compositor) are what [`--ltx-crop-vsr`](#36-sharpening-ltx-outputs---ltx-crop-vsr) reuses to sharpen a video the official release restored.
+- **LTX cannot restore video here.** The LTX weights ship encrypted (`.enc`) and only the official release decrypts them. `--restoration-model-name ltx` / `ltx-4step` / `ltx-8step` / `ltx-undistilled` and the GUI's LTX modes do not work; `--ltx-trial` runs with random weights and only measures speed. LTX's public parts (the mosaic scan and the compositor) are what [`--ltx-crop-vsr`](#36-sharpening-ltx-outputs---ltx-crop-vsr) reuses to sharpen a video the official release restored.
 - **Everything else works**: detection, BasicVSR++ restoration, RTX Super Res and TVAI secondaries, the Segment Editor, VR180, streaming, post-export actions, plus the modi features below.
 - **Run from source.** This fork is set up from the build guides ([Linux](building_linux.md), [Windows](building_windows.md)); an experimental Windows bundle can be built with `scripts/build_nuitka.py` ([frozen_build.md](frozen_build.md)).
 
@@ -52,7 +52,7 @@ Every feature has its own detailed document (design, measurements, verification 
 | GUI | A/B model comparison | Segment Editor, **A/B compare…** | Linux + Windows verified | [segments.md](segments.md#ab-model-comparison), [6.1](#61-ab-model-comparison-segment-editor) |
 | GUI | Restoration checkpoint in the Video Player | player settings card | Linux + Windows verified | [gui.md](gui.md#video-player), [6.2](#62-restoration-checkpoint-selection-in-the-video-player) |
 | Packaging | Windows Nuitka bundle | `scripts/build_nuitka.py` | experimental, Windows only | [frozen_build.md](frozen_build.md), [8](#8-build-dependencies-and-packaging) |
-| Build | From-source guides | — | Linux and Windows verified on this base (2026-10-18) | [building_linux.md](building_linux.md), [building_windows.md](building_windows.md) |
+| Build | From-source guides | — | Linux verified on this base (2026-10-22); Windows last verified on the v0.11.2 base (2026-10-18) | [building_linux.md](building_linux.md), [building_windows.md](building_windows.md) |
 
 None of the external-model features is exposed in the GUI; they are CLI only. The GUI does expose frame generation, the video backend, the FP8 toggle, the RTX Super Res extras, the A/B comparison and the player checkpoint ([6.3](#63-settings-exposed-for-the-modi-features)).
 
@@ -287,6 +287,12 @@ Former modi changes that are no longer a delta of this branch. They were removed
 ## Appendix B: Rebase history
 
 Upstream highlights and this fork's reconciliation notes for each rebase base, newest first.
+
+### The `v0.11.3` base (merged 2026-10-22)
+
+Upstream shipped v0.11.3 (51 commits since `b623466f`, 9 of them protection pins). Highlights: **two more LTX models** (the 2-step student as Standard Quality, now the default and the CLI's `ltx`; the 4-step student as Good Quality, `ltx-4step`; the former `ltx` is now `ltx-8step`, High Quality; `ltx-undistilled` stays Top Quality; `LtxModelName` gains `distilled2` / `distilled4` and `LTX_DEFAULT_MODEL` is `distilled2`), **faster LTX VAE passes** (the window decode overlaps compose on its own thread and stream, host buffers for encode are reused, the decode budget follows the GPU's total VRAM through `segment_decode_budget(total_bytes)`, the planner is linear in the video length), compose-time estimates learned per crop megapixel (`speed.Work.crop_megapixels`) and progress bars that never go back, the **scene-cut detector ignoring repeated frames** (doubled 30 fps footage and 3:2 pulldown no longer fire false cuts; this touches BasicVSR++ clip boundaries on such sources too), the NVIDIA `dilate_ellipse` as an exact row/column scan instead of a 61x61 convolution (same pixels, 0.78 to 0.16 ms), **PyAV's FFmpeg log hook left off** (a frame-threaded software decoder closed early no longer deadlocks), every `av.open` with `metadata_errors="replace"` (sources whose tags are not valid UTF-8 open), VC-1 decoded through FFmpeg's NVDEC hwaccel instead of VALI, the decoder waiting for the caller's stream before writing a frame batch, streaming fixes (throttle stalls, non-AAC audio re-encoded for the browser, the last segment served), GUI confirmations before stopping and when closing a running window, ZFS listed as a supported disk format, and the LTX timing table re-based on Standard Quality. The `protection` pointer moves from `c084d22e` to `f700c41f` (uninitialized here, as before).
+
+Fork-side: the 139 modi commits replayed onto `cf8a968c` in one pass; the conflicts were the two version lines, `session_config.py` (modi's `seedvr2` next to the new `LtxModelName`), `tests/test_blending.py` (a mock renamed `conv` to `scan` where modi appends a test) and the `--restoration-model-name` row of `docs/{en,ja}/cli.md`. One follow-up: the three `av.open` calls this fork adds (`ltx/refine.py`, `media/torchcodec_encoder.py`, `benchmark/fp8_upsample_ab.py`) open their sources with `metadata_errors="replace"` like upstream's, with a test on the upstream factory's non-UTF-8 sample. No engine recompile, no VALI rebuild, no venv change. Verification (Linux, RTX 5080, 2026-10-22): the full test suite from a checkout with the model weights, compared with pristine upstream `cf8a968c` under the same deselect and timeout (this time with the weights on both sides), fails in exactly the same 125 tests (protection, the native LTX build with gcc-15, the display environment); a CLI run of every modi feature on the 10 s test clip completes (BasicVSR++ with and without FP8, torchcodec, fMP4, RTX Super Res, SwiftVR distill, SwiftVR offline, SeedVR2, RIFE and RTX frame generation, `--segments`, `--ltx-crop-vsr swiftvr-distill` on the 30 s probe clip with 9 windows at the default hop, `--ltx-trial` with both hops at 103 s and 68 s, and the LTX + frame-gen rejection); the `--ltx-crop-vsr` GPU test passes.
 
 ### The `v0.11.2` base (merged 2026-10-18)
 
