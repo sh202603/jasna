@@ -28,7 +28,11 @@ VrProjectionName = Literal["auto", "raw", "fisheye", "gnomonic"]
 RtxQualityName = Literal["low", "medium", "high", "ultra"]
 RtxLevelName = Literal["none", "low", "medium", "high", "ultra"]
 CodecName = Literal["hevc", "h264", "av1"]
-LTX_CROP_VSR_BACKENDS = ("swiftvr", "swiftvr-distill")
+LTX_CROP_VSR_BACKENDS = ("swiftvr", "swiftvr-distill", "rtx-super-res")
+# The RTX deblur pass the rtx-super-res backend runs unless --rtx-deblur says otherwise: it is
+# the pass that sharpens there (the x2 upscale alone adds nothing that survives the downscale
+# back to the crop; measured on the probe clips, docs/en/ltx_crop_vsr.md).
+LTX_CROP_VSR_RTX_DEBLUR = "medium"
 
 
 @dataclass(frozen=True)
@@ -117,8 +121,8 @@ class SessionConfig:
     seedvr2_empty_cache: str = "auto"
     seedvr2_accel: bool = False
     # ``--ltx-crop-vsr`` (modi): sharpen the mosaic areas of an LTX output (the input)
-    # with SwiftVR; ``ltx_crop_vsr_source`` is the video LTX restored, scanned for the
-    # mosaics. No primary restorer loads.
+    # with SwiftVR, its distill student or RTX Super Res; ``ltx_crop_vsr_source`` is the
+    # video LTX restored, scanned for the mosaics. No primary restorer loads.
     ltx_crop_vsr: str | None = None
     ltx_crop_vsr_source: Path | None = None
 

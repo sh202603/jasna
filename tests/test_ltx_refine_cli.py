@@ -115,6 +115,39 @@ class TestCli:
         pipeline_cls, _ = _run_main(tmp_path, ["--ltx-crop-vsr", "swiftvr-distill", "--swiftvr-scale", "2"])
         assert pipeline_cls.call_args.kwargs["config"].ltx_crop_vsr == "swiftvr-distill"
 
+    def test_rtx_super_res_reaches_the_pipeline_with_the_rtx_options(self, tmp_path):
+        with patch("jasna.session_factory.nvvfx_installed", return_value=True):
+            pipeline_cls, _ = _run_main(
+                tmp_path, ["--ltx-crop-vsr", "rtx-super-res", "--rtx-scale", "2", "--rtx-denoise", "none", "--rtx-highbitrate"]
+            )
+        config = pipeline_cls.call_args.kwargs["config"]
+        assert config.ltx_crop_vsr == "rtx-super-res"
+        assert config.rtx_denoise == "none" and config.rtx_highbitrate is True
+        assert config.rtx_deblur == "medium"  # the backend's default: the deblur pass is what sharpens
+
+    def test_rtx_super_res_deblur_can_be_turned_off_and_stays_off_elsewhere(self, tmp_path):
+        with patch("jasna.session_factory.nvvfx_installed", return_value=True):
+            pipeline_cls, _ = _run_main(tmp_path, ["--ltx-crop-vsr", "rtx-super-res", "--rtx-deblur", "none"])
+        assert pipeline_cls.call_args.kwargs["config"].rtx_deblur == "none"
+        pipeline_cls, _ = _run_main(tmp_path, ["--ltx-crop-vsr", "swiftvr-distill"])
+        assert pipeline_cls.call_args.kwargs["config"].rtx_deblur == "none"
+
+    def test_rtx_super_res_rejects_scale_4(self, tmp_path, capsys):
+        with pytest.raises(SystemExit):
+            _run_main(tmp_path, ["--ltx-crop-vsr", "rtx-super-res", "--rtx-scale", "4"])
+        assert "--rtx-scale 4 is not supported" in capsys.readouterr().err
+
+    def test_rtx_scale_4_only_matters_to_the_rtx_backend(self, tmp_path):
+        pipeline_cls, _ = _run_main(tmp_path, ["--ltx-crop-vsr", "swiftvr-distill", "--rtx-scale", "4"])
+        assert pipeline_cls.call_args.kwargs["config"].ltx_crop_vsr == "swiftvr-distill"
+
+    def test_rtx_super_res_needs_nvvfx_before_anything_compiles(self, tmp_path):
+        with (
+            patch("jasna.session_factory.nvvfx_installed", return_value=False),
+            pytest.raises(ValueError, match="nvidia-vfx"),
+        ):
+            _run_main(tmp_path, ["--ltx-crop-vsr", "rtx-super-res"])
+
 
 class TestSession:
     def test_the_refine_session_loads_no_primary(self, tmp_path):
@@ -146,6 +179,33 @@ class TestSession:
         assert refined.swiftvr_scale == 2 and refined.swiftvr_view_window == 0
         distill = session_factory.ltx_crop_vsr_config(config.__class__(**{**config.__dict__, "ltx_crop_vsr": "swiftvr-distill"}))
         assert distill.secondary_restoration == "swiftvr-distill" and distill.swiftvr_distill_view_window == 0
+
+    def test_the_refine_restorer_runs_rtx_super_res_at_scale_2_sized_from_the_canvases(self, tmp_path):
+        from jasna import session_factory
+
+        config = session_config(
+            ltx_crop_vsr="rtx-super-res", ltx_crop_vsr_source=tmp_path / "s.mp4", rtx_scale=4, rtx_quality="ultra"
+        )
+        refined = session_factory.ltx_crop_vsr_config(config)
+        assert refined.secondary_restoration == "rtx-super-res"
+        assert refined.rtx_scale == 2 and refined.rtx_quality == "ultra"
+        with patch("jasna.restorer.rtx_superres_secondary_restorer.RtxSuperresSecondaryRestorer") as rtx_cls:
+            restorer = session_factory.build_ltx_crop_vsr_restorer(config, "cpu")
+        assert restorer is rtx_cls.return_value
+        kwargs = rtx_cls.call_args.kwargs
+        assert kwargs["scale"] == 2 and kwargs["quality"] == "ultra" and kwargs["input_size"] is None
+
+    def test_the_refine_session_needs_nvvfx_for_rtx_super_res(self, tmp_path):
+        from jasna import session_factory
+
+        config = session_config(ltx_crop_vsr="rtx-super-res", ltx_crop_vsr_source=tmp_path / "s.mp4")
+        with (
+            patch.object(session_factory, "nvvfx_installed", return_value=False),
+            pytest.raises(ValueError, match="nvidia-vfx"),
+        ):
+            session_factory.validate_ltx_crop_vsr(config)
+        with patch.object(session_factory, "nvvfx_installed", return_value=True):
+            session_factory.validate_ltx_crop_vsr(config)
 
     def test_build_pipeline_skips_the_primary(self, tmp_path):
         from jasna import session_factory

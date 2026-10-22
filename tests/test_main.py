@@ -149,7 +149,7 @@ class TestBuildParser:
         assert args.rtx_scale == 4
         assert args.rtx_quality == "high"
         assert args.rtx_denoise == "medium"
-        assert args.rtx_deblur == "none"
+        assert args.rtx_deblur is None  # resolved to none, or medium under --ltx-crop-vsr rtx-super-res
         assert args.rtx_strength == 1.0
         assert args.rtx_highbitrate is False
 

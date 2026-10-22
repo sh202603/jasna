@@ -119,7 +119,16 @@ def build_compiled_detection_model(
     )
 
 
-def _build_secondary_restorer(config: SessionConfig, device: "torch.device"):
+def nvvfx_installed() -> bool:
+    """Whether the RTX Video Effects runtime (the ``nvidia-vfx`` package) is importable."""
+    from importlib.util import find_spec
+
+    return find_spec("nvvfx") is not None
+
+
+def _build_secondary_restorer(config: SessionConfig, device: "torch.device", *, size_from_frames: bool = False):
+    """``size_from_frames``: the restorer takes its input side from the frames it is given
+    instead of the frame pipeline's 256 px crops (RTX Super Res binds its passes to a size)."""
     if config.secondary_restoration == "none":
         return None
     if config.secondary_restoration == "tvai":
@@ -148,6 +157,7 @@ def _build_secondary_restorer(config: SessionConfig, device: "torch.device"):
             deblur=None if config.rtx_deblur == "none" else config.rtx_deblur,
             strength=float(config.rtx_strength),
             highbitrate=bool(config.rtx_highbitrate),
+            **({"input_size": None} if size_from_frames else {}),
         )
     if config.secondary_restoration == "flashvsr-inline":
         from jasna.restorer.flashvsr_inline_secondary_restorer import FlashvsrInlineSecondaryRestorer
@@ -295,16 +305,19 @@ def ltx_crop_vsr_config(config: SessionConfig) -> SessionConfig:
     """The secondary-restorer settings ``--ltx-crop-vsr`` runs with: SwiftVR at scale 2
     through the inline worker, or the distill student, both without the crop-view
     smoothing (the LTX camera is smooth already, and the crops never go through the
-    frame pipeline)."""
+    frame pipeline), or RTX Super Res at scale 2 with the other ``--rtx-*`` options."""
     if config.ltx_crop_vsr == "swiftvr":
         return replace(config, secondary_restoration="swiftvr-inline", swiftvr_scale=2, swiftvr_view_window=0)
     if config.ltx_crop_vsr == "swiftvr-distill":
         return replace(config, secondary_restoration="swiftvr-distill", swiftvr_distill_view_window=0)
+    if config.ltx_crop_vsr == "rtx-super-res":
+        return replace(config, secondary_restoration="rtx-super-res", rtx_scale=2)
     raise ValueError(f"Unsupported --ltx-crop-vsr backend: {config.ltx_crop_vsr}")
 
 
 def validate_ltx_crop_vsr(config: SessionConfig) -> None:
-    """Resolve the restorer's files now, before the scan, so a wrong path fails early."""
+    """Resolve the restorer's files now, before the scan, so a wrong path (or a missing
+    runtime) fails early."""
     refined = ltx_crop_vsr_config(config)
     if refined.secondary_restoration == "swiftvr-inline":
         from jasna.restorer.swiftvr_common import resolve_swiftvr_paths
@@ -312,6 +325,12 @@ def validate_ltx_crop_vsr(config: SessionConfig) -> None:
         resolve_swiftvr_paths(
             refined.swiftvr_repo, refined.swiftvr_python, refined.swiftvr_model_dir, mode="swiftvr-inline"
         )
+    elif refined.secondary_restoration == "rtx-super-res":
+        if not nvvfx_installed():
+            raise ValueError(
+                "--ltx-crop-vsr rtx-super-res needs the RTX Video Effects runtime (the nvidia-vfx package "
+                "of the nvidia extra), which is not installed"
+            )
     else:
         from jasna.restorer.swiftvr_distill_model import resolve_swiftvr_distill_model_path
 
@@ -320,8 +339,9 @@ def validate_ltx_crop_vsr(config: SessionConfig) -> None:
 
 def build_ltx_crop_vsr_restorer(config: SessionConfig, device: "torch.device"):
     """The x2 restorer of ``--ltx-crop-vsr``; built after the scan so it never shares
-    the GPU with the detector."""
-    return _build_secondary_restorer(ltx_crop_vsr_config(config), device)
+    the GPU with the detector. It is sized from the canvases it is given (512 or 768 px,
+    both in one video when ``--ltx-large-canvas`` is on)."""
+    return _build_secondary_restorer(ltx_crop_vsr_config(config), device, size_from_frames=True)
 
 
 def provide_restoration_models(

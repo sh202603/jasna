@@ -22,6 +22,7 @@ from jasna.os_utils import (
 )
 from jasna.session_config import (
     LTX_CROP_VSR_BACKENDS,
+    LTX_CROP_VSR_RTX_DEBLUR,
     LTX_DEFAULT_MODEL,
     LTX_DEFAULT_SEED,
     LtxModelName,
@@ -89,7 +90,7 @@ def _session_config_from_args(
         rtx_scale=int(args.rtx_scale),
         rtx_quality=str(args.rtx_quality).lower(),
         rtx_denoise=str(args.rtx_denoise).lower(),
-        rtx_deblur=str(args.rtx_deblur).lower(),
+        rtx_deblur=_rtx_deblur(args),
         rtx_strength=float(args.rtx_strength),
         rtx_highbitrate=bool(args.rtx_highbitrate),
         vr_mode=str(args.vr_mode),
@@ -557,9 +558,10 @@ def build_parser() -> argparse.ArgumentParser:
     rtx.add_argument(
         "--rtx-deblur",
         type=str,
-        default="none",
+        default=None,
         choices=["none", "low", "medium", "high", "ultra"],
-        help="RTX Super Res deblur level, none to disable (default: %(default)s)",
+        help="RTX Super Res deblur level, none to disable (default: none; medium under --ltx-crop-vsr "
+             "rtx-super-res, where the deblur pass is what sharpens)",
     )
     rtx.add_argument(
         "--rtx-strength",
@@ -676,7 +678,9 @@ def build_parser() -> argparse.ArgumentParser:
              "the LTX output and --ltx-crop-vsr-source the video it was restored from: the source is "
              "scanned for the mosaics (the LTX output has none left), the LTX output is cropped with "
              "LTX's own cameras, each crop is upscaled x2 (swiftvr: the full model through the SwiftVR "
-             "worker; swiftvr-distill: the in-process student) and composited back with LTX's own "
+             "worker; swiftvr-distill: the in-process student; rtx-super-res: RTX Video Super Resolution "
+             "frame by frame with the --rtx-* options except --rtx-scale, its deblur pass on by default since "
+             "that is what sharpens) and composited back with LTX's own "
              "blending. The output keeps the LTX output's resolution, frame count and timestamps; the "
              "rest of the picture is re-encoded unchanged, so keep both the LTX output and this output "
              "at a high quality (low --cq). One video at a time; BasicVSR++ is not loaded. Pass "
@@ -1177,6 +1181,14 @@ def _reject_options_of_other_restoration_backend(
             parser.error(f"{option} needs --restoration-model-name {needed_models}")
 
 
+def _rtx_deblur(args: argparse.Namespace) -> str:
+    """``--rtx-deblur`` resolved: off unless given, except under ``--ltx-crop-vsr rtx-super-res``,
+    where the deblur pass is the one that sharpens (``LTX_CROP_VSR_RTX_DEBLUR``)."""
+    if args.rtx_deblur is not None:
+        return str(args.rtx_deblur).lower()
+    return LTX_CROP_VSR_RTX_DEBLUR if getattr(args, "ltx_crop_vsr", None) == "rtx-super-res" else "none"
+
+
 def _check_ltx_crop_vsr_options(
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
@@ -1208,6 +1220,9 @@ def _check_ltx_crop_vsr_options(
     explicit_scale = any(value == "--swiftvr-scale" or value.startswith("--swiftvr-scale=") for value in sys.argv[1:])
     if explicit_scale and int(args.swiftvr_scale) != 2:
         parser.error(f"{option} runs SwiftVR at scale 2; --swiftvr-scale {args.swiftvr_scale} is not supported")
+    explicit_rtx_scale = any(value == "--rtx-scale" or value.startswith("--rtx-scale=") for value in sys.argv[1:])
+    if args.ltx_crop_vsr == "rtx-super-res" and explicit_rtx_scale and int(args.rtx_scale) != 2:
+        parser.error(f"{option} runs RTX Super Res at scale 2; --rtx-scale {args.rtx_scale} is not supported")
     rejected = (
         (str(args.secondary_restoration).lower() != "none", "--secondary-restoration"),
         (str(args.denoise).lower() != "none", "--denoise"),
@@ -1582,6 +1597,16 @@ def main() -> None:
             raise ValueError(
                 f"--secondary-restoration {secondary_name} does not support --frame-gen "
                 "(run frame generation as a separate pass)"
+            )
+
+    if args.ltx_crop_vsr == "rtx-super-res":
+        # Checked here as well as in the session factory, which runs after engine compilation.
+        from jasna.session_factory import nvvfx_installed
+
+        if not nvvfx_installed():
+            raise ValueError(
+                "--ltx-crop-vsr rtx-super-res needs the RTX Video Effects runtime (the nvidia-vfx package "
+                "of the nvidia extra), which is not installed"
             )
 
     if secondary_name == "swiftvr-distill" or args.ltx_crop_vsr == "swiftvr-distill":

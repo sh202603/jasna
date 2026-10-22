@@ -1,5 +1,6 @@
-"""``--ltx-crop-vsr swiftvr-distill`` end to end on the probe clip: the output has the LTX
-output's frame count and timing, and every window of the release's plan is restored.
+"""``--ltx-crop-vsr`` end to end on the probe clip, with the distill student and with RTX
+Super Res: the output has the LTX output's frame count and timing, and every window of
+the release's plan is restored.
 The clip was restored by release v0.11.1 (window hop 88), so the refine runs with
 ``--no-experimental-ltx-less-overlap`` to plan the same 11 windows; the v0.11.2 default
 (hop 104) plans 9."""
@@ -10,6 +11,7 @@ import os
 import subprocess
 import sys
 from fractions import Fraction
+from importlib.util import find_spec
 from pathlib import Path
 
 import pytest
@@ -26,13 +28,26 @@ pytestmark = pytest.mark.skipif(
     not torch.cuda.is_available()
     or not LTX_OUTPUT.is_file()
     or not SOURCE.is_file()
-    or not resolve_model_weights_file("swiftvr-distill.pt").is_file()
     or not resolve_model_weights_file("rfdetr-v6.onnx").is_file(),
-    reason="needs CUDA, the ltx_sharpen clips, swiftvr-distill.pt and rfdetr-v6",
+    reason="needs CUDA, the ltx_sharpen clips and rfdetr-v6",
 )
 
+BACKENDS = [
+    pytest.param(
+        "swiftvr-distill",
+        marks=pytest.mark.skipif(
+            not resolve_model_weights_file("swiftvr-distill.pt").is_file(), reason="needs swiftvr-distill.pt"
+        ),
+    ),
+    pytest.param(
+        "rtx-super-res",
+        marks=pytest.mark.skipif(find_spec("nvvfx") is None, reason="needs nvvfx (RTX Video Effects)"),
+    ),
+]
 
-def test_distill_refine_keeps_the_ltx_output_frames_and_timing(tmp_path):
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_refine_keeps_the_ltx_output_frames_and_timing(tmp_path, backend):
     output = tmp_path / "refined.mkv"
     # A test that imported jasna.__main__ in this process leaves JASNA_MAIN_PID behind, and
     # the CLI's fork guard then exits the child silently with 0.
@@ -41,7 +56,7 @@ def test_distill_refine_keeps_the_ltx_output_frames_and_timing(tmp_path):
         [
             sys.executable, "-m", "jasna",
             "--input", str(LTX_OUTPUT), "--output", str(output),
-            "--ltx-crop-vsr", "swiftvr-distill", "--ltx-crop-vsr-source", str(SOURCE),
+            "--ltx-crop-vsr", backend, "--ltx-crop-vsr-source", str(SOURCE),
             "--no-experimental-ltx-less-overlap",
             "--cq", "20", "--log-level", "info", "--no-progress",
         ],
@@ -51,6 +66,8 @@ def test_distill_refine_keeps_the_ltx_output_frames_and_timing(tmp_path):
     log = result.stderr + result.stdout
     assert "LTX plan: 890 frames, 1 scene cuts, 2 tracks, 11 windows" in log
     assert "11 windows (11 restored, 0 left as is)" in log
+    if backend == "rtx-super-res":
+        assert "passes loaded for 512x512 -> 1024x1024" in log
     ltx, refined = read_stream_times(LTX_OUTPUT), read_stream_times(output)
     assert len(refined.pts) == len(ltx.pts) == 890
     check_alignment(refined, ltx, fps=Fraction(30000, 1001), ltx_name="refined", source_name="ltx")
