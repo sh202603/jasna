@@ -110,7 +110,7 @@ def _remux_with_audio_and_metadata(
     output_format = {".mkv": "matroska", ".mov": "mov", ".mp4": "mp4"}.get(output_path.suffix.lower(), "matroska")
     with av.open(BytesIO(), "w", format=output_format) as probe:
         supported_codecs = probe.supported_codecs
-    with av.open(str(metadata.video_file)) as container:
+    with av.open(str(metadata.video_file), metadata_errors="replace") as container:
         for output_index, stream in enumerate(container.streams.audio):
             name = stream.codec_context.name
             if needs_audio_reencode(name, output_path.suffix, supported_codecs):
