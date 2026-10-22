@@ -11,7 +11,9 @@ the work splits: the official release restores with LTX, and modi sharpens its o
 What the sharpening recovers is the blur LTX leaves where it enlarges its 512 px canvas
 (768 px with `--ltx-large-canvas`) back to the crop size bicubically. In the user's
 visual check (720x480 footage) the sharpness ranked SwiftVR > distill ≈ CAS > plain
-LTX, with no objectionable flicker.
+LTX, with no objectionable flicker; RTX Super Res (2026-10-22) came out sharper than the
+distill student, whose detail looks more natural. On 1080p footage all three backends
+hardly differ from the LTX output: the sharpening matters for low-resolution inputs.
 
 ## Usage
 
@@ -222,7 +224,10 @@ outputs at CQ 14).
   clip low gives 125.5 % / +22.4 % and high 117.5 % / +16.2 %; on 1080p high gives
   123.5 % / +13.0 %). Wall time 10 to 13 s and 14 to 19 s for the 30 s clips (the distill
   student: 23 to 28 s), 1.2 to 2.1 GB of VRAM above the desktop. The user's visual check
-  is pending.
+  (2026-10-22, four-pane grids of both clips): on the 720x480 clip the output is clearly
+  sharper than the LTX output; the distill student is softer but its detail looks more
+  natural. On the 1080p clip the backends hardly differ from the LTX output, so the
+  sharpening is barely needed there.
 - Pending: the 768 px canvas, footage whose crops are under half the canvas, footage over
   10 minutes.
 
