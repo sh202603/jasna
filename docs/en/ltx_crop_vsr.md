@@ -1,8 +1,8 @@
 # Sharpening an LTX output: `--ltx-crop-vsr` (`+modi`)
 
 `--ltx-crop-vsr` takes a video the official release restored with LTX, redraws only
-the areas that had mosaics with SwiftVR at x2, and composites them back onto the LTX
-output. The output keeps the LTX output's resolution, frame count and timestamps.
+the areas that had mosaics at x2 (with SwiftVR, its distill student or RTX Super Res),
+and composites them back onto the LTX output. The output keeps the LTX output's resolution, frame count and timestamps.
 
 This modi build is made from the public source, so it cannot decrypt the LTX weights
 (`.enc`) and cannot run the LTX restoration itself. LTX's scan (mosaic tracking, the
@@ -27,11 +27,12 @@ jasna --input <LTX output> --output <output> \
 | `--ltx-crop-vsr-source` | The video it was restored from (the one with the mosaics). It is scanned for the mosaics and tells the windows LTX did restore; the LTX output has no mosaics left to detect, so it is required. |
 | `--ltx-crop-vsr swiftvr` | The full SwiftVR model through the `swiftvr-inline` worker at scale 2. Uses `--swiftvr-repo`, `--swiftvr-python`, `--swiftvr-model-dir` and `--swiftvr-accel` ([swiftvr.md](swiftvr.md)). |
 | `--ltx-crop-vsr swiftvr-distill` | The distill student inside the jasna process (x2). Uses `--swiftvr-distill-model`, `--swiftvr-distill-strength` and `--swiftvr-distill-stabilize`. Lighter than SwiftVR, adds more texture and more flicker. |
+| `--ltx-crop-vsr rtx-super-res` | RTX Video Super Resolution (the `nvidia-vfx` package of the `nvidia` extra, an RTX GPU) frame by frame at scale 2, with its deblur pass on (`--rtx-deblur medium` unless you say otherwise): the x2 upscale alone adds nothing that survives the downscale back to the crop, the deblur pass is what sharpens. Uses `--rtx-quality`, `--rtx-denoise`, `--rtx-deblur`, `--rtx-strength` and `--rtx-highbitrate`; `--rtx-scale` is fixed at 2. Nothing to download, under 1 GB of VRAM and the fastest backend; on the probe clips its texture and flicker land in the same class as the distill student and SwiftVR. |
 | `--ltx-large-canvas` | Only if the LTX run restored at 768 px. The refine uses 768 px without looking at the free VRAM. |
 
 Use the detection model (`--detection-model`) the LTX run used; the threshold and
 `--batch-size` need not match. The refine computes its cameras from the source on its
-own and feeds SwiftVR crops of the LTX output, so a crop or polygon that differs a
+own and feeds the backend crops of the LTX output, so a crop or polygon that differs a
 little from the LTX run only widens or narrows the sharpened area. LTX outputs made with
 `--ltx-auto-split` or `--segments` are accepted too.
 
@@ -77,6 +78,16 @@ jasna --input ltx.mkv --output ltx_sharp.mkv \
       --codec hevc --cq 14 --encoder-settings "preset=p7,rc-lookahead=32,qmax=28"
 ```
 
+The same pass 2 with RTX Super Res (nothing to download; the deblur pass runs at
+`medium` by default, `--rtx-strength` dials the sharpening back toward the LTX output):
+
+```bash
+jasna --input ltx.mkv --output ltx_sharp.mkv \
+      --ltx-crop-vsr rtx-super-res --ltx-crop-vsr-source source.mp4 \
+      --detection-model rfdetr-v6 --rtx-strength 0.75 \
+      --codec hevc --cq 14 --encoder-settings "preset=p7,rc-lookahead=32,qmax=28"
+```
+
 What the encoding options do here:
 
 - `--cq 14` is far below the HEVC default of 28 (lower = better quality, bigger
@@ -102,9 +113,9 @@ What the encoding options do here:
 `--restoration-model-name` other than basicvsrpp, `--secondary-restoration`, `--denoise`,
 `--segments`, `--ltx-auto-split`, `--stream`, `--retarget-high-fps`, `--fmp4`,
 `--frame-gen`, VR (`--vr-mode` resolving to anything but off), image and folder input,
-`--lut`, `--sharpen`, `--swiftvr-scale 4`, a non-default `--swiftvr-view-window` or
-`--swiftvr-distill-view-window`, and `--ltx-large-canvas` together with
-`--swiftvr-distill-stabilize`. The GUI does not offer the mode (CLI only, one video at a
+`--lut`, `--sharpen`, `--swiftvr-scale 4`, `--rtx-scale 4` with the `rtx-super-res`
+backend, a non-default `--swiftvr-view-window` or `--swiftvr-distill-view-window`, and
+`--ltx-large-canvas` together with `--swiftvr-distill-stabilize`. The GUI does not offer the mode (CLI only, one video at a
 time).
 
 ## How it works
@@ -125,7 +136,7 @@ detector's engine is compiled.
    only when both ran with the same hop. The windows do not have to match: the crop boxes
    come from the per-track camera, and a window only sets which 121 frames are upscaled
    together and where the crossfade sits. The detector is released after the scan, before
-   SwiftVR starts.
+   the backend starts.
 3. **Sharpen and composite in one pass.** The LTX output and the source are decoded in
    lockstep by two NVDEC readers. For every window, as each frame arrives, the crop is
    cut from the LTX output, shrunk (pixel area) or enlarged (bicubic) to the canvas size
@@ -133,8 +144,10 @@ detector's engine is compiled.
    result, paired with the window's `CropFrame` doubled, goes through upstream's
    `composite_frame` onto the LTX frame. The feathered mask, the crossfade between
    windows, the handover between tracks and the untouched picture outside the masks are
-   LTX's own. The colour match (ring median × 0.75) pulls SwiftVR's colours toward the
-   LTX output.
+   LTX's own. The colour match (ring median × 0.75) pulls the backend's colours toward
+   the LTX output. RTX Super Res binds its passes to an output size, so the refine loads
+   one set of passes per canvas side it meets (512 px, and 768 px with
+   `--ltx-large-canvas`) and keeps them for the run.
 4. **Windows LTX left alone are skipped.** The mean luma difference between the LTX
    output and the source inside the track polygon is accumulated per window; below the
    threshold (3/255) the window is neither upscaled nor composited, and a warning names
@@ -157,7 +170,8 @@ detector's engine is compiled.
 - VRAM: the SwiftVR worker (FP8, 1024 px), two decoders and the encoder. The distill
   student adds under 1 GB with stabilize 0 (the default); with stabilize > 0 it holds the
   whole window in float, about 4.5 GB at the 512 canvas and about 10 GB at 768, so that
-  combination is refused.
+  combination is refused. RTX Super Res adds under 1 GB (the upscale and denoise passes
+  for the 512 canvas take about 0.36 GB, for the 768 canvas about 0.8 GB).
 
 ## Verification
 
@@ -194,6 +208,21 @@ outputs at CQ 14).
   (a slower GPU, start-up compilation included). Peak VRAM for the whole GPU is 4.7 to
   5.1 GB with the distill student and 13.0 to 14.1 GB with SwiftVR (2.4 to 2.5 GB of it
   the desktop), within 16 GB. The user's visual check passed.
+- **RTX Super Res** (Linux, RTX 5080, 2026-10-22, the same two clips, hop 88): every run completes
+  with the same plan (2 tracks, 11 windows, nothing skipped) and the LTX output's frame count
+  and timing. The x2 upscale alone (`--rtx-deblur none`) is close to a re-encode whatever the
+  quality, denoise, strength or highbitrate setting: texture 94 to 99 %, flicker −1 to −4 %,
+  mask PSNR 43 to 47 dB against the re-encoded LTX output, because the detail the upscale
+  adds does not survive the downscale back to the crop. The deblur pass is what sharpens:
+  `--rtx-deblur medium` (the backend's default) gives texture 120.3 % / 115.9 % at a flicker
+  increase of +15.7 % / +7.0 % (720x480 / 1080p), the same class as the distill student
+  (124.8 % / 121.7 %, +17.5 % / +8.4 %) and SwiftVR (118.5 % / 120.9 %, +16.1 % / +10.1 %)
+  measured on the same basis; `--rtx-strength 0.75` dials it to 114.7 % / 110.9 % at
+  +10.1 % / +4.6 %. The deblur levels are different models, not strengths (on the 720x480
+  clip low gives 125.5 % / +22.4 % and high 117.5 % / +16.2 %; on 1080p high gives
+  123.5 % / +13.0 %). Wall time 10 to 13 s and 14 to 19 s for the 30 s clips (the distill
+  student: 23 to 28 s), 1.2 to 2.1 GB of VRAM above the desktop. The user's visual check
+  is pending.
 - Pending: the 768 px canvas, footage whose crops are under half the canvas, footage over
   10 minutes.
 
