@@ -190,7 +190,8 @@ NVIDIA only.
   unprocessed picture, and `--rtx-highbitrate` switches to the clean-source
   upscale models. Both are opt-in; a visual check on the 1080p test clip
   found no artifacts, but whether they look better depends on the source.
-  See [cli.md](cli.md).
+  See [cli.md](cli.md). RTX Super Res is also a backend of
+  [`--ltx-crop-vsr`](ltx_crop_vsr.md), the sharpening of LTX outputs.
 - **Topaz TVAI**: similar to UNet 4x, but very slow. Needs
   [Topaz Video](https://www.topazlabs.com/topaz-video), which is paid and
   Windows only. Use the `iris-2` model.

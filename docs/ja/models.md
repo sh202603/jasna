@@ -191,6 +191,7 @@ NVIDIA のみです。
   戻し、`--rtx-highbitrate` はクリーンソース向けの拡大モデルに切り替えます。
   どちらもオプトインです。1080p テストクリップの目視ではアーティファクトは
   出ませんでしたが、よりよく見えるかは素材次第です。詳しくは [cli.md](cli.md)。
+  RTX Super Res は LTX 出力の鮮明化 [`--ltx-crop-vsr`](ltx_crop_vsr.md) の方式としても使えます。
 - **Topaz TVAI**: UNet 4x と同程度ですが、非常に遅いです。
   [Topaz Video](https://www.topazlabs.com/topaz-video) が必要です（有料、
   Windows のみ）。`iris-2` モデルを使ってください。

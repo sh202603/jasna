@@ -70,7 +70,7 @@ Jasna は `TMP`、次に `TEMP` を使います。`TMPDIR` は使いません。
 | `--ltx-seed` | `20260923` | LTX：シードを変えると結果が少し変わります。同じシードなら同じ結果になります。 |
 | `--ltx-trial` / `--no-ltx-trial` | オフ | LTX：モデルやライセンスなしで速度を試します。動画は復元されません。 |
 | `--ltx-auto-split` | — | LTX：大きなモザイク（動画の高さのこの割合以上、例 `12`）を LTX、小さなものを BasicVSR++ で復元します。フォルダーにも使えます。`--segments` や `--fmp4` とは併用できません。[区間](segments.md#cli---ltx-auto-split)を参照。 |
-| `--ltx-crop-vsr` | — | *(+modi)* 公式リリース版が LTX で復元した動画の、モザイクがあった領域を鮮明化します。`swiftvr`（本家モデルを SwiftVR worker で動かす。`--swiftvr-repo` が必要）または `swiftvr-distill`（プロセス内の distill モデル）で ×2 して、LTX 自身の合成で戻します。`--input` に LTX 出力、`--ltx-crop-vsr-source` にその元動画を渡します。出力の解像度、フレーム数、タイムスタンプは LTX 出力のままです。マスク外も再エンコードするので、両方の実行で `--cq` を低くしてください。CLI のみ、1 本ずつ。詳細: [ltx_crop_vsr.md](ltx_crop_vsr.md)。 |
+| `--ltx-crop-vsr` | — | *(+modi)* 公式リリース版が LTX で復元した動画の、モザイクがあった領域を鮮明化します。`swiftvr`（本家モデルを SwiftVR worker で動かす。`--swiftvr-repo` が必要）、`swiftvr-distill`（プロセス内の distill モデル）、または `rtx-super-res`（RTX Video Super Resolution をフレーム単位で。`--rtx-scale` 以外の `--rtx-*` が効き、鮮明化を担う deblur パスは既定で有効）で ×2 して、LTX 自身の合成で戻します。`--input` に LTX 出力、`--ltx-crop-vsr-source` にその元動画を渡します。出力の解像度、フレーム数、タイムスタンプは LTX 出力のままです。マスク外も再エンコードするので、両方の実行で `--cq` を低くしてください。CLI のみ、1 本ずつ。詳細: [ltx_crop_vsr.md](ltx_crop_vsr.md)。 |
 | `--ltx-crop-vsr-source` | — | *(+modi)* `--input` に渡した LTX 出力の元動画（モザイクあり）。`--ltx-crop-vsr` に必須で、モザイクの検出に使います。解像度、フレーム数、タイミングが一致している必要があります。 |
 | `--compile-basicvsrpp` / `--no-compile-basicvsrpp` | オン | BasicVSR++ をお使いの GPU 向けに準備します。約 3 倍速く、VRAM はほとんど増えません。初回は 15～60 分かかります。NVIDIA のみ。詳しくは[調整ガイド](tuning.md)。 |
 | `--max-clip-size` | `90` | 一度に復元するフレーム数。大きいほど安定して速くなりますが、VRAM を多く使います。収まる最大の値を使ってください。 |
