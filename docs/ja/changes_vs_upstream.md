@@ -52,7 +52,7 @@
 | GUI | A/B モデル比較 | 区間エディターの **A/B 比較…** | Linux・Windows 検証済み | [segments.md](segments.md#ab-モデル比較)、[6.1](#61-ab-モデル比較区間エディター) |
 | GUI | 動画プレーヤーの復元チェックポイント選択 | プレーヤーの設定カード | Linux・Windows 検証済み | [gui.md](gui.md#動画プレーヤー)、[6.2](#62-動画プレーヤーの復元チェックポイント選択) |
 | パッケージング | Windows 向け Nuitka バンドル | `scripts/build_nuitka.py` | 実験的、Windows のみ | [frozen_build.md](frozen_build.md)、[8](#8-ビルド依存パッケージング) |
-| ビルド | ソースからのセットアップガイド | — | 本ベースで Linux 検証済み（2026-10-22）。Windows は v0.11.2 ベースで検証済み（2026-10-18） | [building_linux.md](building_linux.md)、[building_windows.md](building_windows.md) |
+| ビルド | ソースからのセットアップガイド | — | 本ベースで Linux・Windows 検証済み（2026-10-22。Windows は RTX 5060 Ti） | [building_linux.md](building_linux.md)、[building_windows.md](building_windows.md) |
 
 外部モデル系の機能は GUI には出ず、CLI 専用です。GUI に出るのはフレーム生成、動画バックエンド、FP8 トグル、RTX Super Res の追加オプション、A/B 比較、プレーヤーのチェックポイントです（[6.3](#63-modi-機能の設定項目)）。
 
