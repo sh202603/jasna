@@ -64,7 +64,7 @@ def _decode_center_crops(video: Path, count: int, size: int = 256) -> torch.Tens
     import av
 
     frames = []
-    with av.open(str(video)) as container:
+    with av.open(str(video), metadata_errors="replace") as container:
         for frame in container.decode(video=0):
             img = frame.to_rgb().to_ndarray()
             h, w = img.shape[:2]
