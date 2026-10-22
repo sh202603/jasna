@@ -66,7 +66,7 @@ class StreamTimes:
 
 
 def read_stream_times(path: Path) -> StreamTimes:
-    with av.open(str(path)) as container:
+    with av.open(str(path), metadata_errors="replace") as container:
         stream = container.streams.video[0]
         # The demuxer ends with an empty flush packet; a real packet without a timestamp
         # cannot be aligned.
