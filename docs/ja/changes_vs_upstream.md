@@ -1,9 +1,9 @@
-# 変更点サマリ: `modi`（`0.11.2+modi`）vs upstream
+# 変更点サマリ: `modi`（`0.11.3+modi`）vs upstream
 
 このブランチが upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) に対して加えている変更を、「いつ追加したか」ではなく「**今、何が違うか**」で整理したものです。
 
 - ブランチ: `modi`（fork `https://github.com/sh202603/jasna.git`）
-- バージョン: `0.11.2+modi`。upstream `b623466f`（`v0.11.2` タグ）にリベース済み
+- バージョン: `0.11.3+modi`。upstream `cf8a968c`（`v0.11.3` タグ）にリベース済み
 - リベース方針: **重複する機能は upstream 優先。** upstream が自前で実装した項目はブランチから外し、本文ではなく[付録 A](#付録-a-upstream-に吸収されたまたは-drop-した変更)に記載します。
 
 本書の読み方:
@@ -29,7 +29,7 @@
 ## 1. この公開ビルドの範囲
 
 - **支援者モデルは不活性（inert）。** `unet-4x`、SD 1.5 画像復元、有効化フローは非公開の `jasna/protection` サブモジュールを要し、この公開フォークには含まれません。upstream のコードは同梱されますが動作しません。これらのモデルは upstream の公式リリースを使ってください。
-- **LTX による復元はできません。** LTX の重みは暗号化（`.enc`）されて配布され、復号できるのは公式リリースだけです。`--restoration-model-name ltx` / `ltx-undistilled` と GUI の LTX モードは動かず、`--ltx-trial` はランダム重みで速度を測るだけです。LTX の公開部分（モザイクのスキャンと合成）を、公式リリースが復元した動画の鮮明化 [`--ltx-crop-vsr`](#36-ltx-出力の鮮明化--ltx-crop-vsr) が再利用しています。
+- **LTX による復元はできません。** LTX の重みは暗号化（`.enc`）されて配布され、復号できるのは公式リリースだけです。`--restoration-model-name ltx` / `ltx-4step` / `ltx-8step` / `ltx-undistilled` と GUI の LTX モードは動かず、`--ltx-trial` はランダム重みで速度を測るだけです。LTX の公開部分（モザイクのスキャンと合成）を、公式リリースが復元した動画の鮮明化 [`--ltx-crop-vsr`](#36-ltx-出力の鮮明化--ltx-crop-vsr) が再利用しています。
 - **それ以外は動作します**: 検出、BasicVSR++ 復元、RTX Super Res と TVAI の二次復元、区間エディター、VR180、ストリーミング、エクスポート後アクション、そして以下の modi 機能。
 - **ソースから実行します。** セットアップはビルドガイド（[Linux](building_linux.md)、[Windows](building_windows.md)）に従います。Windows 向けには `scripts/build_nuitka.py` で実験的なバンドルを作れます（[frozen_build.md](frozen_build.md)）。
 
@@ -52,7 +52,7 @@
 | GUI | A/B モデル比較 | 区間エディターの **A/B 比較…** | Linux・Windows 検証済み | [segments.md](segments.md#ab-モデル比較)、[6.1](#61-ab-モデル比較区間エディター) |
 | GUI | 動画プレーヤーの復元チェックポイント選択 | プレーヤーの設定カード | Linux・Windows 検証済み | [gui.md](gui.md#動画プレーヤー)、[6.2](#62-動画プレーヤーの復元チェックポイント選択) |
 | パッケージング | Windows 向け Nuitka バンドル | `scripts/build_nuitka.py` | 実験的、Windows のみ | [frozen_build.md](frozen_build.md)、[8](#8-ビルド依存パッケージング) |
-| ビルド | ソースからのセットアップガイド | — | 本ベースで Linux と Windows を検証済み（2026-10-18） | [building_linux.md](building_linux.md)、[building_windows.md](building_windows.md) |
+| ビルド | ソースからのセットアップガイド | — | 本ベースで Linux 検証済み（2026-10-22）。Windows は v0.11.2 ベースで検証済み（2026-10-18） | [building_linux.md](building_linux.md)、[building_windows.md](building_windows.md) |
 
 外部モデル系の機能は GUI には出ず、CLI 専用です。GUI に出るのはフレーム生成、動画バックエンド、FP8 トグル、RTX Super Res の追加オプション、A/B 比較、プレーヤーのチェックポイントです（[6.3](#63-modi-機能の設定項目)）。
 
@@ -287,6 +287,12 @@ BasicVSR++ の **upsample** サブエンジンを cuDNN graph API の FP8 畳み
 ## 付録 B: リベース履歴
 
 各ベースへのリベースで取り込んだ upstream の主変更と本フォークの対応の記録（新しい順）。
+
+### `v0.11.3` ベース（2026-10-22 取り込み）
+
+upstream は v0.11.3 をリリースした（`b623466f` から 51 コミット、うち 9 は protection の pin 更新）。主要点: **LTX モデルが 2 つ増えた**（2-step の student が「標準画質」で既定になり CLI の `ltx` に、4-step の student が「良好画質」`ltx-4step` に、従来の `ltx` は `ltx-8step`「高画質」に、`ltx-undistilled` は「最高画質」のまま。`LtxModelName` に `distilled2` / `distilled4` が増え `LTX_DEFAULT_MODEL` は `distilled2`）、**LTX VAE の高速化**（window の decode を別 thread・別 stream で compose と重ね、encode の host バッファを再利用、decode 予算は GPU の総 VRAM から `segment_decode_budget(total_bytes)` で決め、プランは動画長に線形）、compose の所要見積りを crop メガピクセル単位で学習（`speed.Work.crop_megapixels`）し進捗バーが後退しない、**scene cut 検出が重複フレームを無視**（30 fps の 60 fps 化や 3:2 プルダウンで偽カットが出なくなる。こうした素材では BasicVSR++ のクリップ境界も変わる）、NVIDIA の `dilate_ellipse` を 61x61 畳み込みから厳密な行・列走査へ（同一画素、0.78 → 0.16 ms）、**PyAV の FFmpeg ログフックを切る**（途中で閉じたマルチスレッドのソフトウェアデコーダがデッドロックしない）、全 `av.open` に `metadata_errors="replace"`（UTF-8 でないタグを持つ動画が開ける）、VC-1 は VALI でなく FFmpeg の NVDEC hwaccel でデコード、デコーダがフレームバッチを書く前に呼び出し側の stream を待つ、ストリーミングの修正（throttle 停止、非 AAC 音声をブラウザ向けに再エンコード、最終セグメントの配信）、GUI の停止確認と処理中ウィンドウを閉じるときの確認、ZFS を対応ディスク形式に追加、LTX の所要時間表を標準画質基準に更新。`protection` のポインタは `c084d22e` から `f700c41f` へ（当方では従来どおり未初期化）。
+
+fork 側: modi の 139 コミットを `cf8a968c` の上に 1 回で再生した。衝突はバージョン行 2 箇所、`session_config.py`（modi の `seedvr2` と新しい `LtxModelName` が隣接）、`tests/test_blending.py`（modi がテストを追記した位置で upstream がモック名を `conv` から `scan` へ改名）、`docs/{en,ja}/cli.md` の `--restoration-model-name` 行。追従は 1 件: 本フォークが足した 3 箇所の `av.open`（`ltx/refine.py`、`media/torchcodec_encoder.py`、`benchmark/fp8_upsample_ab.py`）を upstream と同じ `metadata_errors="replace"` で開くようにし、upstream のテスト factory の非 UTF-8 サンプルでテストを追加した。エンジンの再コンパイルも VALI の再ビルドも venv の変更も不要。検証（Linux、RTX 5080、2026-10-22）: モデル重みのある checkout での全テストを、同じ deselect と timeout で素の upstream `cf8a968c` と比較し（今回は両側とも重みあり）、失敗は全く同じ 125 件（protection、gcc-15 での native LTX ビルド、表示環境）。10 秒のテストクリップで modi 機能の CLI 実走が全て完走（BasicVSR++ の FP8 あり/なし、torchcodec、fMP4、RTX Super Res、SwiftVR distill、SwiftVR offline、SeedVR2、RIFE と RTX のフレーム生成、`--segments`、30 秒プローブ素材での `--ltx-crop-vsr swiftvr-distill`（既定 hop で 9 window）、両方の hop での `--ltx-trial`（103 秒と 68 秒）、LTX + frame-gen の拒否）。`--ltx-crop-vsr` の GPU テスト合格。
 
 ### `v0.11.2` ベース（2026-10-18 取り込み）
 
