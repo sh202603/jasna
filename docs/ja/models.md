@@ -225,7 +225,9 @@ NVIDIA が必要です。
   [Topaz Video](https://www.topazlabs.com/topaz-video) が必要です（有料、
   Windows のみ）。`iris-2` モデルを使ってください。
 
-LTX では RTX Super Res だけが、大きなモザイクにだけ使えます。例:
+LTX では RTX Super Res だけが使えます。*(+modi)* このフォークでは大きなモザイクだけでなく
+LTX の全 window にかけ、deblur パス（既定 `low`）で compose 段で鮮明化します
+（[changes_vs_upstream.md §3.7](changes_vs_upstream.md#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res)）。例:
 `jasna --input input.mp4 --output output.mkv --restoration-model-name ltx --secondary-restoration rtx-super-res`
 
 *(+modi)* このフォークは二次復元をさらに 3 つ追加しています。いずれも CLI

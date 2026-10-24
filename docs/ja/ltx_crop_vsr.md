@@ -115,6 +115,10 @@ Linux、RTX 5080 16 GB、2026-10-16。素材はリリース v0.11.1 の LTX 出�
 - **RTX Super Res の Windows**（Windows 11、RTX 5060 Ti 16 GB、2026-10-22、同じ 2 組、hop 88、CQ 14）: 2 組とも plan（2 track、11 window、skip 無し）、枚数、時刻が Linux と同じで、`RtxSuperresSecondaryRestorer: passes loaded for 512x512 -> 1024x1024` は 1 回。壁時計は 36 秒 / 48 秒（scan 7 秒、sharpen and compose 24 / 34 秒）、VRAM の最大は GPU 全体で 4.2 / 5.0 GB（デスクトップの常駐 2.9 GB 込み）。既定の hop 104 で distill を回すと 9 window で 57 秒。GPU テスト `tests/test_ltx_refine_gpu.py` は 2 方式とも合格（96 秒）。ユーザーの目視（2026-10-22、`crop_rtx88` を Linux の結果と比較）も合格。
 - 未了: 768 px canvas、crop が canvas の半分未満の素材、10 分超の長尺。
 
+## LTX の実行中に掛ける場合
+
+このビルドが LTX モデル自体を走らせるとき（平文の重み）、同じ RTX Super Res の deblur を LTX ジョブの中で、合成前の生の window canvas に掛けられます。LTX モデルに `--secondary-restoration rtx-super-res` を付けます（scale 2、そこでの deblur の既定は `low`、他の `--rtx-*` は指定どおり）。2 パス目も元動画も整合確認も要りません。公式リリースの出力の鮮明化は引き続き `--ltx-crop-vsr` です。詳細: [changes_vs_upstream.md §3.7](changes_vs_upstream.md#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res)。
+
 ## 制限
 
 - 倍率 crop/canvas が 0.5 未満の track（1080p や 4K の小さいモザイク）は未検証。小さい crop を canvas へ大きく拡大してから SR するので、挙動が変わりうる。
