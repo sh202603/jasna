@@ -86,8 +86,10 @@ convert them as in
   hf-mirror.com automatically. Download still fails? See
   [Downloading LTX yourself](#downloading-ltx-yourself).
 
-LTX does not work with VR180 side-by-side videos or streaming. Secondary
-restoration and denoising are turned off with LTX.
+LTX does not work with VR180 side-by-side videos or streaming. Denoising is
+turned off with LTX, and of the secondary restorations only `rtx-super-res`
+runs with it *(+modi)*: its deblur pass sharpens every LTX window in the
+compose pass (see [changes_vs_upstream.md §3.7](changes_vs_upstream.md#37-sharpening-ltx-windows-in-the-run---secondary-restoration-rtx-super-res)).
 
 Using ESET? If LTX won't start and the message names `ebehmonl.dll` or
 `ebehmoni.dll`, add the Jasna folder to ESET's Deep Behavioral Inspection
@@ -196,7 +198,9 @@ NVIDIA only.
   [Topaz Video](https://www.topazlabs.com/topaz-video), which is paid and
   Windows only. Use the `iris-2` model.
 
-Not used with LTX.
+Not used with LTX, except `rtx-super-res` *(+modi)*, whose deblur pass
+sharpens LTX's own windows in the compose pass (see
+[changes_vs_upstream.md §3.7](changes_vs_upstream.md#37-sharpening-ltx-windows-in-the-run---secondary-restoration-rtx-super-res)).
 
 *(+modi)* This fork adds three more secondary restorers, all CLI only and all
 using diffusion models you install yourself: **FlashVSR** (`flashvsr`,

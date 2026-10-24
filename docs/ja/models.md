@@ -85,7 +85,8 @@ jasna --input input.mp4 --output output.mkv --restoration-model-name ltx
   [LTX を手動でダウンロードする](#ltx-を手動でダウンロードする)を見てください。
 
 LTX は VR180 サイドバイサイド動画とストリーミングでは使えません。LTX では
-二次復元とノイズ除去はオフになります。
+ノイズ除去はオフになり、二次復元は `rtx-super-res` だけが使えます *(+modi)*。
+compose 段で各 window を deblur パスで鮮明化します（[changes_vs_upstream.md §3.7](changes_vs_upstream.md#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res)）。
 
 ESET をお使いの場合: LTX が起動せず、メッセージに `ebehmonl.dll` または
 `ebehmoni.dll` が出るときは、ESET のディープビヘイビアインスペクション
@@ -196,7 +197,8 @@ NVIDIA のみです。
   [Topaz Video](https://www.topazlabs.com/topaz-video) が必要です（有料、
   Windows のみ）。`iris-2` モデルを使ってください。
 
-LTX では使われません。
+LTX では使われません。例外は `rtx-super-res` *(+modi)* で、その deblur パスが
+compose 段で LTX 自身の window を鮮明化します（[changes_vs_upstream.md §3.7](changes_vs_upstream.md#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res)）。
 
 *(+modi)* このフォークは二次復元をさらに 3 つ追加しています。いずれも CLI
 専用で、拡散モデルは自分で用意します: **FlashVSR**（`flashvsr`、

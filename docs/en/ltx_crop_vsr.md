@@ -240,6 +240,10 @@ outputs at CQ 14).
 - Pending: the 768 px canvas, footage whose crops are under half the canvas, footage over
   10 minutes.
 
+## Inside an LTX run instead
+
+When this build runs the LTX model itself (plaintext weights), the same RTX Super Res deblur can run inside the LTX job, on the raw window canvas before LTX composites it: `--secondary-restoration rtx-super-res` with the LTX model (scale 2, deblur `low` by default there, the other `--rtx-*` options as given). It needs no second pass, no source video and no alignment check. `--ltx-crop-vsr` remains the way to sharpen an output of the official release. See [changes_vs_upstream.md §3.7](changes_vs_upstream.md#37-sharpening-ltx-windows-in-the-run---secondary-restoration-rtx-super-res).
+
 ## Limitations
 
 - Tracks whose crop is under half the canvas side (small mosaics in 1080p or 4K footage)
