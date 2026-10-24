@@ -22,7 +22,8 @@ from jasna.os_utils import (
 )
 from jasna.session_config import (
     LTX_CROP_VSR_BACKENDS,
-    LTX_RTX_DEBLUR,
+    LTX_CROP_VSR_RTX_DEBLUR,
+    LTX_SHARPEN_RTX_DEBLUR,
     LTX_DEFAULT_MODEL,
     LTX_DEFAULT_SEED,
     LtxModelName,
@@ -560,9 +561,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         choices=["none", "low", "medium", "high", "ultra"],
-        help="RTX Super Res deblur level, none to disable (default: none; medium on LTX windows, under "
-             "--ltx-crop-vsr rtx-super-res or an LTX model with --secondary-restoration rtx-super-res, "
-             "where the deblur pass is what sharpens)",
+        help="RTX Super Res deblur level, none to disable (default: none; on LTX windows, where the deblur "
+             "pass is what sharpens, medium under --ltx-crop-vsr rtx-super-res and low in an LTX job with "
+             "--secondary-restoration rtx-super-res)",
     )
     rtx.add_argument(
         "--rtx-strength",
@@ -1184,11 +1185,13 @@ def _reject_options_of_other_restoration_backend(
 
 def _rtx_deblur(args: argparse.Namespace) -> str:
     """``--rtx-deblur`` resolved: off unless given, except where RTX Super Res sharpens LTX
-    canvases (``--ltx-crop-vsr rtx-super-res``, or ``--secondary-restoration rtx-super-res``
-    with an LTX model), where the deblur pass is the one that sharpens (``LTX_RTX_DEBLUR``)."""
+    canvases, where the deblur pass is the one that sharpens: medium under ``--ltx-crop-vsr
+    rtx-super-res``, low in an LTX job's compose pass (``--secondary-restoration rtx-super-res``)."""
     if args.rtx_deblur is not None:
         return str(args.rtx_deblur).lower()
-    return LTX_RTX_DEBLUR if getattr(args, "ltx_crop_vsr", None) == "rtx-super-res" or _ltx_sharpens(args) else "none"
+    if getattr(args, "ltx_crop_vsr", None) == "rtx-super-res":
+        return LTX_CROP_VSR_RTX_DEBLUR
+    return LTX_SHARPEN_RTX_DEBLUR if _ltx_sharpens(args) else "none"
 
 
 def _ltx_sharpens(args: argparse.Namespace) -> bool:

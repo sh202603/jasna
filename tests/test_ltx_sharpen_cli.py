@@ -54,10 +54,12 @@ class TestCli:
         pipeline_cls = _run_main(tmp_path, ["--secondary-restoration", "rtx-super-res", "--rtx-strength", "0.75"])
         config = pipeline_cls.call_args.kwargs["config"]
         assert config.restoration_model_name == "ltx" and config.secondary_restoration == "rtx-super-res"
-        assert config.rtx_deblur == "medium" and config.rtx_strength == 0.75
+        assert config.rtx_deblur == "low" and config.rtx_strength == 0.75  # low: the inline default
         assert config.rtx_quality == "high" and config.rtx_denoise == "medium"
 
-    def test_deblur_can_be_turned_off(self, tmp_path):
+    def test_deblur_can_be_set_or_turned_off(self, tmp_path):
+        pipeline_cls = _run_main(tmp_path, ["--secondary-restoration", "rtx-super-res", "--rtx-deblur", "medium"])
+        assert pipeline_cls.call_args.kwargs["config"].rtx_deblur == "medium"
         pipeline_cls = _run_main(tmp_path, ["--secondary-restoration", "rtx-super-res", "--rtx-deblur", "none"])
         assert pipeline_cls.call_args.kwargs["config"].rtx_deblur == "none"
 

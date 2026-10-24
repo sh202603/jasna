@@ -44,7 +44,7 @@ def test_an_ltx_trial_run_sharpens_its_windows_with_rtx_super_res(tmp_path):
     )
     log = result.stdout + result.stderr
     assert result.returncode == 0, log[-4000:]
-    assert "RtxSuperresSecondaryRestorer: scale=2x" in log and "deblur=medium" in log and "strength=0.75" in log
+    assert "RtxSuperresSecondaryRestorer: scale=2x" in log and "deblur=low" in log and "strength=0.75" in log
     assert "passes loaded for 512x512 -> 1024x1024" in log
     assert "decode free VRAM+rtx" in log  # the speed profile key of a run that sharpens
     assert len(read_stream_times(output).pts) == len(read_stream_times(CLIP).pts)
