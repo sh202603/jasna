@@ -17,6 +17,7 @@ Jasna 修复视频和图片中的马赛克。Jasna 免费，提供简单的应�
 >
 > - **修复模型**：**SeedVR2 + LoRA** 一级修复；**FlashVSR**、**SwiftVR** 和 **SwiftVR distill** 二级修复；**RTX Super Res** 的两个附加选项（`--rtx-strength`、`--rtx-highbitrate`）。
 > - **LTX 输出锐化**（`--ltx-crop-vsr`）：输入官方发布版用 LTX 修复过的视频及其原视频，重新运行 LTX 公开的马赛克扫描，用 SwiftVR、SwiftVR distill 或 RTX Super Res 把马赛克区域放大 2 倍，再用 LTX 自己的合成方式放回。主要针对低分辨率输入：LTX 修复出的裁切区域在这类素材上偏模糊。这是本构建中处理 LTX 结果的唯一途径。见 [docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)。
+> - **LTX 运行中的窗口锐化**（LTX 模型 + `--secondary-restoration rtx-super-res`）：在 LTX 的合成阶段、合成之前，对每个窗口画布施加同样的 RTX Super Res 去模糊。仅适用于本构建能加载的 LTX 权重（明文 safetensors，不含加密的官方发布版权重）。见 [docs/en/changes_vs_upstream.md §3.7](docs/en/changes_vs_upstream.md#37-sharpening-ltx-windows-in-the-run---secondary-restoration-rtx-super-res)。
 > - **帧生成**（`--frame-gen` 2x/4x，RIFE 或 RTX Video Frame Generation），以及用于已修复视频的独立命令 `jasna-framegen`。
 > - **后端**：实验性的 **torchcodec 视频后端**、实验性的 **cuDNN FP8 修复后端**，以及几秒内即可构建引擎的 **TensorRT-RTX** 版本。
 > - **GUI**：区间编辑器中的 **A/B 模型对比**，以及视频播放器中的**修复检查点**选择。
