@@ -46,6 +46,19 @@ def crop_to_canvas(frame: torch.Tensor, crop: CropFrame) -> torch.Tensor:
     return content
 
 
+def doubled(crop: CropFrame) -> CropFrame:
+    """The same source box on the x2 canvas: twice the resize and the padding. A window's
+    canvas upscaled x2 (``--ltx-crop-vsr``, or RTX Super Res in the compose pass) composites
+    with this crop; ``canvas_to_source`` maps either canvas back to the same box."""
+    resize_h, resize_w = crop.resize_hw
+    top, bottom, left, right = crop.pad
+    return CropFrame(
+        crop_box=crop.crop_box,
+        resize_hw=(2 * resize_h, 2 * resize_w),
+        pad=(2 * top, 2 * bottom, 2 * left, 2 * right),
+    )
+
+
 def _area_weights(out_size: int, in_size: int, device: torch.device) -> torch.Tensor:
     """``[out, in]`` pixel-area resampling weights (OpenCV INTER_AREA for downscaling)."""
     scale = in_size / out_size

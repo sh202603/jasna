@@ -31,7 +31,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from jasna.ltx.camera import CropFrame
-from jasna.ltx.compose import Candidate, _area_weights, _reflect101_index, composite_frame, polygon_mask
+from jasna.ltx.compose import Candidate, _area_weights, _reflect101_index, composite_frame, doubled, polygon_mask
 from jasna.ltx.plan import TrackPlan, Window, crossfade_weights, feather_pixels
 from jasna.ltx.restore import WHOLE_VIDEO_PTS, Cancelled, FrameSource, FrameWriter, LtxSegment, scan_span, video_frames
 from jasna.media.probe import UnsupportedVideoError
@@ -131,17 +131,6 @@ def crop_to_canvas_area(frame: torch.Tensor, crop: CropFrame) -> torch.Tensor:
         cols = _reflect101_index(content.shape[2], left, right, frame.device)
         content = content[:, rows][:, :, cols]
     return content
-
-
-def doubled(crop: CropFrame) -> CropFrame:
-    """The same source box on the x2 canvas: twice the resize and the padding."""
-    resize_h, resize_w = crop.resize_hw
-    top, bottom, left, right = crop.pad
-    return CropFrame(
-        crop_box=crop.crop_box,
-        resize_hw=(2 * resize_h, 2 * resize_w),
-        pad=(2 * top, 2 * bottom, 2 * left, 2 * right),
-    )
 
 
 def _luma(region: torch.Tensor) -> torch.Tensor:

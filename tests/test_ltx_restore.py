@@ -357,6 +357,134 @@ def test_composer_raises_a_failed_window_decode(monkeypatch):
         decodes.shutdown()
 
 
+class _Sharpener:
+    """A CanvasSharpener that doubles every pixel and records its life."""
+
+    instances: list["_Sharpener"] = []
+
+    def __init__(self):
+        self.prepared: list[int] = []
+        self.restored: list[tuple[int, ...]] = []
+        self.closed = False
+        _Sharpener.instances.append(self)
+
+    def prepare(self, sizes):
+        self.prepared = list(sizes)
+
+    def restore(self, frames, *, keep_start, keep_end):
+        self.restored.append(tuple(frames.shape))
+        assert frames.dtype == torch.float32 and float(frames.max()) <= 1.0
+        twice = frames[keep_start:keep_end].repeat_interleave(2, dim=-1).repeat_interleave(2, dim=-2)
+        return list(twice.mul(255.0).round().to(torch.uint8))
+
+    def close(self):
+        self.closed = True
+
+
+def test_composer_sharpens_each_canvas_and_composites_it_with_the_doubled_crop(monkeypatch):
+    candidates_seen = []
+
+    def decode(decoder, latent, seed, canvas, budget, device):
+        return torch.full((5, 3, 4, 4), 100 + latent, dtype=torch.uint8)
+
+    def composite(source, candidates, *, feather):
+        candidates_seen.append([(tuple(c.canvas.shape), c.crop, int(c.canvas[0, 0, 0])) for c in candidates])
+        return source
+
+    crop = CropFrame((0, 0, 4, 4), (4, 4), (0, 0, 0, 0))
+    windows = (Window(0, 0, 0, 5, (crop,) * 5),)
+    plan = restore.TrackPlan(0, 0, ((),) * 5, (1.0,) * 5, windows, 3)
+    monkeypatch.setattr(restore, "_decode_window", decode)
+    monkeypatch.setattr(restore, "composite_frame", composite)
+    sharpener = _Sharpener()
+    decodes = ThreadPoolExecutor(max_workers=1)
+    composer = restore._SegmentComposer(
+        [plan], None, SimpleNamespace(get=lambda index: index), seed=0, feather=1, budget=lambda canvas: 0,
+        device=torch.device("cpu"), bar=_Bar(), decodes=decodes, stream=None, sharpen=sharpener,
+    )
+    try:
+        for i in range(5):
+            composer.frame(torch.zeros(3, 4, 4, dtype=torch.uint8))
+    finally:
+        decodes.shutdown()
+    assert candidates_seen == [[((3, 8, 8), restore.doubled(crop), 100)]] * 5
+    assert sharpener.restored == [(1, 3, 4, 4)] * 5  # one frame at a time, never the window
+
+
+def _render_with_sharpener(tmp_path, **overrides):
+    for budget in ("segment+rtx", "free VRAM+rtx"):
+        restore.speed.save_rates(
+            tmp_path / "speed.json", restore.speed.profile_key("Test GPU", "t", budget), {"denoise/window512": 4.0}
+        )
+    return replace(_render(tmp_path), sharpen=_Sharpener, **overrides)
+
+
+def test_compose_spans_builds_the_sharpener_once_for_every_canvas_of_the_run_and_closes_it(fakes, monkeypatch, tmp_path):
+    _Sharpener.instances = []
+    video = _video(30, range(3, 28))
+    writer = _Writer()
+    segments = (restore.LtxSegment(50, 150, seed=100), restore.LtxSegment(200, 260, seed=7))
+    render = _render_with_sharpener(tmp_path)
+    saved = []
+    monkeypatch.setattr(restore.speed, "save_rates", lambda path, key, rates: saved.append(key))
+    restore.restore_spans(
+        [restore.LtxSpan(_source(video), segments, lambda: writer)], render, work_dir=tmp_path,
+        progress=restore.Progress(0, disable=True, report=None), cancel=threading.Event(),
+    )
+    (sharpener,) = _Sharpener.instances
+    assert sharpener.prepared == [restore.PLAN_CANVAS]
+    assert sharpener.closed and writer.closed
+    # The run's profile is kept apart from runs without the sharpener (its compose rate holds the x2).
+    assert saved == [restore.speed.profile_key("Test GPU", "t", "segment+rtx")]
+    assert restore._profile_key(_render(tmp_path)).endswith("decode segment")
+
+
+def test_compose_spans_closes_the_sharpener_when_a_window_decode_fails(fakes, monkeypatch, tmp_path):
+    _Sharpener.instances = []
+
+    def decode(decoder, latent, free_bytes, generator):
+        raise RuntimeError("decode failed")
+
+    monkeypatch.setattr(restore, "decode_latent", decode)
+    video = _video(12, range(2, 10))
+    with pytest.raises(RuntimeError, match="decode failed"):
+        restore.restore_spans(
+            [restore.LtxSpan(_source(video), (restore.LtxSegment(*restore.WHOLE_VIDEO_PTS, 0),), _Writer)],
+            _render_with_sharpener(tmp_path), work_dir=tmp_path,
+            progress=restore.Progress(0, disable=True, report=None), cancel=threading.Event(),
+        )
+    (sharpener,) = _Sharpener.instances
+    assert sharpener.closed
+
+
+def test_a_run_without_windows_builds_no_sharpener(fakes, tmp_path):
+    _Sharpener.instances = []
+    video = _video(12, range(0))
+    restore.restore_spans(
+        [restore.LtxSpan(_source(video), (restore.LtxSegment(*restore.WHOLE_VIDEO_PTS, 0),), _Writer)],
+        _render_with_sharpener(tmp_path), work_dir=tmp_path,
+        progress=restore.Progress(0, disable=True, report=None), cancel=threading.Event(),
+    )
+    assert _Sharpener.instances == []
+
+
+def test_restore_video_passes_the_sharpener_to_the_render(fakes, tmp_path):
+    _Sharpener.instances = []
+    for budget in ("free VRAM+rtx",):
+        restore.speed.save_rates(
+            tmp_path / "speed.json", restore.speed.profile_key("Test GPU", "t", budget), {"denoise/window512": 4.0}
+        )
+    video = _video(12, range(2, 10))
+    restore.restore_video(
+        _source(video), _Writer(), detector=_Detector(), files=FILES, frame_h=64, frame_w=64, batch_size=4,
+        large_canvas=False, window_hop=restore.WINDOW_HOP, seed=5, device=torch.device("cpu"), work_dir=tmp_path,
+        speed_profile=tmp_path / "speed.json", progress=restore.Progress(12, disable=True, report=None),
+        cancel=threading.Event(), sharpen=_Sharpener,
+    )
+    (sharpener,) = _Sharpener.instances
+    assert sharpener.prepared == [restore.PLAN_CANVAS] and sharpener.closed
+
+
 def test_segment_decode_budget_follows_the_gpu_size_not_free_vram(monkeypatch):
     monkeypatch.setattr(torch.cuda, "mem_get_info", lambda device: (1, 1))
     gib = 1 << 30

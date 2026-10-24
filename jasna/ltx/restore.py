@@ -34,7 +34,7 @@ from tqdm import tqdm
 from jasna.accelerator import device_free_bytes
 from jasna.ltx import speed
 from jasna.ltx.camera import PLAN_CANVAS, WINDOW_FRAMES
-from jasna.ltx.compose import Candidate, composite_frame, crop_to_canvas
+from jasna.ltx.compose import Candidate, composite_frame, crop_to_canvas, doubled
 from jasna.ltx.model_files import LtxModelFiles
 from jasna.ltx.inference import ModelRuntime, WorkerDecoder, WorkerEncoder, WorkerTransformer
 from jasna.ltx.plan import (
@@ -79,6 +79,19 @@ class Cancelled(Exception):
 
 class FrameWriter(Protocol):
     def write(self, frame: torch.Tensor, pts: int, *, apply_lut: bool = True) -> None: ...
+
+    def close(self) -> None: ...
+
+
+class CanvasSharpener(Protocol):
+    """An x2 upscaler the compose pass runs on every decoded canvas before it composites
+    (RTX Super Res: ``RtxSuperresSecondaryRestorer`` sized from the frames). It is built and
+    run on the device's default stream (nvvfx refuses any other: "not properly initialized"),
+    told the canvas sides of the run up front, and closed after the pass."""
+
+    def prepare(self, sizes: Sequence[int]) -> None: ...
+
+    def restore(self, frames: torch.Tensor, *, keep_start: int, keep_end: int) -> list[torch.Tensor]: ...
 
     def close(self) -> None: ...
 
@@ -674,6 +687,7 @@ class _SegmentComposer:
         bar: _StageBar,
         decodes: ThreadPoolExecutor,
         stream: torch.cuda.Stream | None,
+        sharpen: CanvasSharpener | None = None,
     ) -> None:
         self._weights: dict[int, torch.Tensor] = {}
         self._tracks: dict[int, TrackPlan] = {}
@@ -696,6 +710,7 @@ class _SegmentComposer:
         self._frame_idx = 0
         self._decodes = decodes
         self._stream = stream
+        self._sharpen = sharpen
         self._decode_order = iter(windows)
         self._decode_shares = _decode_shares(windows)
         self._decoding: dict[int, Future[torch.Tensor]] = {}
@@ -745,10 +760,16 @@ class _SegmentComposer:
                 self._decoded[window.index] = self._decoded_window(window)
             local = frame_idx - window.start
             track = self._tracks[window.index]
+            canvas, crop = self._decoded[window.index][local], window.crops[local]
+            if self._sharpen is not None:
+                # One frame at a time: a window held at x2 would take four times its VRAM,
+                # and the composite shrinks the canvas back anyway.
+                canvas = _sharpen_canvas(self._sharpen, canvas, self._device)
+                crop = doubled(crop)
             candidates.append(
                 Candidate(
-                    canvas=self._decoded[window.index][local],
-                    crop=window.crops[local],
+                    canvas=canvas,
+                    crop=crop,
                     weight=float(self._weights[window.index][local]),
                     track=track.track_id,
                     polygons=track.polygons[frame_idx - track.start],
@@ -773,23 +794,28 @@ def compose_span(
     device: torch.device,
     bar: _StageBar,
     cancel: threading.Event,
+    stream: torch.cuda.Stream | None = None,
+    sharpen: CanvasSharpener | None = None,
 ) -> None:
     """Write every frame of ``span``: segment frames composited, the rest unchanged. Windows
     decode one ahead on a thread; on CUDA on a stream of their own, below the priority of the
-    frames' stream, whose short kernels would otherwise queue behind the decode's."""
+    frames' stream (``stream``, or one made here), whose short kernels would otherwise queue
+    behind the decode's. ``sharpen`` upscales every canvas x2 before it composites."""
     feather = feather_pixels(frame_h)
     decodes = ThreadPoolExecutor(max_workers=1, thread_name_prefix="LtxDecode")
     cuda = device.type == "cuda"
     decode_stream = torch.cuda.Stream(device) if cuda else None
+    if stream is None and cuda:
+        stream = frames_stream(device)
     try:
         composers = [
             _SegmentComposer(
                 p, decoder, store, seed=segment.seed, feather=feather, budget=budget, device=device, bar=bar,
-                decodes=decodes, stream=decode_stream,
+                decodes=decodes, stream=decode_stream, sharpen=sharpen,
             )
             for p, store, segment in zip(plans, finals, span.segments)
         ]
-        with torch.cuda.stream(torch.cuda.Stream(device, priority=-1) if cuda else None):
+        with torch.cuda.stream(stream):
             writer = span.open_writer()
             try:
                 for owner, batch, pts in segment_batches(span.frames(), span.segments, batch_size):
@@ -804,6 +830,33 @@ def compose_span(
                 writer.close()
     finally:
         decodes.shutdown(cancel_futures=True)
+
+
+def frames_stream(device: torch.device) -> torch.cuda.Stream | None:
+    """The compose pass's stream for the frames, above the decode's priority; None off CUDA."""
+    return torch.cuda.Stream(device, priority=-1) if device.type == "cuda" else None
+
+
+def default_stream(device: torch.device) -> torch.cuda.Stream | None:
+    """The device's default stream, where a ``CanvasSharpener`` is built and run; None off CUDA."""
+    return torch.cuda.default_stream(device) if device.type == "cuda" else None
+
+
+def _sharpen_canvas(sharpen: CanvasSharpener, canvas: torch.Tensor, device: torch.device) -> torch.Tensor:
+    """``canvas`` (uint8 ``[3, S, S]``) upscaled x2 on the default stream, ordered with the
+    frames' stream by events: the default stream waits for the canvas, the frames' stream
+    waits for the result. No host sync."""
+    frames = torch.cuda.current_stream(device) if device.type == "cuda" else None
+    default = default_stream(device)
+    if default is not None:
+        default.wait_stream(frames)
+        canvas.record_stream(default)
+    with torch.cuda.stream(default):
+        (out,) = sharpen.restore(canvas[None].float().div_(255.0), keep_start=0, keep_end=1)
+    if default is not None:
+        frames.wait_stream(default)
+        out.record_stream(frames)
+    return out
 
 
 def large_canvas_fits(requested: bool, free_bytes: int) -> bool:
@@ -828,7 +881,9 @@ class LtxRender:
     """What every pass needs besides the spans: the detector, the model files, the frame
     size, detection batch size, the 768 px decision, the frames between window starts, the
     decode budget per canvas and its name (decode tiling follows the budget, so it keys the
-    speed profile), the GPU and the speed profile file (``speed.py``)."""
+    speed profile), the GPU, the speed profile file (``speed.py``) and, when the compose
+    pass sharpens, what builds its ``CanvasSharpener`` (it keys the profile too: the
+    sharpening is in the compose rate)."""
 
     detector: Callable
     files: LtxModelFiles
@@ -841,6 +896,7 @@ class LtxRender:
     budget_name: str
     device: torch.device
     speed_profile: Path
+    sharpen: Callable[[], CanvasSharpener] | None = None
 
 
 @dataclass(frozen=True)
@@ -994,20 +1050,37 @@ def compose_spans(
     progress: Progress,
     cancel: threading.Event,
 ) -> None:
-    with progress.bar("compose", progress.frames, marks=timing_marks(decoder)) as bar:
-        for p, span_finals in zip(prepared, finals):
-            compose_span(
-                p.span,
-                p.plans,
-                decoder,
-                span_finals,
-                frame_h=render.frame_h,
-                batch_size=render.batch_size,
-                budget=render.budget,
-                device=render.device,
-                bar=bar,
-                cancel=cancel,
-            )
+    """Composite every prepared span. The sharpener, if any, is built on the default stream
+    (it runs on the stream it is built on, and nvvfx accepts no other) and loads its passes
+    for every canvas of the run before the first window decodes: a single video's decode
+    budget is the VRAM free at each decode, so loading later would tile the first window
+    differently from the rest."""
+    stream = frames_stream(render.device)
+    sharpen = None
+    if render.sharpen is not None and any(p.windows for p in prepared):
+        with torch.cuda.stream(default_stream(render.device)):
+            sharpen = render.sharpen()
+            sharpen.prepare(sorted({w.canvas for p in prepared for plans in p.plans for plan in plans for w in plan.windows}))
+    try:
+        with progress.bar("compose", progress.frames, marks=timing_marks(decoder)) as bar:
+            for p, span_finals in zip(prepared, finals):
+                compose_span(
+                    p.span,
+                    p.plans,
+                    decoder,
+                    span_finals,
+                    frame_h=render.frame_h,
+                    batch_size=render.batch_size,
+                    budget=render.budget,
+                    device=render.device,
+                    bar=bar,
+                    cancel=cancel,
+                    stream=stream,
+                    sharpen=sharpen,
+                )
+    finally:
+        if sharpen is not None:
+            sharpen.close()
 
 
 class _SpeedTestMosaics:
@@ -1047,7 +1120,8 @@ def _first_frames(frames: FrameSource, count: int) -> FrameSource:
 
 
 def _profile_key(render: LtxRender) -> str:
-    return speed.profile_key(torch.cuda.get_device_name(render.device), render.files.transformer_name, render.budget_name)
+    budget_name = render.budget_name + ("+rtx" if render.sharpen is not None else "")
+    return speed.profile_key(torch.cuda.get_device_name(render.device), render.files.transformer_name, budget_name)
 
 
 def restore_spans(
@@ -1127,6 +1201,7 @@ def restore_video(
     speed_profile: Path,
     progress: Progress,
     cancel: threading.Event,
+    sharpen: Callable[[], CanvasSharpener] | None = None,
 ) -> None:
     """Restore every mosaic of the video ``frames`` yields as one segment; the 768 px
     decision and the decode tiles follow the VRAM free when they are made."""
@@ -1144,6 +1219,7 @@ def restore_video(
             budget_name="free VRAM",
             device=device,
             speed_profile=speed_profile,
+            sharpen=sharpen,
         ),
         work_dir=work_dir,
         progress=progress,

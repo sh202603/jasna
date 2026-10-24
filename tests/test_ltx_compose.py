@@ -9,6 +9,7 @@ from jasna.ltx.compose import (
     canvas_to_source,
     composite_frame,
     crop_to_canvas,
+    doubled,
     feather_alpha,
     masked_median,
     polygon_mask,
@@ -36,6 +37,32 @@ def test_crop_round_trip_at_unit_scale():
     canvas = crop_to_canvas(frame, crop)
     assert canvas.shape == (3, 256, 256)
     assert torch.equal(canvas_to_source(canvas, crop).to(torch.uint8), frame[:, 50:306, 100:356])
+
+
+def test_a_doubled_canvas_maps_back_to_the_same_crop():
+    """An x2 canvas (here the exact pixel doubling) with the doubled crop lands on the same
+    source box with the same pixels: the x2 padding is skipped and the area shrink undoes
+    the doubling."""
+    frame = _frame()
+    crop = letterbox((0, 0, 200, 100), 200)  # letterboxed: pads above and below
+    canvas = crop_to_canvas(frame, crop)
+    twice = canvas.repeat_interleave(2, dim=1).repeat_interleave(2, dim=2)
+    assert doubled(crop).pad == tuple(2 * p for p in crop.pad) and doubled(crop).canvas == 400
+    assert torch.equal(canvas_to_source(twice, doubled(crop)), canvas_to_source(canvas, crop))
+    assert torch.equal(canvas_to_source(twice, doubled(crop)).to(torch.uint8), frame[:, 0:100, 0:200])
+
+
+def test_a_doubled_canvas_composites_only_the_feathered_mask():
+    source = _frame(1)
+    crop = letterbox((200, 100, 456, 356), 256)
+    restored = torch.full((3, 512, 512), 128, dtype=torch.uint8)
+    polygon = [[300.0, 200.0], [360.0, 200.0], [360.0, 260.0], [300.0, 260.0]]
+    out = composite_frame(source, [Candidate(restored, doubled(crop), 1.0, 0, [polygon], 1.0)], feather=8)
+    changed = (out != source).any(dim=0)
+    ys, xs = torch.nonzero(changed, as_tuple=True)
+    assert changed[230, 330] and int(out[0, 230, 330]) == 128
+    assert xs.min() >= 300 - 2 * 8 - 1 and xs.max() <= 360 + 2 * 8 + 1
+    assert ys.min() >= 200 - 2 * 8 - 1 and ys.max() <= 260 + 2 * 8 + 1
 
 
 def test_crop_pads_by_reflection():
