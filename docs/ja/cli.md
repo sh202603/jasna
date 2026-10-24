@@ -97,11 +97,11 @@ Jasna は `TMP`、次に `TEMP` を使います。`TMPDIR` は使いません。
 
 | オプション | デフォルト | 説明 |
 | ------ | ------- | ----- |
-| `--secondary-restoration` | `none` | `unet-4x`（NVIDIA・AMD）、`tvai`、または `rtx-super-res`（NVIDIA）。詳しくは[モデル](models.md)。*(+modi)* さらに `flashvsr`（オフライン 3 段パス）と `flashvsr-inline`（単一パス）。いずれも `--flashvsr-repo` が必要。詳細: [flashvsr.md](flashvsr.md)。`swiftvr`（オフライン 3 段パス）と `swiftvr-inline`（単一パス、FlashVSR より高速）は `--swiftvr-repo` が必要。詳細: [swiftvr.md](swiftvr.md)。`swiftvr-distill`（実験的）は SwiftVR から蒸留した小さな 2 倍モデルを jasna のプロセス内で動かす。`model_weights/` に `swiftvr-distill.pt` が必要。詳細: [swiftvr.md](swiftvr.md#swiftvr-distill--secondary-restoration-swiftvr-distill)。 |
+| `--secondary-restoration` | `none` | `unet-4x`（NVIDIA・AMD）、`tvai`、または `rtx-super-res`（NVIDIA）。詳しくは[モデル](models.md)。*(+modi)* さらに `flashvsr`（オフライン 3 段パス）と `flashvsr-inline`（単一パス）。いずれも `--flashvsr-repo` が必要。詳細: [flashvsr.md](flashvsr.md)。`swiftvr`（オフライン 3 段パス）と `swiftvr-inline`（単一パス、FlashVSR より高速）は `--swiftvr-repo` が必要。詳細: [swiftvr.md](swiftvr.md)。`swiftvr-distill`（実験的）は SwiftVR から蒸留した小さな 2 倍モデルを jasna のプロセス内で動かす。`model_weights/` に `swiftvr-distill.pt` が必要。詳細: [swiftvr.md](swiftvr.md#swiftvr-distill--secondary-restoration-swiftvr-distill)。 *(+modi)* LTX ジョブの `rtx-super-res` は、拡大される window だけでなく全 window を deblur パス（既定 `low`）で鮮明化します。詳細: [changes_vs_upstream.md §3.7](changes_vs_upstream.md#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res)。 |
 | `--rtx-scale` | `4` | RTX Super Res の拡大倍率（`2` または `4`）。LTX では常に `2`。 |
 | `--rtx-quality` | `high` | `low`、`medium`、`high`、`ultra`。 |
 | `--rtx-denoise` | `medium` | `none`、`low`、`medium`、`high`、`ultra`。 |
-| `--rtx-deblur` | `none` | `none`、`low`、`medium`、`high`、`ultra`。 |
+| `--rtx-deblur` | `none` | `none`、`low`、`medium`、`high`、`ultra`。*(+modi)* LTX の window では deblur パスが鮮明化を担うので、既定は `--ltx-crop-vsr rtx-super-res` で `medium`、LTX ジョブの `--secondary-restoration rtx-super-res` で `low`。 |
 | `--rtx-strength` | `1.0` | *(+modi)* RTX の各パス（拡大、ノイズ除去、ブレ除去）の効果の強さ。`0.0`〜`1.0`、低いほど未処理の画に近づく。`nvidia-vfx` 0.2.0.0 以降が必要。 |
 | `--rtx-highbitrate` | オフ | *(+modi)* 高ビットレートのクリーンなソース向け RTX 拡大モデル（`HIGHBITRATE_*`、圧縮アーティファクト抑制なし）を使う。オプトイン。テストクリップの目視では問題なし、効果は素材依存。 |
 | `--tvai-ffmpeg-path` | Topaz のデフォルトインストールパス | Topaz Video の `ffmpeg.exe` のパス（Windows のみ）。 |

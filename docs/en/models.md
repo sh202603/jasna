@@ -219,7 +219,10 @@ require NVIDIA.
   [Topaz Video](https://www.topazlabs.com/topaz-video), which is paid and
   Windows only. Use the `iris-2` model.
 
-With LTX, only RTX Super Res works, and only on large mosaics. Example:
+With LTX, only RTX Super Res works. *(+modi)* This fork runs it on every LTX
+window, not only on large mosaics, and its deblur pass (`low` by default)
+sharpens them in the compose pass (see
+[changes_vs_upstream.md §3.7](changes_vs_upstream.md#37-sharpening-ltx-windows-in-the-run---secondary-restoration-rtx-super-res)). Example:
 `jasna --input input.mp4 --output output.mkv --restoration-model-name ltx --secondary-restoration rtx-super-res`
 
 *(+modi)* This fork adds three more secondary restorers, all CLI only and all
