@@ -22,7 +22,7 @@ from jasna.os_utils import (
 )
 from jasna.session_config import (
     LTX_CROP_VSR_BACKENDS,
-    LTX_CROP_VSR_RTX_DEBLUR,
+    LTX_RTX_DEBLUR,
     LTX_DEFAULT_MODEL,
     LTX_DEFAULT_SEED,
     LtxModelName,
@@ -539,7 +539,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=4,
         choices=[2, 4],
-        help="RTX Super Res upscale factor (default: %(default)s)",
+        help="RTX Super Res upscale factor (default: %(default)s; 2 on LTX windows)",
     )
     rtx.add_argument(
         "--rtx-quality",
@@ -560,8 +560,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         choices=["none", "low", "medium", "high", "ultra"],
-        help="RTX Super Res deblur level, none to disable (default: none; medium under --ltx-crop-vsr "
-             "rtx-super-res, where the deblur pass is what sharpens)",
+        help="RTX Super Res deblur level, none to disable (default: none; medium on LTX windows, under "
+             "--ltx-crop-vsr rtx-super-res or an LTX model with --secondary-restoration rtx-super-res, "
+             "where the deblur pass is what sharpens)",
     )
     rtx.add_argument(
         "--rtx-strength",
@@ -1182,11 +1183,22 @@ def _reject_options_of_other_restoration_backend(
 
 
 def _rtx_deblur(args: argparse.Namespace) -> str:
-    """``--rtx-deblur`` resolved: off unless given, except under ``--ltx-crop-vsr rtx-super-res``,
-    where the deblur pass is the one that sharpens (``LTX_CROP_VSR_RTX_DEBLUR``)."""
+    """``--rtx-deblur`` resolved: off unless given, except where RTX Super Res sharpens LTX
+    canvases (``--ltx-crop-vsr rtx-super-res``, or ``--secondary-restoration rtx-super-res``
+    with an LTX model), where the deblur pass is the one that sharpens (``LTX_RTX_DEBLUR``)."""
     if args.rtx_deblur is not None:
         return str(args.rtx_deblur).lower()
-    return LTX_CROP_VSR_RTX_DEBLUR if getattr(args, "ltx_crop_vsr", None) == "rtx-super-res" else "none"
+    return LTX_RTX_DEBLUR if getattr(args, "ltx_crop_vsr", None) == "rtx-super-res" or _ltx_sharpens(args) else "none"
+
+
+def _ltx_sharpens(args: argparse.Namespace) -> bool:
+    """Whether the job is an LTX model with ``--secondary-restoration rtx-super-res``."""
+    model = CLI_RESTORATION_MODELS.get(getattr(args, "restoration_model_name", None))
+    return model is not None and model[0] == "ltx" and str(args.secondary_restoration).lower() == "rtx-super-res"
+
+
+def _explicit_rtx_scale() -> bool:
+    return any(value == "--rtx-scale" or value.startswith("--rtx-scale=") for value in sys.argv[1:])
 
 
 def _check_ltx_crop_vsr_options(
@@ -1220,8 +1232,7 @@ def _check_ltx_crop_vsr_options(
     explicit_scale = any(value == "--swiftvr-scale" or value.startswith("--swiftvr-scale=") for value in sys.argv[1:])
     if explicit_scale and int(args.swiftvr_scale) != 2:
         parser.error(f"{option} runs SwiftVR at scale 2; --swiftvr-scale {args.swiftvr_scale} is not supported")
-    explicit_rtx_scale = any(value == "--rtx-scale" or value.startswith("--rtx-scale=") for value in sys.argv[1:])
-    if args.ltx_crop_vsr == "rtx-super-res" and explicit_rtx_scale and int(args.rtx_scale) != 2:
+    if args.ltx_crop_vsr == "rtx-super-res" and _explicit_rtx_scale() and int(args.rtx_scale) != 2:
         parser.error(f"{option} runs RTX Super Res at scale 2; --rtx-scale {args.rtx_scale} is not supported")
     rejected = (
         (str(args.secondary_restoration).lower() != "none", "--secondary-restoration"),
@@ -1388,8 +1399,14 @@ def main() -> None:
             model_option = f"--restoration-model-name {args.restoration_model_name}"
             if is_streaming:
                 parser.error(f"{model_option} does not support --stream")
-            if args.secondary_restoration != "none":
-                parser.error(f"{model_option} does not support --secondary-restoration")
+            secondary = str(args.secondary_restoration).lower()
+            if secondary not in ("none", "rtx-super-res"):
+                parser.error(
+                    f"{model_option} does not support --secondary-restoration {args.secondary_restoration} "
+                    "(rtx-super-res is the one it runs, on its own windows)"
+                )
+            if secondary == "rtx-super-res" and _explicit_rtx_scale() and int(args.rtx_scale) != 2:
+                parser.error(f"{model_option} runs RTX Super Res at scale 2; --rtx-scale {args.rtx_scale} is not supported")
             if args.denoise != "none":
                 parser.error(f"{model_option} does not support --denoise")
         _reject_options_of_other_restoration_backend(parser, args, restoration_backend)

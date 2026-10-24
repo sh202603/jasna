@@ -210,6 +210,16 @@ class RtxSuperresSecondaryRestorer:
                             size, size, chain.output_size, chain.output_size)
         return chain
 
+    def prepare(self, sizes) -> None:
+        """Load the passes for every input side in ``sizes`` now. The LTX compose pass calls
+        this before its first window decodes, so the VRAM the passes take is already gone from
+        the decode budget it reads then."""
+        for size in sizes:
+            size = int(size)
+            if self.input_size is not None and size != self.input_size:
+                raise ValueError(f"expected frames of side {self.input_size}, got {size}")
+            self._chain_for(size)
+
     # The passes of the configured input side (None when sized from the frames).
     @property
     def _sr(self):

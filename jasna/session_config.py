@@ -29,10 +29,12 @@ RtxQualityName = Literal["low", "medium", "high", "ultra"]
 RtxLevelName = Literal["none", "low", "medium", "high", "ultra"]
 CodecName = Literal["hevc", "h264", "av1"]
 LTX_CROP_VSR_BACKENDS = ("swiftvr", "swiftvr-distill", "rtx-super-res")
-# The RTX deblur pass the rtx-super-res backend runs unless --rtx-deblur says otherwise: it is
-# the pass that sharpens there (the x2 upscale alone adds nothing that survives the downscale
-# back to the crop; measured on the probe clips, docs/en/ltx_crop_vsr.md).
-LTX_CROP_VSR_RTX_DEBLUR = "medium"
+# The RTX deblur pass RTX Super Res runs on LTX canvases (``--ltx-crop-vsr rtx-super-res``, or
+# ``--secondary-restoration rtx-super-res`` with an LTX model) unless --rtx-deblur says
+# otherwise: it is the pass that sharpens there (the x2 upscale alone adds nothing that
+# survives the downscale back to the crop; measured on the probe clips, docs/en/ltx_crop_vsr.md).
+LTX_RTX_DEBLUR = "medium"
+LTX_CROP_VSR_RTX_DEBLUR = LTX_RTX_DEBLUR
 
 
 @dataclass(frozen=True)

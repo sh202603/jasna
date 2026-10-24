@@ -255,6 +255,26 @@ class TestRtxSuperresInit:
         assert restorer._sr.output_height == 1536
 
 
+class TestPrepare:
+    def test_prepare_loads_one_chain_per_side_and_restore_reuses_them(self):
+        restorer = _make_restorer(scale=2, deblur="medium", input_size=None)
+        assert restorer._chains == {}
+        restorer.prepare([512, 768])
+        assert sorted(restorer._chains) == [512, 768]
+        assert {size: chain.output_size for size, chain in restorer._chains.items()} == {512: 1024, 768: 1536}
+        chains = dict(restorer._chains)
+        restorer.restore(torch.rand((1, 3, 512, 512)), keep_start=0, keep_end=1)
+        restorer.restore(torch.rand((1, 3, 768, 768)), keep_start=0, keep_end=1)
+        assert restorer._chains == chains  # nothing reloaded
+
+    def test_prepare_refuses_a_side_the_fixed_input_size_cannot_take(self):
+        restorer = _make_restorer()
+        with pytest.raises(ValueError, match="expected frames of side 256"):
+            restorer.prepare([512])
+        restorer.prepare([256])
+        assert list(restorer._chains) == [256]
+
+
 class TestRtxSuperresRestore:
     def test_restore_empty_tensor(self):
         restorer = _make_restorer()

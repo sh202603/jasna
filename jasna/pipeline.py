@@ -121,6 +121,12 @@ class Pipeline:
         self.ltx_seed = config.ltx_seed
         self.ltx_crop_vsr = config.ltx_crop_vsr
         self.ltx_crop_vsr_source = config.ltx_crop_vsr_source
+        # An LTX job sharpening its windows in the compose pass builds its RTX restorer there.
+        from jasna.session_factory import build_ltx_sharpen_restorer, uses_ltx_sharpen
+
+        self.ltx_sharpen = (
+            (lambda: build_ltx_sharpen_restorer(config, self.device)) if uses_ltx_sharpen(config) else None
+        )
         self._config = config
         self._session = session
         self.disable_progress = config.disable_progress
@@ -350,6 +356,7 @@ class Pipeline:
                     frame_rate.output_frame_count(metadata.num_frames), self.progress_callback
                 ),
                 cancel=self._cancel_event,
+                sharpen=self.ltx_sharpen,
             )
         except Cancelled:
             log.info("LTX restoration cancelled")
@@ -425,6 +432,7 @@ class Pipeline:
             budget_name="segment",
             device=self.device,
             speed_profile=profile_path(),
+            sharpen=self.ltx_sharpen,
         )
 
     def ltx_span(

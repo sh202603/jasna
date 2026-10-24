@@ -272,10 +272,19 @@ def build_restoration_session(
         raise ValueError(
             f"Secondary restoration '{config.secondary_restoration}' is not available in the AMD build yet"
         )
-    if config.restoration_model_name == "ltx" and (
-        config.secondary_restoration != "none" or config.denoise_strength != "none"
-    ):
-        raise ValueError("LTX restoration does not support secondary restoration or denoise")
+    if config.restoration_model_name == "ltx":
+        if config.denoise_strength != "none":
+            raise ValueError("LTX restoration does not support denoise")
+        if config.secondary_restoration not in ("none", "rtx-super-res"):
+            raise ValueError(
+                f"LTX restoration does not support secondary restoration '{config.secondary_restoration}' "
+                "(rtx-super-res is the one it runs, on its own windows)"
+            )
+        if uses_ltx_sharpen(config) and not nvvfx_installed():
+            raise ValueError(
+                "--secondary-restoration rtx-super-res with LTX needs the RTX Video Effects runtime (the "
+                "nvidia-vfx package of the nvidia extra), which is not installed"
+            )
     session = RestorationSession(device=device, restoration_pipeline=None)
     if config.ltx_crop_vsr is not None:
         # The input is an LTX output: only the detector (for the source's scan) and,
@@ -342,6 +351,25 @@ def build_ltx_crop_vsr_restorer(config: SessionConfig, device: "torch.device"):
     the GPU with the detector. It is sized from the canvases it is given (512 or 768 px,
     both in one video when ``--ltx-large-canvas`` is on)."""
     return _build_secondary_restorer(ltx_crop_vsr_config(config), device, size_from_frames=True)
+
+
+def uses_ltx_sharpen(config: SessionConfig) -> bool:
+    """Whether the job's LTX compose pass sharpens its windows with RTX Super Res
+    (``--secondary-restoration rtx-super-res`` with an LTX model)."""
+    return config.restoration_model_name == "ltx" and config.secondary_restoration == "rtx-super-res"
+
+
+def ltx_sharpen_config(config: SessionConfig) -> SessionConfig:
+    """The RTX Super Res settings LTX's compose pass runs with: scale 2 (the canvas is
+    shrunk back to its crop, so more is wasted), the other ``--rtx-*`` options as given."""
+    return replace(config, rtx_scale=2)
+
+
+def build_ltx_sharpen_restorer(config: SessionConfig, device: "torch.device"):
+    """The x2 restorer of an LTX job's compose pass, built there (after the transformer
+    unloads) and sized from the canvases (512 and 768 px, both in one video when
+    ``--ltx-large-canvas`` is on)."""
+    return _build_secondary_restorer(ltx_sharpen_config(config), device, size_from_frames=True)
 
 
 def provide_restoration_models(
@@ -414,7 +442,9 @@ def _build_basicvsrpp_pipeline(
         )
     return RestorationPipeline(
         restorer=primary_restorer,
-        secondary_restorer=_build_secondary_restorer(config, device),
+        # An LTX job's secondary restoration is LTX's own (its windows, in the compose pass);
+        # the BasicVSR++ segments of its auto split get none, as upstream renders them.
+        secondary_restorer=None if config.restoration_model_name == "ltx" else _build_secondary_restorer(config, device),
         denoise_strength=DenoiseStrength(config.denoise_strength),
         denoise_step=DenoiseStep(config.denoise_step),
     )
