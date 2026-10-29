@@ -11,15 +11,16 @@ and a command line, and runs on your GPU.
 
 > ### ⚙️ This is the `+modi` fork of Jasna
 >
-> ## ⚠️ Built from the public source only. LTX cannot restore video here.
+> ## ⚠️ Built from the public source only. LTX restores video here only with a model of your own.
 >
-> **This fork contains only the public part of Jasna's source.** The private `jasna/protection` submodule (license activation and the decryption of the encrypted supporter models) is **not part of it**, so **LTX, UNet 4x and SD 1.5 do not work in this build**. The LTX weights ship encrypted (`.enc`) and only the official release decrypts them: `--restoration-model-name ltx` and the LTX modes of the GUI fail here, and `--ltx-trial` only measures speed without restoring anything. For LTX or the supporter models use the official [**Kruk2/jasna**](https://github.com/Kruk2/jasna) release. A video the release restored with LTX can then be sharpened here with `--ltx-crop-vsr` ([docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)). Everything else (detection, BasicVSR++ restoration, RTX/TVAI secondary restoration, the Segment Editor, VR180, streaming, post-export actions) works normally.
+> **This fork contains only the public part of Jasna's source.** The private `jasna/protection` submodule (license activation and the decryption of the encrypted supporter models) is **not part of it**, so **UNet 4x and SD 1.5 do not work in this build, and LTX only with a model of your own**. The LTX weights ship encrypted (`.enc`) and only the official release decrypts them: with the release weights `--restoration-model-name ltx` and the LTX modes of the GUI fail here, and `--ltx-trial` only measures speed without restoring anything. For the release LTX weights or the supporter models use the official [**Kruk2/jasna**](https://github.com/Kruk2/jasna) release. jasna's LTX inference path itself is public and loads plaintext safetensors: [docs/en/ltx_lora_training.md](docs/en/ltx_lora_training.md) builds a model for it from a public LTX-2.3 checkpoint and an IC-LoRA trained on mosaic/clean pairs. A video the release restored with LTX can then be sharpened here with `--ltx-crop-vsr` ([docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)). Everything else (detection, BasicVSR++ restoration, RTX/TVAI secondary restoration, the Segment Editor, VR180, streaming, post-export actions) works normally.
 >
 > A modified build on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) **v0.11.3**. It adds:
 >
 > - **Restoration models**: **SeedVR2 + LoRA** primary restoration; **FlashVSR**, **SwiftVR** and **SwiftVR distill** secondary restoration; two extra **RTX Super Res** knobs (`--rtx-strength`, `--rtx-highbitrate`).
 > - **Sharpening of LTX outputs** (`--ltx-crop-vsr`): takes a video the official release restored with LTX together with its source video, re-runs LTX's public mosaic scan, upscales the mosaic areas 2x with SwiftVR, SwiftVR distill or RTX Super Res and composites them back with LTX's own blending. It is aimed above all at low-resolution inputs, whose restored crops LTX leaves soft. This is the one way to work with LTX results in this build. See [docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md).
 > - **Sharpening of LTX windows inside an LTX run** (`--secondary-restoration rtx-super-res` with an LTX model): the same RTX Super Res deblur on every window canvas in LTX's compose pass, before LTX's own blending. Only usable with LTX weights this build can load (plaintext safetensors, not the encrypted release weights). See [docs/en/changes_vs_upstream.md §3.7](docs/en/changes_vs_upstream.md#37-sharpening-ltx-windows-in-the-run---secondary-restoration-rtx-super-res).
+> - **Training your own LTX model** (`scripts/ltx_lora_training/`): converts a public LTX-2.3 checkpoint (for example Sulphur-2-base) into jasna's LTX file layout and trains an IC-LoRA on mosaic/clean window pairs with the Musubi Tuner LTX-2 fork, so the LTX path runs on a model this build can load. It restores mosaics, softer than the release model. See [docs/en/ltx_lora_training.md](docs/en/ltx_lora_training.md).
 > - **Frame generation** (`--frame-gen` 2x/4x with RIFE or RTX Video Frame Generation) and the standalone `jasna-framegen` for already-restored videos.
 > - **Backends**: an experimental **torchcodec video backend**, an experimental **cuDNN FP8 restoration backend**, and the **TensorRT-RTX** flavor (engine builds in seconds instead of minutes).
 > - **GUI**: **A/B model comparison** in the Segment Editor and a **restoration checkpoint** selector in the Video Player.
@@ -281,6 +282,8 @@ jasna --input input_folder --output output_folder
   external diffusion models in their own venvs (CLI only).
 - [Sharpening an LTX output](docs/en/ltx_crop_vsr.md): `--ltx-crop-vsr` for a
   video the official release restored with LTX.
+- [Training your own LTX model](docs/en/ltx_lora_training.md): convert a public
+  LTX-2.3 checkpoint and train an IC-LoRA for jasna's LTX path (Linux verified).
 - [Frame generation](docs/en/frame_generation.md): `--frame-gen`, the RIFE and
   RTX backends, `jasna-framegen`.
 - [torchcodec backend](docs/en/torchcodec_backend.md),

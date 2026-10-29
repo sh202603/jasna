@@ -9,15 +9,16 @@ Jasna 修复视频和图片中的马赛克。Jasna 免费，提供简单的应�
 
 > ### ⚙️ 这是 Jasna 的 `+modi` 分支
 >
-> ## ⚠️ 仅由公开源码构建。本构建无法用 LTX 修复视频。
+> ## ⚠️ 仅由公开源码构建。LTX 修复仅限自训练模型。
 >
-> **本分支只包含 Jasna 源码中公开的部分。** 私有子模块 `jasna/protection`（许可证激活以及加密的支持者模型的解密）**不在其中**，因此 **LTX、UNet 4x 和 SD 1.5 在本构建中不可用**。LTX 模型权重以加密形式（`.enc`）分发，只有官方发布版能解密：`--restoration-model-name ltx` 和 GUI 的 LTX 模式在这里会失败，`--ltx-trial` 只测速度、不做任何修复。如需 LTX 或支持者模型，请使用官方 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) 发布版。官方发布版用 LTX 修复过的视频，可以在这里用 `--ltx-crop-vsr` 锐化（[docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)）。其他一切（检测、BasicVSR++ 修复、RTX/TVAI 二级修复、区间编辑器、VR180、流媒体、导出后操作）均正常工作。
+> **本分支只包含 Jasna 源码中公开的部分。** 私有子模块 `jasna/protection`（许可证激活以及加密的支持者模型的解密）**不在其中**，因此 **UNet 4x 和 SD 1.5 在本构建中不可用，LTX 仅能使用自训练模型**。LTX 模型权重以加密形式（`.enc`）分发，只有官方发布版能解密：使用发布版权重时，`--restoration-model-name ltx` 和 GUI 的 LTX 模式在这里会失败，`--ltx-trial` 只测速度、不做任何修复。如需发布版 LTX 权重或支持者模型，请使用官方 [**Kruk2/jasna**](https://github.com/Kruk2/jasna) 发布版。不过 jasna 的 LTX 推理路径本身是公开代码，可以加载明文 safetensors：[docs/en/ltx_lora_training.md](docs/en/ltx_lora_training.md)（英文）介绍如何用公开的 LTX-2.3 检查点和在马赛克/原图对上训练的 IC-LoRA 为其构建模型。官方发布版用 LTX 修复过的视频，可以在这里用 `--ltx-crop-vsr` 锐化（[docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)）。其他一切（检测、BasicVSR++ 修复、RTX/TVAI 二级修复、区间编辑器、VR180、流媒体、导出后操作）均正常工作。
 >
 > 基于上游 [Kruk2/jasna](https://github.com/Kruk2/jasna) **v0.11.3** 的改版构建，新增：
 >
 > - **修复模型**：**SeedVR2 + LoRA** 一级修复；**FlashVSR**、**SwiftVR** 和 **SwiftVR distill** 二级修复；**RTX Super Res** 的两个附加选项（`--rtx-strength`、`--rtx-highbitrate`）。
 > - **LTX 输出锐化**（`--ltx-crop-vsr`）：输入官方发布版用 LTX 修复过的视频及其原视频，重新运行 LTX 公开的马赛克扫描，用 SwiftVR、SwiftVR distill 或 RTX Super Res 把马赛克区域放大 2 倍，再用 LTX 自己的合成方式放回。主要针对低分辨率输入：LTX 修复出的裁切区域在这类素材上偏模糊。这是本构建中处理 LTX 结果的唯一途径。见 [docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)。
 > - **LTX 运行中的窗口锐化**（LTX 模型 + `--secondary-restoration rtx-super-res`）：在 LTX 的合成阶段、合成之前，对每个窗口画布施加同样的 RTX Super Res 去模糊。仅适用于本构建能加载的 LTX 权重（明文 safetensors，不含加密的官方发布版权重）。见 [docs/en/changes_vs_upstream.md §3.7](docs/en/changes_vs_upstream.md#37-sharpening-ltx-windows-in-the-run---secondary-restoration-rtx-super-res)。
+> - **训练自己的 LTX 模型**（`scripts/ltx_lora_training/`）：把公开的 LTX-2.3 检查点（例如 Sulphur-2-base）转换成 jasna 的 LTX 文件格式，并用 Musubi Tuner 的 LTX-2 分支在马赛克/原图窗口对上训练 IC-LoRA，得到本构建能加载的 LTX 模型。能修复马赛克，但比发布版模型偏软。见 [docs/en/ltx_lora_training.md](docs/en/ltx_lora_training.md)（英文）。
 > - **帧生成**（`--frame-gen` 2x/4x，RIFE 或 RTX Video Frame Generation），以及用于已修复视频的独立命令 `jasna-framegen`。
 > - **后端**：实验性的 **torchcodec 视频后端**、实验性的 **cuDNN FP8 修复后端**，以及几秒内即可构建引擎的 **TensorRT-RTX** 版本。
 > - **GUI**：区间编辑器中的 **A/B 模型对比**，以及视频播放器中的**修复检查点**选择。
@@ -261,6 +262,8 @@ jasna --input input_folder --output output_folder
   扩散模型（仅 CLI）。
 - [锐化 LTX 输出](docs/en/ltx_crop_vsr.md)：对官方发布版用 LTX 修复过的视频使用
   `--ltx-crop-vsr`。
+- [训练自己的 LTX 模型](docs/en/ltx_lora_training.md)：转换公开的 LTX-2.3 检查点，并为 jasna 的
+  LTX 路径训练 IC-LoRA（已在 Linux 上验证）。
 - [帧生成](docs/en/frame_generation.md)：`--frame-gen`、RIFE 与 RTX 后端、`jasna-framegen`。
 - [torchcodec 后端](docs/en/torchcodec_backend.md)、[FP8 修复后端](docs/en/fp8_recon.md)、
   [TensorRT-RTX 版本](docs/en/tensorrt_rtx.md)：实验性后端。
