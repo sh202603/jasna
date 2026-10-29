@@ -1,0 +1,34 @@
+# Musubi Tuner (LTX-2 fork) dataset for jasna's IC-LoRA. target = gt (clean), reference = lq (mosaic + degradation),
+# the same file stems in both folders, the fixed caption in gt/<stem>.txt. 512x512x121 windows at 24 fps, no
+# resampling (source_fps = target_fps = 24). The pairs come from lada-ex scripts/dataset_creation/ltx-ic-lora-dump-pairs.py.
+# Copy this file, replace the /path/to/... entries, and point cache_latents.sh / train_ic_lora.sh at it (DATASET_TOML).
+[general]
+resolution = [512, 512]
+caption_extension = ".txt"
+batch_size = 1
+enable_bucket = false
+bucket_no_upscale = true
+
+[[datasets]]
+video_directory = "/path/to/ltx_ic_lora_pairs/train/gt"
+reference_directory = "/path/to/ltx_ic_lora_pairs/train/lq"
+cache_directory = "/path/to/cache/train"
+reference_cache_directory = "/path/to/cache/train_ref"
+target_frames = [121]
+frame_extraction = "head"
+max_frames = 121
+source_fps = 24.0
+target_fps = 24.0
+reference_frames = 121
+
+[[validation_datasets]]
+video_directory = "/path/to/ltx_ic_lora_pairs/val24/gt"
+reference_directory = "/path/to/ltx_ic_lora_pairs/val24/lq"
+cache_directory = "/path/to/cache/val"
+reference_cache_directory = "/path/to/cache/val_ref"
+target_frames = [121]
+frame_extraction = "head"
+max_frames = 121
+source_fps = 24.0
+target_fps = 24.0
+reference_frames = 121
