@@ -10,9 +10,9 @@
 
 | 節 | 内容 |
 | --- | --- |
-| [1. この公開ビルドの範囲](#1-この公開ビルドの範囲) | 公開ソースではできないこと（支援者モデル、LTX） |
+| [1. この公開ビルドの範囲](#1-この公開ビルドの範囲) | 公開ソースではできないこと（支援者モデル、リリース版の LTX 重み） |
 | [2. 機能一覧](#2-機能一覧) | modi の全機能・切り替え方・状態・詳細ドキュメントを 1 表に |
-| [3. 復元モデル](#3-復元モデル) | SeedVR2 一次復元、FlashVSR / SwiftVR / SwiftVR distill 二次復元、RTX Super Res の追加オプション、LTX 出力の鮮明化 |
+| [3. 復元モデル](#3-復元モデル) | SeedVR2 一次復元、FlashVSR / SwiftVR / SwiftVR distill 二次復元、RTX Super Res の追加オプション、LTX 出力の鮮明化、自前 LTX モデルの学習 |
 | [4. フレーム生成](#4-フレーム生成) | `--frame-gen`、`rife` / `rtx` バックエンド、`jasna-framegen` |
 | [5. メディアとエンジンのバックエンド](#5-メディアとエンジンのバックエンド) | torchcodec、cuDNN FP8 upsample、TensorRT-RTX フレーバー |
 | [6. GUI](#6-gui) | A/B モデル比較、動画プレーヤーのチェックポイント選択、modi 機能の設定項目 |
@@ -29,7 +29,7 @@
 ## 1. この公開ビルドの範囲
 
 - **支援者モデルは不活性（inert）。** `unet-4x`、SD 1.5 画像復元、有効化フローは非公開の `jasna/protection` サブモジュールを要し、この公開フォークには含まれません。upstream のコードは同梱されますが動作しません。これらのモデルは upstream の公式リリースを使ってください。
-- **LTX による復元はできません。** LTX の重みは暗号化（`.enc`）されて配布され、復号できるのは公式リリースだけです。`--restoration-model-name ltx` / `ltx-4step` / `ltx-8step` / `ltx-undistilled` と GUI の LTX モードは動かず、`--ltx-trial` はランダム重みで速度を測るだけです。LTX の公開部分（モザイクのスキャンと合成）を、公式リリースが復元した動画の鮮明化 [`--ltx-crop-vsr`](#36-ltx-出力の鮮明化--ltx-crop-vsr) が再利用しています。
+- **LTX による復元は自前モデルでのみ可能です。** リリース版の LTX 重みは暗号化（`.enc`）されて配布され、復号できるのは公式リリースだけなので、その重みでは `--restoration-model-name ltx` / `ltx-4step` / `ltx-8step` / `ltx-undistilled` と GUI の LTX モードは動かず、`--ltx-trial` はランダム重みで速度を測るだけです。推論経路そのものは公開コードで平文の safetensors を読み込みます。[ltx_lora_training.md](ltx_lora_training.md) は、公開の LTX-2.3 チェックポイントとモザイク/原画ペアで学習した IC-LoRA からその経路向けのモデルを作る手順です（[3.8](#38-自前-ltx-モデルの学習scriptsltx_lora_training)）。LTX の公開部分（モザイクのスキャンと合成）を、公式リリースが復元した動画の鮮明化 [`--ltx-crop-vsr`](#36-ltx-出力の鮮明化--ltx-crop-vsr) が再利用しています。
 - **それ以外は動作します**: 検出、BasicVSR++ 復元、RTX Super Res と TVAI の二次復元、区間エディター、VR180、ストリーミング、エクスポート後アクション、そして以下の modi 機能。
 - **ソースから実行します。** セットアップはビルドガイド（[Linux](building_linux.md)、[Windows](building_windows.md)）に従います。Windows 向けには `scripts/build_nuitka.py` で実験的なバンドルを作れます（[frozen_build.md](frozen_build.md)）。
 
@@ -46,6 +46,7 @@
 | 二次復元 | RTX Super Res の追加オプション | `--rtx-strength`、`--rtx-highbitrate` | オプトイン。目視確認済み | [3.5](#35-rtx-super-res-の追加オプション) |
 | LTX 後処理 | LTX 出力を SwiftVR か RTX Super Res で鮮明化 | `--ltx-crop-vsr swiftvr` / `swiftvr-distill` / `rtx-super-res` | Linux・Windows 検証済み、ユーザー目視合格 | [ltx_crop_vsr.md](ltx_crop_vsr.md)、[3.6](#36-ltx-出力の鮮明化--ltx-crop-vsr) |
 | LTX 実行中の鮮明化 | compose 段で各 LTX window に RTX Super Res の deblur | LTX モデル + `--secondary-restoration rtx-super-res` | 自前学習の LTX モデルで Linux 検証済み、ユーザー目視合格 | [3.7](#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res) |
+| LTX モデルの学習 | 公開の LTX-2.3 チェックポイントの変換と、jasna の LTX 経路向け IC-LoRA の学習 | `scripts/ltx_lora_training/` | Linux で変換・学習・推論まで検証済み、Windows と ARM64 は未検証 | [ltx_lora_training.md](ltx_lora_training.md)、[3.8](#38-自前-ltx-モデルの学習scriptsltx_lora_training) |
 | フレーム生成 | 2x / 4x のフレームレート倍化 | `--frame-gen 2x\|4x`、`--frame-gen-backend rife\|rtx`、`jasna-framegen` | Linux・Windows 検証済み | [frame_generation.md](frame_generation.md)、[4](#4-フレーム生成) |
 | メディアバックエンド | torchcodec のデコード/エンコード | `--video-backend`、`--decode-backend`、`--encode-backend` | 実験的。Linux・Windows 検証済み | [torchcodec_backend.md](torchcodec_backend.md)、[5.1](#51-torchcodec-動画バックエンド) |
 | エンジンバックエンド | cuDNN FP8 の upsample 段 | `--fp8-recon` | 実験的。Linux・Windows 検証済み | [fp8_recon.md](fp8_recon.md)、[5.2](#52-cudnn-fp8-upsample-バックエンド--fp8-recon) |
@@ -138,6 +139,13 @@ LTX ジョブが `--secondary-restoration rtx-super-res` を受け付けます�
 - **モジュール**: `LtxRender.sharpen` が `CanvasSharpener`（二次復元の `restore()` 契約に `prepare(sizes)` と `close()` を足したもの）の生成関数を運びます。`compose_spans` が実行ごとに 1 回、デバイスの既定 stream 上で作り（nvvfx の VideoSuperRes は他の stream ポインタを「not properly initialized」で拒否します）、最初の window をデコードする前に plan の canvas 辺ごとの pass を読み込み（単一動画の decode budget はデコード時点の空き VRAM なので、後から読み込むと最初の window だけ tile 配置が変わる）、`finally` で閉じます。`_SegmentComposer.frame()` は 1 枚ずつ ×2 し（window を ×2 で持つと VRAM が 4 倍）、refine.py から compose.py へ移した `doubled(crop)` で合成します。`_sharpen_canvas` が既定 stream と frames stream を event で順序づけます（host sync なし）。鮮明化する実行は speed profile の budget 名に `+rtx` を付けます。`jasna/ltx/restore.py` と `compose.py` はこれ以外 upstream と同一なので、この部分はそのまま upstream に当たります。
 - **配線**: `session_factory.uses_ltx_sharpen` / `build_ltx_sharpen_restorer`（scale 2、`input_size=None`）、`RtxSuperresSecondaryRestorer.prepare()`、`main._rtx_deblur()` が既定を `LTX_SHARPEN_RTX_DEBLUR`（low。`--ltx-crop-vsr rtx-super-res` は `LTX_CROP_VSR_RTX_DEBLUR` の medium のまま）に解決、nvvfx の有無は何も読み込む前に検査。
 - **状態**（Linux、RTX 5080、2026-10-24、3.6 と同じ 30 秒プローブ素材 2 本を自前学習の LTX モデルで）: 全変種が鮮明化なしの実行と同じ plan（2 track、9 window）と枚数で完走。壁時計 +0〜6%（compose 段で 2〜4.5 秒）、VRAM は計測差なし。鮮明化なしを基準に、deblur `low` は両素材で texture +18%、揺れ +2〜3%。720x480 ではこれがリリース版モデルとこのモデルの質感差と同量で、`medium` は +40% でその差（22%）を大きく越え、ユーザー目視でもシャープ過ぎたため、既定を `low` にしました。1080p では段階差なし（+17〜19%）で、`--ltx-crop-vsr` のときと同じです。テスト: `tests/test_ltx_sharpen_cli.py`、`tests/test_ltx_sharpen_gpu.py`（trial 重み、約 3 分）、`tests/test_ltx_restore.py` と `tests/test_ltx_compose.py` の sharpener の項。
+
+### 3.8 自前 LTX モデルの学習（`scripts/ltx_lora_training/`）
+
+このビルドは暗号化されたリリース版の重みを動かせませんが、jasna の LTX 経路はモデルフォルダの平文 safetensors を読み込みます（`--restoration-model-path`、またはファイル名どおりに `model_weights/ltx-restore/` へ置く）。この道具はそのモデルを作ります。ltx-core の LTX-2.3 bundle 形式（使ったチェックポイントは Sulphur-2-base）から jasna の transformer ファイルへの変換器（テンソルの改名と除去、Gemma 3 とチェックポイント自身の projection・connector で固定キャプションを `prompt_context` として埋め込み、ゼロの `keyframes_abs_pos_embedding`、LoRA 融合、ConvRot W8A8 または bf16）、公開の LTX-2.5 DiffVAE を組み合わせるバンドル作成、jasna 自身の camera 幾何で切ったモザイク/原画の 121 フレーム window ペアで IC-LoRA を学習する Musubi Tuner（LTX-2 fork）向けの補助（ペアの dump は作者の lada-ex fork 側）、そして window 単位の推論確認です。手順書: [ltx_lora_training.md](ltx_lora_training.md)。
+
+- **コード**: `scripts/ltx_lora_training/` のみで、ランタイムは変更なし。素のチェックポイントも変換して動きますが参照を写すだけで、復元能力を足すのは IC-LoRA です。
+- **状態**（Linux、RTX 5080、2026-10-30）: 公開した変換器は作者の既存モデルをビット一致で再現。rank 32 の IC-LoRA は 11〜12 s/step、VRAM 12.6 GB、RAM 32 GB で学習。INT8 と bf16 のモデルがどちらも jasna で動く（bf16 は torch.compile 経路で大半のブロックをホスト RAM からストリーミングし、window あたり約 2 倍遅い）。モデルはモザイクを復元するがリリース版より柔らかい。学習済みの重みは公開しない。Windows と ARM64 は未検証。
 
 ---
 
