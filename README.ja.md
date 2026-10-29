@@ -9,15 +9,16 @@ Jasna は動画と画像のモザイクを復元します。無料で、シン�
 
 > ### ⚙️ これは Jasna の `+modi` フォークです
 >
-> ## ⚠️ パブリックソースのみで構築。LTX による復元はできません。
+> ## ⚠️ パブリックソースのみで構築。LTX による復元は自前モデルでのみ可能です。
 >
-> **このフォークは Jasna のソースのうち公開されている部分だけで作られています。** 非公開のサブモジュール `jasna/protection`（ライセンス有効化と、暗号化された支援者モデルの復号）は**含まれていない**ため、**LTX・UNet 4x・SD 1.5 はこのビルドでは動きません**。LTX の重みは暗号化（`.enc`）されて配布され、復号できるのは公式リリースだけです。`--restoration-model-name ltx` と GUI の LTX モードはここでは失敗し、`--ltx-trial` は何も復元せず速度を測るだけです。LTX や支援者モデルが必要な場合は公式の [**Kruk2/jasna**](https://github.com/Kruk2/jasna) リリースを使ってください。公式リリースが LTX で復元した動画は、ここで `--ltx-crop-vsr` を使って鮮明化できます（[docs/ja/ltx_crop_vsr.md](docs/ja/ltx_crop_vsr.md)）。それ以外（検出、BasicVSR++ 復元、RTX/TVAI の二次復元、区間エディター、VR180、ストリーミング、エクスポート後アクション）は通常どおり動作します。
+> **このフォークは Jasna のソースのうち公開されている部分だけで作られています。** 非公開のサブモジュール `jasna/protection`（ライセンス有効化と、暗号化された支援者モデルの復号）は**含まれていない**ため、**UNet 4x・SD 1.5 はこのビルドでは動かず、LTX は自前モデルでのみ動きます**。LTX の重みは暗号化（`.enc`）されて配布され、復号できるのは公式リリースだけです。リリース版の重みでは `--restoration-model-name ltx` と GUI の LTX モードはここでは失敗し、`--ltx-trial` は何も復元せず速度を測るだけです。リリース版の LTX 重みや支援者モデルが必要な場合は公式の [**Kruk2/jasna**](https://github.com/Kruk2/jasna) リリースを使ってください。一方、jasna の LTX 推論経路そのものは公開コードで、平文の safetensors を読み込めます。[docs/ja/ltx_lora_training.md](docs/ja/ltx_lora_training.md) は、公開の LTX-2.3 チェックポイントと、モザイク/原画ペアで学習した IC-LoRA から、その経路向けのモデルを作る手順です。公式リリースが LTX で復元した動画は、ここで `--ltx-crop-vsr` を使って鮮明化できます（[docs/ja/ltx_crop_vsr.md](docs/ja/ltx_crop_vsr.md)）。それ以外（検出、BasicVSR++ 復元、RTX/TVAI の二次復元、区間エディター、VR180、ストリーミング、エクスポート後アクション）は通常どおり動作します。
 >
 > 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) **v0.11.3** をベースにした改変ビルドで、次を追加しています。
 >
 > - **復元モデル**: **SeedVR2 + LoRA** 一次復元、**FlashVSR**・**SwiftVR**・**SwiftVR distill** 二次復元、**RTX Super Res** の追加オプション 2 つ（`--rtx-strength`、`--rtx-highbitrate`）。
 > - **LTX 出力の鮮明化**（`--ltx-crop-vsr`）: 公式リリースが LTX で復元した動画とその元動画を受け取り、LTX の公開部分であるモザイクスキャンを再実行し、モザイク領域を SwiftVR、SwiftVR distill または RTX Super Res で 2 倍に拡大して LTX 自身の合成処理で戻します。特に低解像度の入力で LTX の復元 crop がぼやけるケースの鮮明化を狙ったものです。このビルドで LTX の結果を扱える唯一の経路です。[docs/ja/ltx_crop_vsr.md](docs/ja/ltx_crop_vsr.md) をご覧ください。
 > - **LTX 実行中の window の鮮明化**（LTX モデル + `--secondary-restoration rtx-super-res`）: 同じ RTX Super Res の deblur を、LTX の compose 段で合成前の各 window canvas に掛けます。このビルドで読み込める LTX の重み（平文 safetensors。暗号化されたリリース版の重みは不可）でだけ使えます。[docs/ja/changes_vs_upstream.md §3.7](docs/ja/changes_vs_upstream.md#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res) をご覧ください。
+> - **自前 LTX モデルの学習**（`scripts/ltx_lora_training/`）: 公開の LTX-2.3 チェックポイント（例: Sulphur-2-base）を jasna の LTX ファイル形式に変換し、Musubi Tuner の LTX-2 fork でモザイク/原画の window ペアから IC-LoRA を学習して、このビルドで読み込める LTX モデルを作ります。モザイクは復元できますが、リリース版モデルより柔らかい仕上がりです。[docs/ja/ltx_lora_training.md](docs/ja/ltx_lora_training.md) をご覧ください。
 > - **フレーム生成**（`--frame-gen` 2x/4x、RIFE または RTX Video Frame Generation）と、復元済み動画向けのスタンドアロン `jasna-framegen`。
 > - **バックエンド**: 実験的な **torchcodec 動画バックエンド**、実験的な **cuDNN FP8 復元バックエンド**、エンジンを数秒でビルドする **TensorRT-RTX** フレーバー。
 > - **GUI**: 区間エディターの **A/B モデル比較**と、動画プレーヤーの**復元チェックポイント**選択。
@@ -275,6 +276,8 @@ jasna --input input_folder --output output_folder
   外部の拡散モデル（CLI のみ）。
 - [LTX 出力の鮮明化](docs/ja/ltx_crop_vsr.md): 公式リリースが LTX で復元した
   動画向けの `--ltx-crop-vsr`。
+- [自前 LTX モデルの学習](docs/ja/ltx_lora_training.md): 公開の LTX-2.3
+  チェックポイントの変換と、jasna の LTX 経路向け IC-LoRA の学習（Linux 検証済み）。
 - [フレーム生成](docs/ja/frame_generation.md): `--frame-gen`、RIFE と RTX の
   バックエンド、`jasna-framegen`。
 - [torchcodec バックエンド](docs/ja/torchcodec_backend.md)、
