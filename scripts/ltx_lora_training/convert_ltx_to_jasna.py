@@ -6,7 +6,7 @@ SulphurAI/Sulphur-2-base. Output: one safetensors with jasna's tensor names, opt
 Musubi Tuner LTX-2 LoRA fused in, quantized to ConvRot W8A8 (``--quant int8``, what the release
 weights use) or left in bf16 (``--quant bf16``, about twice the size, no Triton int8 kernels).
 
-What it does (design memo SULPHUR2_LTX_SWAP_FEASIBILITY_ja.md section 5.2):
+What it does (the guide is docs/en/ltx_lora_training.md, step 5):
   rename   model.diffusion_model.transformer_blocks.N.<rest> -> blocks.N.<rest>,
            model.diffusion_model.<top> -> <top>
   drop     audio / a2v / v2a / av_ca / embeddings_connector / vae / audio_vae / vocoder /
