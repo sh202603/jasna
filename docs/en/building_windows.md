@@ -2,9 +2,9 @@
 
 How to set up Jasna on Windows and run it **from source**.
 
-> **Branch and base.** This guide covers `0.11.3+modi` (upstream `cf8a968c` = the v0.11.3 tag). The GPU stack follows upstream's pins in `pyproject.toml` (torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.38 / triton-windows 3.7.1 / ultralytics 8.4.96+); this branch adds the `nvidia-vfx==0.2.0.0` pin (upstream leaves it unpinned), `nvidia-cudnn-frontend` and, on Windows, `triton-windows>=3.7,<3.8` as regular dependencies for FP8 restoration, the `torchcodec` extra, and the optional `nvidia-rtx` extra (torch 2.12.0 / torchvision 0.27.0 / torch-tensorrt-rtx 2.12.1). What the branch adds on top of upstream, and why, is in [changes_vs_upstream.md](changes_vs_upstream.md).
+> **Branch and base.** This guide covers `0.12.1+modi` (upstream `1242b947` = the v0.12.1 tag). The GPU stack follows upstream's pins in `pyproject.toml` (torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.38 / triton-windows 3.7.1 / ultralytics 8.4.96+); this branch adds the `nvidia-vfx==0.2.0.0` pin (upstream leaves it unpinned), `nvidia-cudnn-frontend` and, on Windows, `triton-windows>=3.7,<3.8` as regular dependencies for FP8 restoration, the `torchcodec` extra, and the optional `nvidia-rtx` extra (torch 2.12.0 / torchvision 0.27.0 / torch-tensorrt-rtx 2.12.1). What the branch adds on top of upstream, and why, is in [changes_vs_upstream.md](changes_vs_upstream.md).
 >
-> **Verification.** The `0.11.3+modi` base was verified on real hardware on 2026-10-22 (Windows 11, RTX 5060 Ti 16 GB, driver 617.42, Python 3.13.9, CUDA 13.2). The v0.11.3 delta changes no pin and no native code, so the `0.11.2+modi` venv and the existing engines were used as they were: the full test suite compared against pristine upstream, CLI runs of the modi features, `--ltx-crop-vsr rtx-super-res`, and the GUI's new confirmation dialogs. The previous `0.11.2+modi` base was verified on 2026-10-18 on another machine (RTX 5080 16 GB). What changed at each base, and each verification, is in [Appendix B](#appendix-b-history-of-this-setup); for Linux see [building_linux.md](building_linux.md).
+> **Verification.** The `0.12.1+modi` base is **not yet re-verified on Windows** (Linux: 2026-11-02). It adds `safetensors>=0.6` and moves the VALI fork to `fc39271` (rebuild the wheel and reinstall it with `--reinstall`; the version stays 4.8.8). The previous `0.11.3+modi` base was verified on real hardware on 2026-10-22 (Windows 11, RTX 5060 Ti 16 GB, driver 617.42, Python 3.13.9, CUDA 13.2). The v0.11.3 delta changes no pin and no native code, so the `0.11.2+modi` venv and the existing engines were used as they were: the full test suite compared against pristine upstream, CLI runs of the modi features, `--ltx-crop-vsr rtx-super-res`, and the GUI's new confirmation dialogs. The previous `0.11.2+modi` base was verified on 2026-10-18 on another machine (RTX 5080 16 GB). What changed at each base, and each verification, is in [Appendix B](#appendix-b-history-of-this-setup); for Linux see [building_linux.md](building_linux.md).
 >
 > **VALI is required.** On Windows you build Kruk2's VALI fork (`python_vali` 4.8.8) yourself and install it (Section 5.2). The `[nvidia]` extra pins `python_vali==4.8.8`, which is not published on PyPI (the newest release there is 4.8.7, with Linux wheels only, as of 2026-10-16), and jasna's VALI decoder uses an API only the fork has. This makes VS Build Tools and the CUDA Toolkit prerequisites.
 >
@@ -136,7 +136,7 @@ Prerequisites (installed in Section 1):
 cd $Workspace
 git clone https://codeberg.org/Kruk2/vali.git       # skip if you have a checkout
 cd vali
-git checkout 0e5c01e      # = the 4.8.8 pin: DecodeSingleSurfaceAsyncDetailed, the ASF/VC-1 timestamp fixes, the decoder-open GIL release
+git checkout fc39271      # = the 4.8.8 pin: DecodeSingleSurfaceAsyncDetailed, the ASF/VC-1 timestamp fixes, the decoder-open GIL release, negative preroll seeks (fc39271 not yet built on Windows; 0e5c01e was)
 git submodule update --init --recursive
 ```
 
@@ -309,7 +309,7 @@ With Sections 1–6 done, run Jasna directly from the source checkout inside the
 
 ```powershell
 cd $Workspace\jasna
-python -m jasna --version    # -> 0.11.3+modi
+python -m jasna --version    # -> 0.12.1+modi
 python -m jasna --help
 python -m jasna --input assets\test_clip1_1080p.mp4 --output $env:TEMP\out.mp4   # process a short clip
 python -m jasna              # launch the GUI (no arguments)
