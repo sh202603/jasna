@@ -291,6 +291,16 @@ def build_restoration_session(
             "LTX restoration supports Unet 4x, TVAI or denoise only with LTX auto split, "
             "where they apply to the BasicVSR++ parts"
         )
+    if (
+        config.restoration_model_name == "ltx"
+        and config.secondary_restoration == "rtx-super-res"
+        and not nvvfx_installed()
+    ):
+        # +modi: refused before anything loads, not when compose first upscales.
+        raise ValueError(
+            "--secondary-restoration rtx-super-res with LTX needs the RTX Video Effects runtime (the "
+            "nvidia-vfx package of the nvidia extra), which is not installed"
+        )
     session = RestorationSession(device=device, restoration_pipeline=None)
     if config.ltx_crop_vsr is not None:
         # The input is an LTX output: only the detector (for the source's scan) and,
@@ -379,7 +389,12 @@ def provide_restoration_models(
         from jasna.ltx.super_res import LtxSuperRes
 
         session.ltx_super_res = LtxSuperRes(
-            device=session.device, quality=config.rtx_quality, denoise=config.rtx_denoise, deblur=config.rtx_deblur
+            device=session.device,
+            quality=config.rtx_quality,
+            denoise=config.rtx_denoise,
+            deblur=config.rtx_deblur,
+            strength=config.rtx_strength,
+            highbitrate=config.rtx_highbitrate,
         )
 
 

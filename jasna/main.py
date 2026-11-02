@@ -35,6 +35,7 @@ from jasna.session_config import (
     DEFAULT_TEMPORAL_OVERLAP,
     LTX_CROP_VSR_BACKENDS,
     LTX_CROP_VSR_RTX_DEBLUR,
+    LTX_SHARPEN_RTX_DEBLUR,
     LTX_DEFAULT_MODEL,
     LTX_DEFAULT_OVERLAP,
     LTX_DEFAULT_SEED,
@@ -560,8 +561,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         choices=["none", "low", "medium", "high", "ultra"],
-        help="RTX Super Res deblur level, none to disable (default: none; medium under --ltx-crop-vsr "
-             "rtx-super-res, where the deblur pass is what sharpens)",
+        help="RTX Super Res deblur level, none to disable (default: none; on LTX windows, where the deblur "
+             "pass is what sharpens, medium under --ltx-crop-vsr rtx-super-res and low in an LTX job with "
+             "--secondary-restoration rtx-super-res)",
     )
     rtx.add_argument(
         "--rtx-strength",
@@ -1248,11 +1250,24 @@ def stop_on_sigterm() -> None:
 
 
 def _rtx_deblur(args: argparse.Namespace) -> str:
-    """``--rtx-deblur`` resolved: off unless given, except under ``--ltx-crop-vsr rtx-super-res``,
-    where the deblur pass is the one that sharpens (``LTX_CROP_VSR_RTX_DEBLUR``)."""
+    """``--rtx-deblur`` resolved: off unless given, except where RTX Super Res sharpens LTX
+    canvases, where the deblur pass is the one that sharpens: medium under ``--ltx-crop-vsr
+    rtx-super-res``, low in an LTX job's compose pass (``--secondary-restoration rtx-super-res``)."""
     if args.rtx_deblur is not None:
         return str(args.rtx_deblur).lower()
-    return LTX_CROP_VSR_RTX_DEBLUR if getattr(args, "ltx_crop_vsr", None) == "rtx-super-res" else "none"
+    if getattr(args, "ltx_crop_vsr", None) == "rtx-super-res":
+        return LTX_CROP_VSR_RTX_DEBLUR
+    return LTX_SHARPEN_RTX_DEBLUR if _ltx_sharpens(args) else "none"
+
+
+def _ltx_sharpens(args: argparse.Namespace) -> bool:
+    """Whether the job is an LTX model with ``--secondary-restoration rtx-super-res``."""
+    model = CLI_RESTORATION_MODELS.get(getattr(args, "restoration_model_name", None))
+    return model is not None and model[0] == "ltx" and str(args.secondary_restoration).lower() == "rtx-super-res"
+
+
+def _explicit_rtx_scale() -> bool:
+    return any(value == "--rtx-scale" or value.startswith("--rtx-scale=") for value in sys.argv[1:])
 
 
 def _check_ltx_crop_vsr_options(
@@ -1286,8 +1301,7 @@ def _check_ltx_crop_vsr_options(
     explicit_scale = any(value == "--swiftvr-scale" or value.startswith("--swiftvr-scale=") for value in sys.argv[1:])
     if explicit_scale and int(args.swiftvr_scale) != 2:
         parser.error(f"{option} runs SwiftVR at scale 2; --swiftvr-scale {args.swiftvr_scale} is not supported")
-    explicit_rtx_scale = any(value == "--rtx-scale" or value.startswith("--rtx-scale=") for value in sys.argv[1:])
-    if args.ltx_crop_vsr == "rtx-super-res" and explicit_rtx_scale and int(args.rtx_scale) != 2:
+    if args.ltx_crop_vsr == "rtx-super-res" and _explicit_rtx_scale() and int(args.rtx_scale) != 2:
         parser.error(f"{option} runs RTX Super Res at scale 2; --rtx-scale {args.rtx_scale} is not supported")
     rejected = (
         (str(args.secondary_restoration).lower() != "none", "--secondary-restoration"),
@@ -1472,6 +1486,14 @@ def _main() -> None:
                 )
             if "denoise_strength" in unsupported:
                 parser.error(f"{model_option} supports --denoise only with --ltx-auto-split")
+            if (
+                args.ltx_auto_split is None
+                and _ltx_sharpens(args)
+                and _explicit_rtx_scale()
+                and int(args.rtx_scale) != 2
+            ):
+                # +modi: without auto split RTX Super Res only runs on LTX windows, at 2x.
+                parser.error(f"{model_option} runs RTX Super Res at scale 2; --rtx-scale {args.rtx_scale} is not supported")
         _reject_options_of_other_restoration_backend(parser, args, restoration_backend)
 
     _check_system(args)

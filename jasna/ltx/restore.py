@@ -54,7 +54,7 @@ from jasna.ltx.plan import (
 )
 from jasna.ltx.regions import regions_per_frame
 from jasna.ltx.sampler import LtxTransformer
-from jasna.ltx.super_res import LtxSuperRes, enlarged_windows, upscaled_crop
+from jasna.ltx.super_res import LtxSuperRes, upscaled_crop
 from jasna.models.ltx_vae import decode_latent
 from jasna.mosaic.detections import Detections
 from jasna.progressbar import StageProgress
@@ -768,7 +768,7 @@ class _SegmentComposer:
         windows = sorted((w for plan in plans for w in plan.windows), key=lambda w: w.start)
         self._super_res = super_res
         self._projector = projector
-        self._upscaled = enlarged_windows(windows) if super_res is not None else set()
+        self._upscaled = super_res.windows_to_upscale(windows) if super_res is not None else set()
         self._pending = iter(windows)
         self._upcoming = next(self._pending, None)
         self._covering: list[Window] = []
@@ -1211,22 +1211,39 @@ def compose_spans(
     progress: Progress,
     cancel: threading.Event,
 ) -> None:
-    with progress.bar("compose", progress.frames, marks=timing_marks(decoder)) as bar:
-        for p, span_finals in zip(prepared, finals):
-            compose_span(
-                p.span,
-                p.plans,
-                decoder,
-                span_finals,
-                frame_h=render.frame_h,
-                batch_size=render.batch_size,
-                budget=render.budget,
-                device=render.device,
-                bar=bar,
-                cancel=cancel,
-                super_res=render.super_res,
-                projector=render.vr_projector,
-            )
+    super_res = render.super_res
+    # +modi: load every upscaler compose needs before the first window decodes, and free
+    # them after the pass (the next segment's denoise gets the VRAM back).
+    sizes = sorted({
+        window.canvas
+        for p in prepared
+        for plans in p.plans
+        for windows in [[w for plan in plans for w in plan.windows]]
+        for window in windows
+        if super_res is not None and window.index in super_res.windows_to_upscale(windows)
+    })
+    if sizes:
+        super_res.prepare(sizes)
+    try:
+        with progress.bar("compose", progress.frames, marks=timing_marks(decoder)) as bar:
+            for p, span_finals in zip(prepared, finals):
+                compose_span(
+                    p.span,
+                    p.plans,
+                    decoder,
+                    span_finals,
+                    frame_h=render.frame_h,
+                    batch_size=render.batch_size,
+                    budget=render.budget,
+                    device=render.device,
+                    bar=bar,
+                    cancel=cancel,
+                    super_res=super_res,
+                    projector=render.vr_projector,
+                )
+    finally:
+        if super_res is not None:
+            super_res.release()
 
 
 class _SpeedTestMosaics:
@@ -1269,7 +1286,9 @@ def _first_frames(frames: FrameSource, count: int) -> FrameSource:
 
 
 def _profile_key(render: LtxRender) -> str:
-    return speed.profile_key(torch.cuda.get_device_name(render.device), render.files.transformer_name, render.budget_name)
+    # +modi: super resolution slows compose, so its runs keep a speed profile of their own.
+    budget_name = render.budget_name + ("+rtx" if render.super_res is not None else "")
+    return speed.profile_key(torch.cuda.get_device_name(render.device), render.files.transformer_name, budget_name)
 
 
 def restore_spans(
