@@ -343,6 +343,8 @@ def scan_source(
     device: torch.device,
     large_canvas: bool,
     window_hop: int,
+    max_gap: int,
+    min_duration: int,
     disable_progress: bool,
     cancel: threading.Event,
 ) -> list[TrackPlan]:
@@ -365,6 +367,8 @@ def scan_source(
             window_hop=window_hop,
             bar=bar,
             cancel=cancel,
+            max_gap=max_gap,
+            min_duration=min_duration,
         )[0]
     canvases = Counter(window.canvas for plan in plans for window in plan.windows)
     logger.info(
@@ -412,6 +416,8 @@ def run_refine(
     device: torch.device,
     large_canvas: bool,
     window_hop: int,
+    max_gap: int,
+    min_duration: int,
     disable_progress: bool,
     progress_callback: ProgressCallback | None,
     cancel: threading.Event,
@@ -436,6 +442,8 @@ def run_refine(
         device=device,
         large_canvas=large_canvas,
         window_hop=window_hop,
+        max_gap=max_gap,
+        min_duration=min_duration,
         disable_progress=disable_progress,
         cancel=cancel,
     )
@@ -465,8 +473,8 @@ def run_refine(
 
     def write(ready: list[tuple[torch.Tensor, int, bool]]) -> None:
         nonlocal written
-        for frame, pts, composited in ready:
-            writer.write(frame, pts, apply_lut=composited)
+        for frame, pts, _composited in ready:
+            writer.write(frame, pts)
             written += 1
         progress.update(len(ready))
 
