@@ -2,9 +2,9 @@
 
 Windows で Jasna のセットアップを行い、**ソースから実行**する手順。
 
-> **ブランチとベース。** 本ガイドは `0.11.3+modi`（upstream `cf8a968c` = v0.11.3 タグ）の手順です。GPU スタックは `pyproject.toml` の upstream のピンに追従しています（torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.38 / triton-windows 3.7.1 / ultralytics 8.4.96 以上）。本ブランチが足しているのは、`nvidia-vfx==0.2.0.0` の固定（upstream は無固定）、FP8 復元用の通常依存 `nvidia-cudnn-frontend` と Windows 用 `triton-windows>=3.7,<3.8`、`torchcodec` extra、任意の `nvidia-rtx` extra（torch 2.12.0 / torchvision 0.27.0 / torch-tensorrt-rtx 2.12.1）です。ブランチが upstream に加えている変更とその理由は [changes_vs_upstream.md](changes_vs_upstream.md) にあります。
+> **ブランチとベース。** 本ガイドは `0.12.1+modi`（upstream `1242b947` = v0.12.1 タグ）の手順です。GPU スタックは `pyproject.toml` の upstream のピンに追従しています（torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.38 / triton-windows 3.7.1 / ultralytics 8.4.96 以上）。本ブランチが足しているのは、`nvidia-vfx==0.2.0.0` の固定（upstream は無固定）、FP8 復元用の通常依存 `nvidia-cudnn-frontend` と Windows 用 `triton-windows>=3.7,<3.8`、`torchcodec` extra、任意の `nvidia-rtx` extra（torch 2.12.0 / torchvision 0.27.0 / torch-tensorrt-rtx 2.12.1）です。ブランチが upstream に加えている変更とその理由は [changes_vs_upstream.md](changes_vs_upstream.md) にあります。
 >
-> **検証。** `0.11.3+modi` ベースは 2026-10-22 に実機検証しました（Windows 11、RTX 5060 Ti 16 GB、ドライバ 617.42、Python 3.13.9、CUDA 13.2）。v0.11.3 の差分にはピンの変更も native コードの変更も無く、`0.11.2+modi` の venv と既存のエンジンをそのまま使っています。全テスト（素の upstream と失敗集合を比較）、modi 機能の CLI 実走、`--ltx-crop-vsr rtx-super-res`、GUI の新しい確認ダイアログを確認しています。前の `0.11.2+modi` ベースは 2026-10-18 に別の機械（RTX 5080 16 GB）で検証しました。ベースごとの変化と検証の記録は[付録 B](#付録-b-本セットアップの履歴)にあります。Linux での検証は [building_linux.md](building_linux.md) を参照してください。
+> **検証。** `0.12.1+modi` ベースは **Windows ではまだ再検証していません**（Linux は 2026-11-02）。`safetensors>=0.6` が加わり、VALI フォークは `fc39271` へ進みます（wheel を作り直し `--reinstall` で入れ替える。版数は 4.8.8 のまま）。前の `0.11.3+modi` ベースは 2026-10-22 に実機検証しました（Windows 11、RTX 5060 Ti 16 GB、ドライバ 617.42、Python 3.13.9、CUDA 13.2）。v0.11.3 の差分にはピンの変更も native コードの変更も無く、`0.11.2+modi` の venv と既存のエンジンをそのまま使っています。全テスト（素の upstream と失敗集合を比較）、modi 機能の CLI 実走、`--ltx-crop-vsr rtx-super-res`、GUI の新しい確認ダイアログを確認しています。前の `0.11.2+modi` ベースは 2026-10-18 に別の機械（RTX 5080 16 GB）で検証しました。ベースごとの変化と検証の記録は[付録 B](#付録-b-本セットアップの履歴)にあります。Linux での検証は [building_linux.md](building_linux.md) を参照してください。
 >
 > **VALI は必須。** Windows では Kruk2 氏の VALI フォーク（`python_vali` 4.8.8）を自前でビルドして入れます（5.2 節）。`[nvidia]` extra は `python_vali==4.8.8` を固定していますが、4.8.8 は PyPI に公開されていません（PyPI の最新は 4.8.7 で、wheel は Linux 用だけ。2026-10-16 時点）。また jasna の VALI デコーダはフォークにしかない API を使います。そのため VS Build Tools と CUDA Toolkit が前提になります。
 >
@@ -136,7 +136,7 @@ native デコードは、まず VALI NVDEC デコーダを試し、使えなけ�
 cd $Workspace
 git clone https://codeberg.org/Kruk2/vali.git       # 既存 checkout があれば省略
 cd vali
-git checkout 0e5c01e      # = 4.8.8 ピン: DecodeSingleSurfaceAsyncDetailed、ASF/VC-1 タイムスタンプ修正、decoder-open の GIL 解放
+git checkout fc39271      # = 4.8.8 ピン: DecodeSingleSurfaceAsyncDetailed、ASF/VC-1 タイムスタンプ修正、decoder-open の GIL 解放、負の preroll seek（fc39271 の Windows ビルドは未確認。0e5c01e は確認済み）
 git submodule update --init --recursive
 ```
 
@@ -309,7 +309,7 @@ SwiftVR（`--secondary-restoration swiftvr` / `swiftvr-inline`。`--ltx-crop-vsr
 
 ```powershell
 cd $Workspace\jasna
-python -m jasna --version    # -> 0.11.3+modi
+python -m jasna --version    # -> 0.12.1+modi
 python -m jasna --help
 python -m jasna --input assets\test_clip1_1080p.mp4 --output $env:TEMP\out.mp4   # 短いクリップを処理
 python -m jasna              # GUI を起動（引数なし）

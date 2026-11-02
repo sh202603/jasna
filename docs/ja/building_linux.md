@@ -2,7 +2,7 @@
 
 Linux で Jasna のセットアップを行い、**ソースから実行**する手順です。
 
-> **ブランチとベース。** 本ガイドは `0.11.3+modi`（upstream `cf8a968c` = v0.11.3 タグ）の手順です。GPU スタックは `pyproject.toml` の upstream のピンに追従しています（torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.38 / ultralytics 8.4.96 以上）。本ブランチが足しているのは、`nvidia-vfx==0.2.0.0` の固定（upstream は無固定）、FP8 復元用の通常依存 `nvidia-cudnn-frontend`、`torchcodec` extra、任意の `nvidia-rtx` extra（torch 2.12.0 / torchvision 0.27.0 / torch-tensorrt-rtx 2.12.1）です。ブランチが upstream に加えている変更とその理由は [changes_vs_upstream.md](changes_vs_upstream.md) にあります。
+> **ブランチとベース。** 本ガイドは `0.12.1+modi`（upstream `1242b947` = v0.12.1 タグ）の手順です。GPU スタックは `pyproject.toml` の upstream のピンに追従しています（torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.38 / ultralytics 8.4.96 以上）。本ブランチが足しているのは、`nvidia-vfx==0.2.0.0` の固定（upstream は無固定）、FP8 復元用の通常依存 `nvidia-cudnn-frontend`、`torchcodec` extra、任意の `nvidia-rtx` extra（torch 2.12.0 / torchvision 0.27.0 / torch-tensorrt-rtx 2.12.1）です。ブランチが upstream に加えている変更とその理由は [changes_vs_upstream.md](changes_vs_upstream.md) にあります。
 >
 > **検証済み**: Ubuntu 26.04 LTS + RTX 5080、2026-10-16。実施内容と過去ベースは[付録 B](#付録-b-本セットアップの履歴)。他のディストリでも動作しますが、パッケージ名や ffmpeg の導入手順は異なります。
 >
@@ -116,7 +116,7 @@ native デコードは、まず VALI NVDEC デコーダを試し、使えなけ�
 cd "$WORKSPACE"
 git clone https://codeberg.org/Kruk2/vali.git       # 既存 checkout があれば省略
 cd vali
-git checkout 0e5c01e      # = 4.8.8 ピン: DecodeSingleSurfaceAsyncDetailed、ASF/VC-1 タイムスタンプ修正、decoder-open の GIL 解放
+git checkout fc39271      # = 4.8.8 ピン: DecodeSingleSurfaceAsyncDetailed、ASF/VC-1 タイムスタンプ修正、decoder-open の GIL 解放、負の preroll seek
 git submodule update --init --recursive
 
 CUDACXX=/usr/local/cuda-13.3/bin/nvcc \
@@ -129,7 +129,7 @@ ls dist/                  # -> python_vali-4.8.8-cp313-cp313-linux_x86_64.whl
 
 `--no-build-isolation` が必要なのは、vali の `setup.py` が `pkg_resources` を import しており、隔離ビルド環境にはそれが無いためです（5.1 節で venv に入れた setuptools を使わせます）。既存の checkout で別のコミットに切り替えて再ビルドする場合は、前回の CMake キャッシュ `_skbuild/` を消してから行います。ビルド中に CMake が pybind11 をダウンロードするため、ネットワーク接続が要ります。
 
-> フォークコミット `0e5c01e`（= 4.8.8 ピン、2026-10-16、RTX 5080。前回は `3ad0d54` = 4.8.7、2026-07-30）で検証済み: パイプラインの 2 つのデコードパスが両方 VALI を通り、同梱テストクリップの出力は PyAV デコード時と md5 完全一致、デコーダのテストも合格、av wheel および torchcodec バックエンドとの共存も確認（この 2 つは auditwheel でマングル/同梱した FFmpeg を持ち、vali は distro の FFmpeg を ldconfig 経由で解決する）。
+> フォークコミット `fc39271`（= upstream v0.12.1 の 4.8.8 ピン、2026-11-02、RTX 5080）で検証済み: 上の手順でビルドでき、`-c copy` で GOP の途中から切った MP4 が VALI でも PyAV でも同じ 122 フレームに復号される。版数は 4.8.8 のままなので、既存のインストールは `uv pip install --reinstall --no-deps dist/python_vali-4.8.8-*.whl` が要る。それ以前は `0e5c01e`（2026-10-16。その前は `3ad0d54` = 4.8.7、2026-07-30）で検証済み: パイプラインの 2 つのデコードパスが両方 VALI を通り、同梱テストクリップの出力は PyAV デコード時と md5 完全一致、デコーダのテストも合格、av wheel および torchcodec バックエンドとの共存も確認（この 2 つは auditwheel でマングル/同梱した FFmpeg を持ち、vali は distro の FFmpeg を ldconfig 経由で解決する）。
 
 ### 5.3 jasna 本体のインストール
 
@@ -283,7 +283,7 @@ SwiftVR（`--secondary-restoration swiftvr` / `swiftvr-inline`。`--ltx-crop-vsr
 
 ```bash
 cd "$WORKSPACE/jasna"
-python -m jasna --version    # -> 0.11.3+modi
+python -m jasna --version    # -> 0.12.1+modi
 python -m jasna --help
 python -m jasna --input assets/test_clip1_1080p.mp4 --output /tmp/out.mp4   # 短いクリップを処理
 python -m jasna              # GUI を起動（引数なし）
@@ -377,6 +377,7 @@ About ダイアログと初回ウィザードは、upstream の `grab_modal()` �
 
 ベースごとのソース実行手順の変化と、本ガイドを検証した時点（新しい順）。不要になった手順は要約だけを残し、全文は本ファイルの git 履歴にあります。
 
+- **v0.12.1 ベース（2026-11-02 検証、RTX 5080、Ubuntu 26.04）**: 依存の下限が 1 つ増えた（`safetensors>=0.6`。古い版の既存 venv は `uv pip install 'safetensors>=0.6'`。本機の venv は 0.8.0rc0 で済み）。他のピンは変わらず、エンジンの再コンパイルは不要。VALI フォークは `fc39271` へ（5.2 節）。版数が 4.8.8 のままなので wheel を作り直して `--reinstall` で入れ替える。upstream の差分は大きい（437 コミット。詳細は [changes_vs_upstream.md](changes_vs_upstream.md) 付録 B）。2026-11-02 検証: 全テストの失敗は素の upstream と同じ（どちら側にも出る表示依存の Tk レイアウトテストを除く）、modi 機能の CLI e2e 行列（GOP 途中で切った MP4 の VALI と PyAV を含む 23 ケース）が全て完走、LTX の GPU テスト合格。
 - **v0.11.3 ベース（2026-10-22 検証、RTX 5080、Ubuntu 26.04）**: ピンの変更なし（`pyproject.toml` の差は版数だけ）、native コードの変更なし、エンジンの再コンパイルも VALI の再ビルドも不要で、`0.11.2+modi` の venv がそのまま使える。upstream の差分は LTX の 2-step / 4-step モデルと VAE の高速化、scene cut 検出の重複フレーム対応、PyAV の FFmpeg ログフック撤去と寛容なメタデータ復号（詳細は [changes_vs_upstream.md](changes_vs_upstream.md) 付録 B）。2026-10-22 検証: 全テストの失敗は素の upstream と同じ 125 件（modi だけの失敗なし）、modi 機能の CLI e2e 行列が全て完走、`--ltx-crop-vsr` の GPU テスト合格。
 - **v0.11.2 ベース（2026-10-18 検証、RTX 5080、Ubuntu 26.04）**: ピンの変更は `comfy-kitchen` 0.2.36 → 0.2.38 だけ（カーネルの変更は SM 8.9 未満のみ。既存 venv なら `uv pip install comfy-kitchen==0.2.38` で足りる）。upstream は LTX の less-overlap モードと HDD インストール警告を追加。VALI の再ビルド（`0e5c01e` のまま）もエンジンの再コンパイルも不要。検証（Linux、RTX 5080、2026-10-18）: モデル重みのある checkout での全テストを、同じ deselect と timeout で素の upstream `b623466f` と比較し、失敗は upstream と同じ箇所だけ（protection、gcc-15 での native LTX ビルド、表示環境、ultralytics）。10 秒のテストクリップで modi 機能の CLI 実走（BasicVSR++ の FP8 あり/なし、torchcodec、fMP4、RTX Super Res、SwiftVR distill、SwiftVR offline、SeedVR2、RIFE と RTX のフレーム生成、`--segments`、30 秒プローブ素材での `--ltx-crop-vsr swiftvr-distill`、両方の hop での `--ltx-trial`、LTX + frame-gen の拒否）。HDD 判定は本機（NVMe）で False。`comfy-kitchen` 0.2.38 を既存 venv に入れ、kitchen 関連テスト合格。既知の罠: `model_weights/` の**無い** checkout で全テストを流すと `tests/test_fp8_upsample.py::test_fp8_forward_parity_small` で pytest プロセスごと abort する（`cudnn.create_handle()` が abort、exit 134）。v0.11.1 ベースでも同じで新規ではなく、単体では再現しない。
 - **v0.11.1 ベース（2026-10-16 検証、RTX 5080、Ubuntu 26.04）**: upstream が torch 2.12.1 / torchvision 0.27.1 を固定し、`comfy-kitchen==0.2.36` と `ultralytics>=8.4.96`（YOLO export に onnxruntime も onnxslim も要らなくなり、5.5 節は注記だけになった）を追加、`av==18.1.0` を厳密固定、デコードバックエンドの選択を `JASNA_DECODE_BACKEND` だけにした（in-code の `DECODE_BACKEND` トグルは廃止）。VALI フォーク wheel は Kruk2 氏の `0e5c01e`（4.8.8 + ASF/VC-1 タイムスタンプ修正 + decoder-open の GIL 解放）で再ビルド。検証: 同じ deselect と timeout で素の upstream と比較した full pytest（残る失敗はすべて upstream でも失敗）、modi 機能の e2e CLI 実走（native / torchcodec バックエンド、FP8、フレーム生成、SeedVR2、FlashVSR inline、SwiftVR inline / オフライン / distill、`--ltx-crop-vsr`、segments、streaming）、両デコードパスで VALI フォーク wheel が実効。同日、`python_vali==4.8.8` が PyPI に無い（素の venv では `[nvidia]` が解決できない）ことを受けて VALI を必須と位置づけ、5 節を「ビルド用パッケージ（setuptools<81 を含む）→ VALI wheel のビルド → `--find-links` 付きの jasna インストール → mmengine パッチ」の順に組み替えた。mmengine パッチは、upstream が `7c64105` で `weights_only=True` に変えた版だとソース実行で full 版の `v1.2.pth` が読めないことを確認し、フォーク側で `False` のまま同梱することにした（4 ファイル分の説明を追加）。新しい 5 節は、空の venv と新規 clone の vali から通しで確認した（`[nvidia]` が `--find-links` で解決、`DecodeSingleSurfaceAsyncDetailed` が `True`、mmengine パッチ後に `load_model()` が `v1.2.pth` を読める）。
