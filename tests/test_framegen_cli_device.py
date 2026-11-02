@@ -58,7 +58,7 @@ def test_cli_threads_device_and_multiplier(tmp_path):
         def __exit__(self, *args):
             return False
 
-        def encode(self, frame, pts, *, apply_lut=True):
+        def encode(self, frame, pts):
             captured.setdefault("encoded", []).append((frame, pts))
 
     def fake_build_generator(backend, *, device, **kwargs):

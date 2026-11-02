@@ -11,15 +11,17 @@ from jasna.framegen.frame_gen_writer import FrameGenWriter
 class FakeWriter:
     def __init__(self):
         self.written: list[tuple[object, int]] = []
-        self.luts: list[bool] = []
+        self.finished = False
         self.closed = False
 
-    def write(self, frame, pts, *, apply_lut=True):
+    def write(self, frame, pts):
         self.written.append((frame, pts))
-        self.luts.append(apply_lut)
 
-    def after_write(self, frames_written):
+    def after_write(self, frames_written, stop_event):
         pass
+
+    def finish(self):
+        self.finished = True
 
     def close(self):
         self.closed = True
@@ -144,12 +146,13 @@ def test_close_closes_writer_but_not_borrowed_generator():
     assert writer.closed
 
 
-def test_apply_lut_follows_source_frames():
+def test_finish_flushes_the_held_frame_once_and_finishes_the_writer():
     writer = FakeWriter()
     fg = FrameGenWriter(writer, FakeGenerator(), 2)
-    fg.write("a", 0, apply_lut=True)
-    fg.write("b", 10, apply_lut=False)
-    fg.write("c", 20, apply_lut=False)
+    fg.write("a", 0)
+    fg.write("b", 10)
+    fg.finish()
     fg.close()
-    # a, a|b, b, b|c, c: an intermediate gets the LUT only when both neighbours do.
-    assert writer.luts == [True, False, False, False, False]
+    # a, a|b, b: the held "b" is written by finish(), and close() does not write it again.
+    assert [frame for frame, _ in writer.written] == ["a", ("interp", "a", "b", 0.5), "b"]
+    assert writer.finished and writer.closed

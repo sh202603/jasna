@@ -5,6 +5,7 @@ from dataclasses import replace
 import threading
 from fractions import Fraction
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import customtkinter as ctk
@@ -20,7 +21,7 @@ from jasna.gui.models import AppSettings, JobItem
 from jasna.gui.mosaic_scan import MosaicScanResult, ScanCompleted
 from jasna.gui.segment_editor import SegmentEditor
 from jasna.gui.restoration_preview import RestorationClip, RestorationFrame, RestoredClipFrame
-from jasna.gui.segment_editor_state import PREVIEW_ZOOM_MAX, PreviewView
+from jasna.gui.segment_editor_state import PREVIEW_ZOOM_MAX, PreviewView, SegmentEditorState
 from jasna.ltx.restore import Cancelled
 from jasna.media.splice import KeyframeIndex
 from jasna.segments import SegmentRange, SegmentRestoration
@@ -650,26 +651,16 @@ def test_feedback_upload_events_show_toast(build_editor, monkeypatch) -> None:
     assert "boom" in toasts[1][0]
 
 
-def test_ab_compare_button_builds_and_locks_during_scan(monkeypatch) -> None:
-    try:
-        root = ctk.CTk()
-    except TclError as exc:
-        pytest.skip(f"Tk display unavailable: {exc}")
-    editor = None
-    try:
-        editor = _build_editor_with_ui(root, monkeypatch)
-        assert editor._ab_btn.cget("text") == t("segments_ab_compare")
-        assert editor._ab_btn in editor._lockable_widgets()
-        assert editor._ab_window is None
+def test_ab_compare_button_builds_and_locks_during_scan(build_editor) -> None:
+    editor = build_editor()
+    assert editor._ab_btn.cget("text") == t("segments_ab_compare")
+    assert editor._ab_btn in editor._lockable_widgets()
+    assert editor._ab_window is None
 
-        editor._on_scan_lock_changed(True)
-        assert editor._ab_btn.cget("state") == "disabled"
-        editor._on_scan_lock_changed(False)
-        assert editor._ab_btn.cget("state") == "normal"
-    finally:
-        if editor is not None:
-            editor._finish_close()
-        root.destroy()
+    editor._on_scan_lock_changed(True)
+    assert editor._ab_btn.cget("state") == "disabled"
+    editor._on_scan_lock_changed(False)
+    assert editor._ab_btn.cget("state") == "normal"
 
 
 def test_open_ab_compare_is_blocked_while_gpu_is_busy() -> None:
@@ -721,25 +712,15 @@ def test_open_ab_compare_stops_restore_preview_and_hands_over_context(monkeypatc
     assert editor._ab_window is opened.return_value
 
 
-def test_finish_close_closes_open_ab_window(monkeypatch) -> None:
-    try:
-        root = ctk.CTk()
-    except TclError as exc:
-        pytest.skip(f"Tk display unavailable: {exc}")
-    editor = None
-    try:
-        editor = _build_editor_with_ui(root, monkeypatch)
-        ab_window = MagicMock()
-        editor._ab_window = ab_window
+def test_finish_close_closes_open_ab_window(build_editor) -> None:
+    editor = build_editor()
+    ab_window = MagicMock()
+    editor._ab_window = ab_window
 
-        editor._finish_close()
+    editor._finish_close()
 
-        ab_window.close.assert_called_once_with()
-        assert editor._ab_window is None
-    finally:
-        if editor is not None and editor.winfo_exists():
-            SegmentEditor._finish_close(editor)
-        root.destroy()
+    ab_window.close.assert_called_once_with()
+    assert editor._ab_window is None
 
 
 @pytest.mark.parametrize("scaling", [1.0, 1.5])

@@ -412,6 +412,7 @@ class Pipeline:
     def _run_ltx_refine(self, metadata) -> None:
         """``--ltx-crop-vsr``: the input is an LTX output; sharpen its mosaic areas with
         SwiftVR along the plan scanned from the source video (``jasna.ltx.refine``)."""
+        from jasna.ltx.plan import track_max_gap
         from jasna.ltx.refine import run_refine
         from jasna.ltx.restore import Cancelled
         from jasna.session_factory import build_ltx_crop_vsr_restorer
@@ -446,6 +447,8 @@ class Pipeline:
                 device=self.device,
                 large_canvas=self.ltx_large_canvas,
                 window_hop=self.ltx_window_hop,
+                max_gap=track_max_gap(self.max_detection_gap),
+                min_duration=self.min_detection_duration,
                 disable_progress=self.disable_progress,
                 progress_callback=self.progress_callback,
                 cancel=self._cancel_event,
