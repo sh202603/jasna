@@ -169,7 +169,9 @@ cd <jasna checkout>
 `--quant bf16` なら 2 倍のサイズで bf16 のまま）に量子化します。43 GB のチェックポイントの変換
 は RTX 5080 で 1 分弱で、出力はストリーミングで書くので RAM は制約になりません。
 `make_bundle.py` は VAE を jasna が記録しているテンソル表と照合し、8-step スロットの
-ファイル名でリンクします。
+ファイル名でリンクします。v0.12.1 ベースから decoder のファイル名は
+`vae-decoder-full.safetensors` です（以前は `vae-decoder.safetensors`）。以前に作ったフォルダには
+この名前を足してください（フォルダ内で `ln vae-decoder.safetensors vae-decoder-full.safetensors` など）。
 
 このフォルダで jasna を実行します。
 
