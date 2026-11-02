@@ -35,6 +35,10 @@ LTX_CROP_VSR_BACKENDS = ("swiftvr", "swiftvr-distill", "rtx-super-res")
 # the pass that sharpens there (the x2 upscale alone adds nothing that survives the downscale
 # back to the crop; measured on the probe clips, docs/en/ltx_crop_vsr.md).
 LTX_CROP_VSR_RTX_DEBLUR = "medium"
+# +modi: an LTX job's own compose pass (``--secondary-restoration rtx-super-res``) sharpens
+# the raw VAE canvas, where the deblur bites harder than on an encoded LTX output: medium
+# overshot the release model's texture by a third and looked too sharp, low matches it.
+LTX_SHARPEN_RTX_DEBLUR = "low"
 
 
 @dataclass(frozen=True)

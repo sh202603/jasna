@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Callable, Mapping
 
 import os
 from jasna.gui.models import AppSettings
-from jasna.session_config import LTX_SECONDARY_RESTORATIONS, SessionConfig
+from jasna.session_config import LTX_SECONDARY_RESTORATIONS, LTX_SHARPEN_RTX_DEBLUR, SessionConfig
 from jasna.session_factory import RestorationSession
 
 if TYPE_CHECKING:
@@ -55,6 +55,15 @@ def video_session_key(settings: AppSettings) -> tuple:
             settings.rtx_highbitrate,
         )
     return key
+
+
+def _rtx_deblur(settings: AppSettings, model_name: str, secondary_restoration: str) -> str:
+    """+modi: an LTX job's RTX Super Res sharpens with deblur low when the setting is none, as
+    the CLI default does (the GUI setting is always explicit, so none cannot mean "default")."""
+    deblur = settings.rtx_deblur.lower()
+    if model_name == "ltx" and secondary_restoration == "rtx-super-res" and deblur == "none":
+        return LTX_SHARPEN_RTX_DEBLUR
+    return deblur
 
 
 def video_session_config(
@@ -122,7 +131,7 @@ def video_session_config(
         rtx_scale=int(settings.rtx_scale),
         rtx_quality=settings.rtx_quality.lower(),
         rtx_denoise=settings.rtx_denoise.lower(),
-        rtx_deblur=settings.rtx_deblur.lower(),
+        rtx_deblur=_rtx_deblur(settings, model_name, secondary_restoration),
         rtx_strength=float(settings.rtx_strength),
         rtx_highbitrate=bool(settings.rtx_highbitrate),
         vr_mode=settings.vr_mode,
