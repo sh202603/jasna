@@ -174,7 +174,10 @@ stores the distilled 8-step sigma schedule as metadata and quantizes every block
 ConvRot W8A8 (the format the release weights use; `--quant bf16` keeps bf16 weights at twice
 the size). Conversion of the 46 GB checkpoint takes under a minute on the RTX 5080 and streams
 the output, so RAM is not a constraint. `make_bundle.py` checks the VAE against jasna's
-recorded tensor table and links the files under the names of the 8-step slot.
+recorded tensor table and links the files under the names of the 8-step slot. Since the
+v0.12.1 base the decoder file is named `vae-decoder-full.safetensors` (it was
+`vae-decoder.safetensors`): a folder made earlier needs that name added, for example
+`ln vae-decoder.safetensors vae-decoder-full.safetensors` in the folder.
 
 Run jasna with the folder:
 
