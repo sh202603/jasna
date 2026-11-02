@@ -346,6 +346,7 @@ class Pipeline:
             settings=settings,
             frame_generation=self.config.frame_generation != "none",
             backend=self.video_encode_backend,
+            native_encoder=VideoEncoder,
         )
 
     def _run_full(
