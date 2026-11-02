@@ -1086,7 +1086,7 @@ def _phase3_reblend(
     display: str = "FlashVSR",
 ) -> None:
     from jasna.accelerator import vendor_for_device
-    from jasna.main import _resolve_cli_encoder_settings
+    from jasna.main import _resolve_cli_encoder_settings, batch_size_from_args
 
     video_backend = str(getattr(args, "video_backend", "native")).lower()
 
@@ -1108,7 +1108,7 @@ def _phase3_reblend(
             vendor=vendor_for_device(str(getattr(args, "device", "cuda:0"))),
         ),
         "lut_path": lut_arg or None,
-        "batch_size": int(args.batch_size),
+        "batch_size": batch_size_from_args(args),
         "decode_backend": _resolve(str(getattr(args, "decode_backend", "inherit"))),
         "encode_backend": _resolve(str(getattr(args, "encode_backend", "inherit"))),
     }

@@ -55,7 +55,7 @@ def test_folder_batch_reuses_one_generator(tmp_path):
         def __exit__(self, *args):
             return False
 
-        def encode(self, frame, pts, *, apply_lut=True):
+        def encode(self, frame, pts):
             pass
 
     def fake_build_generator(backend, *, device, **kwargs):

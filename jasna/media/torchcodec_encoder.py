@@ -272,12 +272,12 @@ class TorchcodecVideoEncoder:
                 item = self._queue.get()
                 if item is self._stop_sentinel:
                     break
-                frame, ready_event, apply_lut = item
+                frame, ready_event = item
                 # Wait (host-side) for the producer's blend kernels to finish:
                 # torchcodec manages its own internal CUDA stream, so we cannot
                 # inject a stream-wait the way the native encoder does.
                 ready_event.synchronize()
-                if apply_lut and self._lut_applier is not None:
+                if self._lut_applier is not None:
                     frame = self._lut_applier.apply(frame)
                 if frame.ndim == 3:
                     frame = frame.unsqueeze(0)
@@ -301,7 +301,7 @@ class TorchcodecVideoEncoder:
             except queue.Empty:
                 return
 
-    def encode(self, frame: torch.Tensor, pts: int, *, apply_lut: bool = True) -> None:
+    def encode(self, frame: torch.Tensor, pts: int) -> None:
         # pts is unused: torchcodec encodes CFR at frame_rate (eligibility gates VFR
         # out by requiring the native path for anything PTS-sensitive). Frames are
         # added in queue order, so a single FIFO worker preserves frame order.
@@ -309,7 +309,7 @@ class TorchcodecVideoEncoder:
             raise self._worker_error  # type: ignore[misc]
         ready_event = torch.cuda.Event()
         torch.cuda.current_stream(self.device).record_event(ready_event)
-        self._queue.put((frame, ready_event, apply_lut))
+        self._queue.put((frame, ready_event))
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self._worker is not None:
