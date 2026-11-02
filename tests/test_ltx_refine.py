@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 from jasna.ltx import camera, plan as plan_module, refine
 from jasna.ltx.compose import Candidate, composite_frame, crop_to_canvas
-from jasna.ltx.plan import WINDOW_HOP, Region, feather_pixels, plan_video
+from jasna.ltx.plan import MAX_GAP, WINDOW_HOP, Region, feather_pixels, plan_video
 from jasna.media.probe import UnsupportedVideoError
 
 FPS = Fraction(30000, 1001)
@@ -54,7 +54,7 @@ class TestAlignment:
         from factories import write_non_utf8_metadata_source
 
         times = refine.read_stream_times(write_non_utf8_metadata_source(tmp_path / "tags.mp4"))
-        assert len(times.pts) == 24 and (times.width, times.height) == (256, 256)
+        assert len(times.pts) == 24 and (times.width, times.height) == (384, 256)
 
 
 def _write_video(path, frames: int, *, rate: int = 30) -> None:
@@ -134,7 +134,10 @@ def _square(x1, y1, x2, y2) -> Region:
 
 def _plans(frames: int, mosaics: list[tuple[Region, range]], *, cuts=(), size=(64, 64)):
     regions = [[region for region, span in mosaics if i in span] for i in range(frames)]
-    return plan_video(regions, set(cuts), frame_w=size[1], frame_h=size[0], large_canvas=False, window_hop=WINDOW_HOP)
+    return plan_video(
+        regions, set(cuts), frame_w=size[1], frame_h=size[0], large_canvas=False, window_hop=WINDOW_HOP,
+        max_gap=MAX_GAP, min_duration=0,
+    )
 
 
 def _frames(count: int, *, seed: int, size=(64, 64)) -> list[torch.Tensor]:
@@ -271,9 +274,11 @@ def test_scan_source_hands_the_window_hop_to_ltx_scan(monkeypatch):
     metadata = SimpleNamespace(num_frames=3, video_height=48, video_width=64)
     plans = refine.scan_source(
         Path("source.mp4"), metadata, detector=None, batch_size=2, device=torch.device("cpu"),
-        large_canvas=False, window_hop=104, disable_progress=True, cancel=threading.Event(),
+        large_canvas=False, window_hop=104, max_gap=5, min_duration=3, disable_progress=True,
+        cancel=threading.Event(),
     )
     assert plans == [plan_a, plan_b]
     assert seen["window_hop"] == 104
+    assert seen["max_gap"] == 5 and seen["min_duration"] == 3
     assert seen["large_canvas"] is False and seen["frame_h"] == 48 and seen["frame_w"] == 64
     assert len(seen["segments"]) == 1

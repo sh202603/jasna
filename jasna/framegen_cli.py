@@ -255,14 +255,17 @@ class _EncoderWriter:
         self._encoder_ctx = encoder_ctx
         self._entered = False
 
-    def write(self, frame, pts: int, *, apply_lut: bool = True) -> None:
+    def write(self, frame, pts: int) -> None:
         if not self._entered:
             self._encoder_ctx.__enter__()
             self._entered = True
-        self._encoder_ctx.encode(frame, int(pts), apply_lut=apply_lut)
+        self._encoder_ctx.encode(frame, int(pts))
 
-    def after_write(self, frames_written: int) -> None:
+    def after_write(self, frames_written: int, stop_event) -> None:
         pass
+
+    def finish(self) -> None:
+        self.close()
 
     def close(self) -> None:
         if self._entered:
