@@ -7,9 +7,20 @@ from pathlib import Path
 
 import torch
 
-from jasna.engine_paths import get_onnx_tensorrt_engine_path
+from jasna.engine_paths import get_onnx_tensorrt_engine_path, trt_flavor
 from jasna.os_utils import atomic_write
-from jasna.trt._backend import TRT_FLAVOR, trt
+
+# The TRT module is imported inside the functions (through ``_backend``, the sole import
+# point), so ``jasna.trt`` and the modules importing it load without TensorRT installed.
+TRT_FLAVOR = trt_flavor()
+
+
+def __getattr__(name: str):
+    if name == "trt":
+        from jasna.trt._backend import trt
+
+        return trt
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # TensorRT's highest builder optimization level; every engine Jasna builds uses it.
@@ -27,6 +38,8 @@ def require_engine_file(path: Path) -> Path:
 
 @functools.cache
 def _error_only_trt_logger() -> trt.ILogger:
+    from jasna.trt._backend import trt
+
     return trt.Logger(trt.Logger.ERROR)
 
 
@@ -38,6 +51,8 @@ def get_trt_logger() -> trt.ILogger:
 
 
 def _engine_io_names(engine: trt.ICudaEngine) -> tuple[list[str], list[str]]:
+    from jasna.trt._backend import trt
+
     input_names: list[str] = []
     output_names: list[str] = []
 
@@ -51,6 +66,8 @@ def _engine_io_names(engine: trt.ICudaEngine) -> tuple[list[str], list[str]]:
 
 
 def _trt_dtype_to_torch(trt_dtype: trt.DataType) -> torch.dtype:
+    from jasna.trt._backend import trt
+
     if trt_dtype == trt.DataType.FLOAT:
         return torch.float32
     if trt_dtype == trt.DataType.HALF:
@@ -107,6 +124,8 @@ def build_engine_bytes(
     workspace_gb: int,
     dynamic_batch: bool,
 ) -> bytes:
+    from jasna.trt._backend import trt
+
     # Strongly-typed RTX: fp16 must be expressed in the graph itself (the
     # BuilderFlag.FP16 recipe below is standard-TRT only). After conversion
     # every float tensor is already HALF, so the I/O forcing loops below
@@ -271,6 +290,7 @@ def save_engine(engine_path: Path, engine_bytes: bytes) -> Path:
 
 def engine_runs_here(engine_bytes: bytes, device: torch.device) -> bool:
     """Whether a serialized engine loads on ``device``; TensorRT refuses one built for another GPU."""
+    from jasna.trt._backend import trt
 
     with torch.cuda.device(device):
         return trt.Runtime(get_trt_logger()).deserialize_cuda_engine(engine_bytes) is not None

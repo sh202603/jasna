@@ -269,13 +269,16 @@ def make_video_reader(
     frame_stride: int = 1,
     backend: "VideoBackend | str | None" = VideoBackend.NATIVE,
     decode_backend: str = "auto",
+    native_reader=None,
 ):
     """Construct a video reader for ``backend`` with native fallback under AUTO.
     ``decode_backend`` is upstream's VALI / PyAV choice, passed to the native reader.
 
     Returns an object with the ``VideoReader`` contract: a context manager
     whose ``frames(seek_ts=None)`` yields ``(uint8[B,3,H,W] CUDA, list[int] PTS)``.
-    ``NATIVE`` returns the existing reader directly (no wrapper).
+    ``NATIVE`` returns the existing reader directly (no wrapper). ``native_reader``
+    is the native reader class (default ``jasna.media.video_decoder.VideoReader``);
+    callers pass their own module's name for it so tests patching that name apply.
     """
 
     b = coerce_backend(backend)
@@ -283,12 +286,13 @@ def make_video_reader(
     def _native():
         from jasna.media.video_decoder import VideoReader
 
+        reader_cls = VideoReader if native_reader is None else native_reader
         # Only pass frame_stride / decode_backend when they are off their defaults, so reader
         # fakes/mocks written against the plain contract keep working.
         kwargs = {"frame_stride": frame_stride} if int(frame_stride) != 1 else {}
         if decode_backend != "auto":
             kwargs["decode_backend"] = decode_backend
-        return VideoReader(
+        return reader_cls(
             file, batch_size=batch_size, device=device, metadata=metadata, **kwargs
         )
 
@@ -332,12 +336,16 @@ def make_video_encoder(
     smart_fragment: bool = False,
     fmp4: bool = False,
     backend: "VideoBackend | str | None" = VideoBackend.NATIVE,
+    native_encoder=None,
 ):
     """Construct a video encoder for ``backend``.
 
     Returns an object with the ``VideoEncoder`` contract (context manager +
     ``encode(frame, pts)``). Parameters mirror ``VideoEncoder``; torchcodec
     is used only when forced and eligible (see ``select_encoder_backend``).
+    ``native_encoder`` is the native encoder class (default
+    ``jasna.media.video_encoder.VideoEncoder``); callers pass their own module's
+    name for it so tests patching that name apply.
     """
 
     b = coerce_backend(backend)
@@ -374,7 +382,7 @@ def make_video_encoder(
 
     from jasna.media.video_encoder import VideoEncoder
 
-    return VideoEncoder(
+    return (VideoEncoder if native_encoder is None else native_encoder)(
         file,
         device=device,
         metadata=metadata,

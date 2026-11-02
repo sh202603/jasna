@@ -78,6 +78,7 @@ class PassContext:
             frame_stride=self.frame_stride,
             backend=self.video_backend,
             decode_backend=self.decode_backend,
+            native_reader=VideoReader,
         )
 
 
