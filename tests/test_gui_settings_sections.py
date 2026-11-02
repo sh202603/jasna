@@ -115,6 +115,7 @@ def test_sections_collect_every_setting_except_runtime_ones(panel_factory) -> No
     collected = {key for section in panel._sections for key in section.collect()}
 
     runtime_only = {"batch_size", "tvai_args", "vr_projection", "output_folder", "output_pattern"}
+    runtime_only |= {"restoration_checkpoint"}  # +modi: set in the Video Player, not in this panel
     assert collected == {f.name for f in fields(AppSettings)} - runtime_only
 
 

@@ -110,6 +110,8 @@ def test_close_dispatches_release() -> None:
         {d: nn.Module() for d in DIRECTIONS},
         nn.Module(),
         fp8,
+        1,
+        False,
     )
     split.close()
     assert fp8.release_calls == 1

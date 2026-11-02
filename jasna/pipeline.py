@@ -331,6 +331,7 @@ class Pipeline:
             output_fps=frame_rate.output_fps * self.frame_gen_multiplier,
             fmp4=self.fmp4,
             backend=self.encode_backend,
+            native_encoder=VideoEncoder,
         )
 
     def _run_full(

@@ -15,6 +15,7 @@ from jasna.blend_buffer import BlendBuffer
 from jasna.crop_buffer import CropBuffer
 from jasna.frame_queue import FrameQueue
 from jasna.media.backend import VideoBackend, make_video_reader
+from jasna.media.video_decoder import VideoReader
 from jasna.pipeline_debug_logging import PipelineDebugMemoryLogger
 from jasna.pipeline_items import ClipRestoreItem, FrameMeta, PrimaryRestoreResult, SecondaryLoopStats, _SENTINEL
 from jasna.pipeline_processing import process_frame_batch, finalize_processing
@@ -85,6 +86,7 @@ def decode_detect_loop(
                 file=input_video, batch_size=batch_size, device=device, metadata=metadata,
                 frame_stride=frame_stride,
                 backend=video_backend,
+                native_reader=VideoReader,
             ) as reader,
             torch.inference_mode(),
         ):
@@ -359,6 +361,7 @@ def blend_encode_loop(
             file=input_video, batch_size=batch_size, device=device, metadata=metadata,
             frame_stride=frame_stride,
             backend=video_backend,
+            native_reader=VideoReader,
         ) as reader2:
             frame_gen = _flat_frames(reader2)
             secondary_done = False
