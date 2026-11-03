@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import sys
 import time
 from pathlib import Path
 
@@ -37,6 +38,9 @@ import torch
 import torch.nn.functional as F
 from safetensors import safe_open
 from safetensors.torch import save_file
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from safetensors_io import io_safe_open  # noqa: E402
 
 MAX_LENGTH = 1024
 CONNECTOR = "model.diffusion_model.video_embeddings_connector."
@@ -180,7 +184,7 @@ def main() -> None:
     if args.source is None:
         raise SystemExit("--source is required (the LTX-2.3 checkpoint holds the projection and connector weights)")
     device = hidden.device
-    with safe_open(str(args.source), framework="pt", device="cpu") as f:
+    with io_safe_open(str(args.source)) as f:  # mmap reader SIGSEGVs on >2**35 files on Windows ARM64
         proj_w = f.get_tensor(PROJ + "weight").to(device, torch.bfloat16)
         proj_b = f.get_tensor(PROJ + "bias").to(device, torch.bfloat16)
         weights = {k.removeprefix(CONNECTOR): f.get_tensor(k).to(device, torch.bfloat16) for k in f.keys() if k.startswith(CONNECTOR)}
