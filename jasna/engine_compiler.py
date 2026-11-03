@@ -59,6 +59,13 @@ def _detection_engine_exists(
     fp16: bool,
     gpu: str,
 ) -> bool:
+    import os
+
+    if os.environ.get("JASNA_RFDETR_BACKEND", "").strip().lower() == "onnxruntime":
+        # The detector runs the ONNX through onnxruntime instead of TensorRT
+        # (platforms where TRT engine building is broken, NVIDIA/TensorRT#4904).
+        return True
+
     from jasna.mosaic.detection_registry import detection_engine_path
 
     return detection_engine_path(

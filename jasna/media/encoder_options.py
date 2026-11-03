@@ -3,6 +3,7 @@ overrides, the source-tied bitrate ceiling and NVENC VRAM estimates."""
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Mapping
@@ -121,6 +122,19 @@ AMF_ENCODER_SPECS: dict[str, EncoderSpec] = _encoder_specs("amf", {
     "h264": _amf_default_options("h264", vbaq="0", profile="high"),
     "av1": _amf_default_options("av1", aq_mode="none", profile="main", bitdepth="10"),
 })
+
+SOFTWARE_ENCODER_SPECS: dict[str, EncoderSpec] = {
+    "hevc": EncoderSpec(
+        "libx265", "p010le",
+        MappingProxyType({"preset": "medium", "crf": "24", "x265-params": "keyint=250:min-keyint=250"}),
+    ),
+    "h264": EncoderSpec(
+        "libx264", "nv12",
+        MappingProxyType({"preset": "medium", "crf": "23", "x264-params": "keyint=250:min-keyint=250"}),
+    ),
+    "av1": EncoderSpec("libsvtav1", "p010le", MappingProxyType({"crf": "34"})),
+}
+
 
 NVENC_MAX_SURFACES = 64
 LARGE_FRAME_PIXELS = 4096 * 2160
@@ -304,6 +318,11 @@ def resolve_encoder_options(
 ) -> tuple[EncoderSpec, dict[str, str]]:
     """Pick the encoder spec and the final FFmpeg options for one output."""
     specs = AMF_ENCODER_SPECS if vendor is AcceleratorVendor.AMD else ENCODER_SPECS
+    software = os.environ.get("JASNA_CPU_ENCODER", "").strip() == "1"
+    if software:
+        # Platforms without hardware encoders (e.g. FFmpeg WoA builds without
+        # NVENC): fall back to software libx264/libx265/libsvtav1.
+        specs = SOFTWARE_ENCODER_SPECS
     if codec not in specs:
         raise ValueError(f"Unsupported codec: {codec}")
     spec = specs[codec]
@@ -340,6 +359,7 @@ def resolve_encoder_options(
     encoder_options.update(overrides)
     if (
         vendor is AcceleratorVendor.NVIDIA
+        and not software
         and metadata.video_width * metadata.video_height > LARGE_FRAME_PIXELS
         and not {"rc-lookahead", "lookahead_level"} & overrides.keys()
     ):
@@ -348,4 +368,12 @@ def resolve_encoder_options(
         encoder_options.update(
             AMF_SMART_FRAGMENT_OPTIONS if vendor is AcceleratorVendor.AMD else NVENC_SMART_FRAGMENT_OPTIONS
         )
+    if software:
+        # nvenc-only options are rejected by avcodec_open2 on libx encoders.
+        _nvenc_only = {
+            "cq", "delay", "p_reset", "temporal_aq", "spatial_aq", "spatial-aq",
+            "aq-strength", "tune", "multipass-mode", "profile-tier", "level",
+            "g", "rc", "preset_ll", "strict_gop", "b_ref_mode", "temporal_lr",
+        }
+        encoder_options = {k: v for k, v in encoder_options.items() if k not in _nvenc_only}
     return spec, encoder_options

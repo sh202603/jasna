@@ -20,6 +20,12 @@ _IMAGENET_MEAN = (0.485, 0.456, 0.406)
 _IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
+def _rfdetr_backend_override() -> str:
+    import os
+
+    return os.environ.get("JASNA_RFDETR_BACKEND", "").strip().lower()
+
+
 def compile_rfdetr_engine(
     weights_path: Path,
     device: torch.device,
@@ -28,6 +34,12 @@ def compile_rfdetr_engine(
     dynamic_batch: bool,
     fp16: bool,
 ) -> Path:
+    if _rfdetr_backend_override() in ("onnxruntime", "torch"):
+        # Platform without usable TensorRT (e.g. Windows ARM64, NVIDIA/TensorRT#4904):
+        # "onnxruntime" runs the ONNX through ORT; "torch" runs the .pt through the
+        # eager torch model (RfDetrTorchRunner). No engine to build either way.
+        return weights_path
+
     from jasna.trt import compile_onnx_to_tensorrt_engine
     return compile_onnx_to_tensorrt_engine(
         weights_path,
@@ -67,10 +79,16 @@ class RfDetrMosaicDetectionModel:
         if self.batch_size <= 0:
             raise ValueError(f"batch_size must be > 0, got {batch_size}")
 
-        if is_amd_device(self.device):
+        if _rfdetr_backend_override() == "onnxruntime":
+            from jasna.mosaic.onnxruntime_runner import OnnxRuntimeRunner
+
+            self.runner = OnnxRuntimeRunner(self.weights_path)
+            self.engine_path = self.weights_path
+            self._stream = None
+        elif _rfdetr_backend_override() == "torch" or is_amd_device(self.device):
             if torch_variant is None:
                 raise RuntimeError(
-                    f"RF-DETR on AMD requires a torch variant for {weights_path.name}"
+                    f"RF-DETR torch runner requires a torch variant for {weights_path.name}"
                 )
             from jasna.mosaic.rfdetr_torch_runner import RfDetrTorchRunner
 
