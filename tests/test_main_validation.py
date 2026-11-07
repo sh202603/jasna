@@ -169,7 +169,7 @@ LTX_NEEDED = "needs --restoration-model-name ltx-basic, ltx, ltx-4step, ltx-8ste
         (["--segments", "10-20", "--frame-generation", "2x"], (), "--frame-generation cannot be combined with --segments"),
         (["--restoration-model-name", "ltx", "--ltx-auto-split", "12", "--frame-generation", "2x"], (),
          "--frame-generation cannot be combined with --ltx-auto-split"),
-        (["--frame-generation", "4x"], (), "argument --frame-generation: invalid choice"),
+        (["--frame-generation", "3x"], (), "argument --frame-generation: invalid choice"),  # +modi: 4x is a choice
         (["--stream", "--upscale", "span"], (), "--upscale is only supported for offline exports"),
         (["--segments", "10-20", "--upscale", "rtx-super-res"], (), "--upscale cannot be combined with --segments"),
         (["--restoration-model-name", "ltx", "--ltx-auto-split", "12", "--upscale", "span"], (),

@@ -6,11 +6,11 @@ then applies *only* frame-rate up-conversion (2x/4x, RIFE or RTX Video Frame
 Generation) to that already-restored video: it runs no mosaic detection and no
 BasicVSR++ restoration.
 
-Why a separate entry point instead of the existing ``--frame-gen`` flag: the main
+Why a separate entry point instead of the existing ``--frame-generation`` flag: the main
 pipeline always runs detection + restoration, so feeding it an already-restored
 video wastes the whole restore pass and risks re-mangling clean frames on a false
 detection. This CLI is a thin driver over jasna's protection-free media + framegen
-modules (NVDEC decode, NVENC encode + mkvmerge/ffmpeg mux, ``FrameGenWriter``, the
+modules (NVDEC decode, NVENC encode + mkvmerge/ffmpeg mux, ``FrameGenerationWriter``, the
 frame-gen backends). It imports nothing from ``jasna.pipeline`` or ``jasna.protection``.
 """
 
@@ -274,20 +274,20 @@ class _EncoderWriter:
 
 
 def run_framegen(reader, encoder_ctx, generator, multiplier, *, progress=None) -> int:
-    """Decode every frame, push it through ``FrameGenWriter``, return the source-frame count.
+    """Decode every frame, push it through ``FrameGenerationWriter``, return the source-frame count.
 
     ``reader`` is an already-entered ``VideoReader``. The ``generator`` is
-    *borrowed*: this function never closes it (``FrameGenWriter.close()`` does not
-    either) — the caller owns its lifetime. The encoder is closed via the writer.
+    *borrowed*: this function never closes it (the writer is told not to own it);
+    the caller owns its lifetime. The encoder is closed via the writer.
     """
-    from jasna.framegen import FrameGenWriter
+    from jasna.frame_generation import FrameGenerationWriter
 
-    writer = FrameGenWriter(_EncoderWriter(encoder_ctx), generator, multiplier)
+    writer = FrameGenerationWriter(_EncoderWriter(encoder_ctx), generator, multiplier, owns_generator=False)
 
     source_frames = 0
     for batch, pts_list in reader.frames():
         # The decoder allocates a fresh batch tensor per iteration, and
-        # FrameGenWriter holds the last frame as a view, which keeps that batch's
+        # the writer holds the last frame as a view, which keeps that batch's
         # storage alive until the next frame overwrites the view. So no clone is
         # needed here (and the encoder's record_stream covers cross-stream safety).
         # Do NOT "optimize" the decoder to reuse one buffer across batches, or the
@@ -297,6 +297,7 @@ def run_framegen(reader, encoder_ctx, generator, multiplier, *, progress=None) -
             source_frames += 1
             if progress is not None:
                 progress.update(1)
+    writer.finish()
     writer.close()
     return source_frames
 
@@ -325,14 +326,7 @@ def _process_video(
     import torch
 
     from jasna.media.probe import get_video_meta_data
-    from jasna.media.backend import VideoBackend, coerce_backend, make_video_encoder, make_video_reader
-
-    # Frame generation always raises the output fps (multiplier > 1), which the
-    # torchcodec encoder can't do (it encodes CFR at the source rate), so encoding
-    # is always native here. Downgrade a forced ``torchcodec`` encode backend to
-    # ``auto`` so it falls back to native instead of erroring; decode still uses the
-    # requested backend.
-    enc_backend = VideoBackend.AUTO if coerce_backend(video_encode_backend) is VideoBackend.TORCHCODEC else video_encode_backend
+    from jasna.media.backend import make_video_encoder, make_video_reader
 
     metadata = get_video_meta_data(str(input_path))
     encoder_ctx = make_video_encoder(
@@ -342,8 +336,8 @@ def _process_video(
         codec=codec,
         encoder_settings=encoder_settings,
         lut_path=None,
-        output_fps=metadata.video_fps_exact * multiplier,
-        backend=enc_backend,
+        frame_generation=multiplier,
+        backend=video_encode_backend,
     )
     progress = None
     if show_progress:
@@ -464,7 +458,7 @@ def main() -> None:
     failed = 0
     with torch.cuda.device(device):
         # Build the generator ONCE and reuse it across every job (a folder batch
-        # shares one model). It is borrowed by each FrameGenWriter and closed here
+        # shares one model). It is borrowed by each writer and closed here
         # exactly once. build_frame_generator may raise for an unavailable backend
         # (e.g. "rtx"); that propagates before the try below, so the generator is
         # only closed when it was actually created.

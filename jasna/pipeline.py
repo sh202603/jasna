@@ -21,6 +21,7 @@ from jasna.media.encoder_settings import require_encodable_size
 from jasna.media.probe import UnsupportedVideoError, get_video_meta_data
 from jasna.media.video_encoder import VideoEncoder
 from jasna.media.backend import VideoBackend, make_video_encoder
+from jasna.frame_generation import multiplier_of
 from jasna.media.frame_rate import FrameRateRetarget, resolve_frame_rate_retarget
 from jasna.media.lut import CubeLut, parse_cube_file
 from jasna.media.splice import (
@@ -302,16 +303,29 @@ class Pipeline:
             raise error
 
     def _frame_writer(self, writer: _OfflineFrameWriter, metadata):
-        """``writer``, behind 2x frame generation and then upscaling when the job asks for
-        them; their models take GPU memory from here until the writer closes."""
+        """``writer``, behind frame generation (+modi: 2x or 4x with the RTX or the RIFE backend)
+        and then upscaling when the job asks for them; their models take GPU memory from here
+        until the writer closes. Upscaling runs first, so the generator works on upscaled frames."""
+        config = self.config
         source_size = (int(metadata.video_width), int(metadata.video_height))
-        upscale_size = frame_upscale_size(self.config, *source_size)
-        if self.config.frame_generation != "none":
-            from jasna.frame_generation import FrameGenerationWriter, RtxFrameGeneration
+        upscale_size = frame_upscale_size(config, *source_size)
+        if config.frame_generation != "none":
+            from jasna.frame_generation import FrameGenerationWriter, build_generator
 
-            writer = FrameGenerationWriter(writer, RtxFrameGeneration(self.device, *(upscale_size or source_size)))
+            width, height = upscale_size or source_size
+            generate = build_generator(
+                config.frame_generation_backend,
+                device=self.device,
+                width=width,
+                height=height,
+                rtx_mode=config.frame_generation_rtx_mode,
+                model_path=config.frame_generation_model_path or None,
+                fp16=config.fp16,
+            )
+            log.info("Frame generation %s with the %s backend", config.frame_generation, config.frame_generation_backend)
+            writer = FrameGenerationWriter(writer, generate, multiplier_of(config.frame_generation))
         if upscale_size is not None:
-            upscaler = build_frame_upscaler(self.config, self.device, source_size, upscale_size)
+            upscaler = build_frame_upscaler(config, self.device, source_size, upscale_size)
             writer = FrameUpscaleWriter(writer, upscaler)
         return writer
 
@@ -406,7 +420,7 @@ class Pipeline:
             output_fps=frame_rate.output_fps,
             fmp4=self.config.fmp4,
             settings=settings,
-            frame_generation=self.config.frame_generation != "none",
+            frame_generation=multiplier_of(self.config.frame_generation),
             backend=self.video_encode_backend,
             native_encoder=VideoEncoder,
         )

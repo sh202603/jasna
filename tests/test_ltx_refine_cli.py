@@ -94,7 +94,7 @@ class TestCli:
             (["--ltx-auto-split", "12"], "--ltx-auto-split"),
             (["--retarget-high-fps"], "--retarget-high-fps"),
             (["--fmp4"], "--fmp4"),
-            (["--frame-gen", "2x"], "--frame-gen"),
+            (["--frame-generation", "2x"], "--frame-generation"),
             (["--vr-mode", "sbs"], "--vr-mode sbs"),
             (["--lut", __file__], "--lut"),
             (["--sharpen", "0.5"], "--sharpen"),

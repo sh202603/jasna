@@ -428,7 +428,7 @@ def build_restoration_session(
     device = torch.device(config.device)
     if is_amd_device(device):
         log_amd_backend(device)
-    if config.frame_generation != "none" and not supports_frame_generation(device):
+    if config.frame_generation != "none" and config.frame_generation_backend == "rtx" and not supports_frame_generation(device):
         raise ValueError(FRAME_GENERATION_NEEDS_RTX_40)
     if config.tvai_denoise and config.secondary_restoration != "tvai":
         raise ValueError("TVAI Denoise requires secondary restoration 'tvai'")
@@ -610,7 +610,10 @@ def _build_basicvsrpp_pipeline(
 
 
 LTX_FAST_NEEDS_BLACKWELL = "The fast LTX model needs an RTX 50-series (Blackwell) GPU"
-FRAME_GENERATION_NEEDS_RTX_40 = "Frame generation needs an NVIDIA RTX 40-series or newer GPU"
+FRAME_GENERATION_NEEDS_RTX_40 = (
+    "Frame generation needs an NVIDIA RTX 40-series or newer GPU for the rtx backend; "
+    "--frame-generation-backend rife runs on every GPU"
+)
 UPSCALE_RTX_NEEDS_NVIDIA = "RTX Super Res upscaling needs an NVIDIA GPU"
 
 
@@ -900,8 +903,6 @@ def build_pipeline(
     progress_callback: Callable | None = None,
     segments: "tuple[SegmentRange, ...] | None" = None,
     splice_plan: "SplicePlan | None" = None,
-    frame_gen_multiplier: int = 1,
-    frame_generator=None,
     video_decode_backend=None,
     video_encode_backend=None,
 ) -> "Pipeline":
@@ -928,8 +929,6 @@ def build_pipeline(
         progress_callback=progress_callback,
         segments=segments,
         splice_plan=splice_plan,
-        frame_gen_multiplier=frame_gen_multiplier,
-        frame_generator=frame_generator,
         video_decode_backend=video_decode_backend,
         video_encode_backend=video_encode_backend,
     )
@@ -943,8 +942,6 @@ def build_job_pipeline(
     segment_job: SegmentJob | None,
     *,
     progress_callback: Callable | None,
-    frame_gen_multiplier: int = 1,
-    frame_generator=None,
     video_decode_backend=None,
     video_encode_backend=None,
 ) -> "Pipeline":
@@ -956,8 +953,6 @@ def build_job_pipeline(
             input_video,
             output_video,
             progress_callback=progress_callback,
-            frame_gen_multiplier=frame_gen_multiplier,
-            frame_generator=frame_generator,
             video_decode_backend=video_decode_backend,
             video_encode_backend=video_encode_backend,
         )
@@ -969,8 +964,6 @@ def build_job_pipeline(
         progress_callback=progress_callback,
         segments=segment_job.splice_plan.segments,
         splice_plan=segment_job.splice_plan,
-        frame_gen_multiplier=frame_gen_multiplier,
-        frame_generator=frame_generator,
         video_decode_backend=video_decode_backend,
         video_encode_backend=video_encode_backend,
     )

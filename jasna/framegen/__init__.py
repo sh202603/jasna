@@ -6,8 +6,9 @@ the secondary restorers (which process 256x256 mosaic crops and never change the
 frame count), frame generation operates on full-resolution output frames and
 *increases* the frame count + presentation timestamps (PTS).
 
-It is wired in as a thin decorator (``FrameGenWriter``) around the pipeline's
-``FrameWriter``, so the rest of the pipeline and the encoder are untouched.
+It is wired in through ``jasna.frame_generation.FrameGenerationWriter`` (upstream's writer,
+generalised to a multiplier) around the pipeline's ``FrameWriter``, so the rest of the
+pipeline is untouched; the encoder scales its frame rate and time base by the multiplier.
 
 Backends implement the ``FrameGenerator`` protocol and are pluggable by name:
 - ``rife``: neural interpolation (RIFE) in PyTorch; needs a RIFE checkpoint
@@ -17,11 +18,9 @@ Backends implement the ``FrameGenerator`` protocol and are pluggable by name:
 """
 
 from jasna.framegen.frame_generator import FrameGenerator
-from jasna.framegen.frame_gen_writer import FrameGenWriter
 
 __all__ = [
     "FrameGenerator",
-    "FrameGenWriter",
     "build_frame_generator",
     "BACKEND_CHOICES",
     "MULTIPLIER_CHOICES",
@@ -45,7 +44,7 @@ def build_frame_generator(
 ) -> FrameGenerator:
     """Construct a frame-generation backend by name.
 
-    Heavy backend imports stay local so that ``--frame-gen none`` and error
+    Heavy backend imports stay local so that ``--frame-generation none`` and error
     paths never import torch model code or the nvvfx SDK. ``model_path`` and
     ``fp16`` only matter to ``rife``; ``rtx_mode`` only to ``rtx``.
     """
