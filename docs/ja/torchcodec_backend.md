@@ -1,6 +1,6 @@
 # torchcodec バックエンド（実験的、vali / PyNvVideoCodec フォールバック付き）
 
-> **⚠️ v0.8.0 リベースでの意味論変更（2026-07-18）**: native バックエンドは PyAV（NVDEC/NVENC）になり、torchcodec **エンコード**は `auto` では選択されなくなった（ネイティブは HEVC/AV1 を常時 10-bit 出力するため、8-bit 専用の torchcodec と出力パリティが成立しない）。強制指定（`--encode-backend torchcodec`）時のみ、8-bit ソース限定で動作する。最新仕様は `docs/ja/changes_vs_upstream.md` §7 が正。本書のそれ以外の設計記述（選択レイヤ、NVENC マッピング、フォールバック機構）は引き続き有効。
+> **⚠️ v0.8.0 リベースでの意味論変更（2026-07-18）**: native バックエンドは PyAV（NVDEC/NVENC）になり、torchcodec **エンコード**は `auto` では選択されなくなった（ネイティブは HEVC/AV1 を常時 10-bit 出力するため、8-bit 専用の torchcodec と出力パリティが成立しない）。強制指定（`--video-encode-backend torchcodec`）時のみ、8-bit ソース限定で動作する。最新仕様は `docs/ja/changes_vs_upstream.md` §7 が正。本書のそれ以外の設計記述（選択レイヤ、NVENC マッピング、フォールバック機構）は引き続き有効。
 >
 > **v0.9.1 ベースでの更新（2026-07-30）**: `native` のデコードはそれ自体が連鎖になった — 上流の reader が VALI NVDEC（Kruk2 氏の `python_vali` フォーク wheel 導入時）→ PyAV hwaccel → PyAV software の順に試す（v0.10.0 からは環境変数 `JASNA_DECODE_BACKEND` で選ぶ。v0.9.1 ベースの in-code `DECODE_BACKEND` トグルは無くなった）。`--video-backend` はその連鎖の**上位層**に位置し、`native` はファイルをそのまま上流 reader に渡す。`torchcodec`/`auto` は従来どおり。エンコード側は上流に CAS シャープ（`--sharpen`）と fMP4 が加わったが、どちらも native 専用のまま（CAS は適格性ゲート、`--fmp4` は torchcodec エンコーダでは警告を出して最後に `+faststart` で remux）。
 
@@ -104,18 +104,18 @@ AUTO のデコードでは、torchcodec の初期化（NVDEC オープン、CPU 
 
 ```
 --video-backend  {native,auto,torchcodec}            # 既定: native
---decode-backend {inherit,native,auto,torchcodec}    # 既定: inherit（=--video-backend）
---encode-backend {inherit,native,auto,torchcodec}    # 既定: inherit
+--video-decode-backend {inherit,native,auto,torchcodec}    # 既定: inherit（=--video-backend）
+--video-encode-backend {inherit,native,auto,torchcodec}    # 既定: inherit
 ```
 
 - `native`：常に vali と PyNvVideoCodec を使う（従来挙動）。
 - `auto`：torchcodec が利用可能かつ適格なら使い、そうでなければネイティブを使う。
 - `torchcodec`：torchcodec を強制する。満たせない要求（10bit、streaming など）は早期にエラーにする。
-- `--decode-backend` と `--encode-backend` はデコード側とエンコード側を個別に上書きする。`inherit` は `--video-backend` に従う。
+- `--video-decode-backend` と `--video-encode-backend` はデコード側とエンコード側を個別に上書きする。`inherit` は `--video-backend` に従う。
 
 `jasna`（`main.py`）と `jasna-framegen`（`framegen_cli.py`）の両方に追加する。
 早期バリデーションとして、`torchcodec`（decode/encode いずれか）と streaming の組み合わせ、`encode-backend torchcodec` と `--bit-depth 10` の組み合わせをエラーにする。
-frame-gen は常に CFR エンコードがネイティブのため、`jasna-framegen` では強制 `torchcodec` のエンコード側を `auto` に降格させ、デコードだけ torchcodec を使う。
+フレーム生成（`--frame-generation`、`jasna-framegen`）はエンコーダに倍率を渡し、torchcodec エンコーダはその倍率で固定フレームレートを上げる（v0.12.2 ベースから。以前の `jasna-framegen` はエンコード側をネイティブに降格していた）。
 
 ## 依存とインストール
 

@@ -52,7 +52,7 @@ $env:TEMP = 'Z:\Temp'
 
 | オプション | デフォルト | 説明 |
 | ------ | ------- | ----- |
-| `--restoration-model-name` | `basicvsrpp` | 動画復元モデル：`basicvsrpp`（高速）、`ltx-basic`（基本画質の LTX：`ltx` より約 1.7 倍速く、少しやわらかい）、`ltx`（標準画質の LTX：より精細、かなり遅い。おすすめ）、`ltx-4step`（良好画質：`ltx` より少し精細で約 1.5 倍遅い）、`ltx-8step`（高画質：`ltx` より精細で約 2.5 倍遅い）、`ltx-undistilled`（最高画質：少し良く、`ltx` より約 5 倍遅い）。[モデルの選び方](models.md#復元モデル)を参照。 *(+modi)* さらに `seedvr2`（外部 venv で動く SeedVR2 3B diffusion + LoRA。品質モードでかなり遅い。`--seedvr2-repo` 必須。`--frame-gen`、VR、inline の FlashVSR/SwiftVR とは併用不可）。詳細: [seedvr2.md](seedvr2.md)。 |
+| `--restoration-model-name` | `basicvsrpp` | 動画復元モデル：`basicvsrpp`（高速）、`ltx-basic`（基本画質の LTX：`ltx` より約 1.7 倍速く、少しやわらかい）、`ltx`（標準画質の LTX：より精細、かなり遅い。おすすめ）、`ltx-4step`（良好画質：`ltx` より少し精細で約 1.5 倍遅い）、`ltx-8step`（高画質：`ltx` より精細で約 2.5 倍遅い）、`ltx-undistilled`（最高画質：少し良く、`ltx` より約 5 倍遅い）。[モデルの選び方](models.md#復元モデル)を参照。 *(+modi)* さらに `seedvr2`（外部 venv で動く SeedVR2 3B diffusion + LoRA。品質モードでかなり遅い。`--seedvr2-repo` 必須。`--frame-generation`、VR、inline の FlashVSR/SwiftVR とは併用不可）。詳細: [seedvr2.md](seedvr2.md)。 |
 | `--restoration-model-path` | `model_weights/lada_mosaic_restoration_model_generic_v1.2.pth`、LTX では `model_weights/ltx-restore` | 復元モデルの重み（LTX はフォルダー）。 |
 | `--seedvr2-repo` | — | *(+modi)* `ComfyUI-SeedVR2_VideoUpscaler` checkout のパス。`seedvr2` で必須。 |
 | `--seedvr2-python` | `<repo>/.venv/bin/python` | *(+modi)* SeedVR2 venv の Python。 |
@@ -165,16 +165,15 @@ Ctrl+C、エラー、アプリ終了後は、同じコマンドを実行する�
 | `--lut` | — | 動画の書き出し時に適用される `.cube` カラー LUT（1D または 3D）。アプリでは**出力**タブの**カラー LUT (.cube)** でも設定できます。 |
 | `--sharpen` | `0` | エンコード前に映像をシャープにします。`0`（無効）〜`1`（最強）。ffmpeg の `cas` フィルターと同じ結果になるため、再エンコードは不要です。詳しくは[高度な処理](advanced_processing.md)。 |
 | `--retarget-high-fps` | オフ | 1 フレームおきに残して 60 → 30 FPS（および 59.94 → 29.97）に変換。他のレートは変わらず、音声もずれません。`--stream` や `--segments` とは併用できません。 |
-| `--frame-generation` | `none` | `2x` で NVIDIA RTX Video Frame Generation によりフレームレートを 2 倍にし、動きを滑らかにします。RTX 40 シリーズ以降の GPU が必要です。音声と長さは変わりません。`--stream`、`--segments`、`--ltx-auto-split` とは併用できません。 |
+| `--frame-generation` | `none` | `2x` で NVIDIA RTX Video Frame Generation によりフレームレートを 2 倍にし、動きを滑らかにします。RTX 40 シリーズ以降の GPU が必要です。音声と長さは変わりません。`--stream`、`--segments`、`--ltx-auto-split` とは併用できません。 *(+modi)* `4x` も可。GPU の条件は `rtx` バックエンドのもので、`--frame-generation-backend rife` はどの GPU でも動きます。`seedvr2`、FlashVSR、SwiftVR とは併用不可。詳細: [frame_generation.md](frame_generation.md)。 |
 | `--fmp4` | オフ | 作成中の `.mp4` / `.mov` 出力をそのまま再生できます。中断してもファイルは再生可能なままです。`--stream`、`--segments`、`--ltx-auto-split` とは併用できません。詳しくは[高度な処理](advanced_processing.md)。 |
 | `--segments` | — | 1 本の動画のこの区間だけを復元します。秒または `mm:ss` で指定。例: `10-25,01:10-01:30.5`。`--stream`、`--retarget-high-fps`、`--fmp4`、`--ltx-auto-split`、`--frame-generation` とは併用できず、画像やフォルダーの入力にも使えません。詳しくは[区間](segments.md)。 |
 | `--working-directory` | 出力ディレクトリ | 一時ファイルと保存済み進行状況の書き込み先。詳しくは[区間](segments.md)。 |
-| `--frame-gen` | `none` | *(+modi)* AI フレーム補間で出力フレームレートを `2x`/`4x` に。ファイル出力のみ。`--segments`、LTX、`seedvr2`、FlashVSR、SwiftVR とは併用不可。詳細: [frame_generation.md](frame_generation.md)。 |
-| `--frame-gen-backend` | `rife` | *(+modi)* `rife`（PyTorch 上の RIFE、対応 GPU 全般、`rife.pth` が必要）または `rtx`（`nvidia-vfx` 0.2.0.0 以降の NVIDIA RTX Video Frame Generation、RTX 40 シリーズ以降限定、重み不要、約 10 倍速）。 |
-| `--frame-gen-model-path` | `model_weights/rife.pth` | *(+modi)* RIFE 重みの任意パス（TorchScript `.pth` 推奨）。RIFE 専用。 |
-| `--frame-gen-rtx-mode` | `medium` | *(+modi)* RTX Video Frame Generation の品質モード。`low`/`medium`/`high`。`high` は `medium` の約 6 倍遅く、改善はわずか。 |
+| `--frame-generation-backend` | `rtx` | *(+modi)* `rtx`（`nvidia-vfx` 0.2.0.0 以降の NVIDIA RTX Video Frame Generation、RTX 40 シリーズ以降限定、重み不要、約 10 倍速）または `rife`（PyTorch 上の RIFE、対応 GPU 全般、`rife.pth` が必要）。 |
+| `--frame-generation-model-path` | `model_weights/rife.pth` | *(+modi)* RIFE 重みの任意パス（TorchScript `.pth` 推奨）。RIFE 専用。 |
+| `--frame-generation-rtx-mode` | `medium` | *(+modi)* RTX Video Frame Generation の品質モード。`low`/`medium`/`high`。`high` は `medium` の約 6 倍遅く、改善はわずか。 |
 | `--video-backend` | `native` | *(+modi、実験的)* `native`、`auto`、`torchcodec`。詳細: [torchcodec_backend.md](torchcodec_backend.md)。 |
-| `--decode-backend` / `--encode-backend` | `inherit` | *(+modi)* デコード側・エンコード側を個別に上書き。`torchcodec` エンコードは 8bit 専用で強制指定時のみ。 |
+| `--video-decode-backend` / `--video-encode-backend` | `inherit` | *(+modi)* デコード側・エンコード側を個別に上書き。`torchcodec` エンコードは 8bit 専用で強制指定時のみ。 |
 
 ### コーデックの選び方
 

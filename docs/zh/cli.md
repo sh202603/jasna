@@ -31,7 +31,7 @@ $env:TEMP = 'Z:\Temp'
 
 `--working-directory` 单独设置区间和 LTX 临时文件的文件夹。
 
-> *(+modi)* 本分支新增的选项（`seedvr2` 一级修复、FlashVSR / SwiftVR / SwiftVR distill 二级修复、`--rtx-strength` / `--rtx-highbitrate`、`--ltx-crop-vsr`、LTX 任务中的 `--secondary-restoration rtx-super-res`、`--frame-gen`、`--video-backend`、`--fp8-recon` 等）只在英文版 [cli.md](../en/cli.md) 中有说明。
+> *(+modi)* 本分支新增的选项（`seedvr2` 一级修复、FlashVSR / SwiftVR / SwiftVR distill 二级修复、`--rtx-strength` / `--rtx-highbitrate`、`--ltx-crop-vsr`、LTX 任务中的 `--secondary-restoration rtx-super-res`、`--frame-generation`、`--video-backend`、`--fp8-recon` 等）只在英文版 [cli.md](../en/cli.md) 中有说明。
 
 ## 通用
 

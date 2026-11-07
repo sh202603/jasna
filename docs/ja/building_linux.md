@@ -2,7 +2,7 @@
 
 Linux で Jasna のセットアップを行い、**ソースから実行**する手順です。
 
-> **ブランチとベース。** 本ガイドは `0.12.1+modi`（upstream `1242b947` = v0.12.1 タグ）の手順です。GPU スタックは `pyproject.toml` の upstream のピンに追従しています（torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.38 / ultralytics 8.4.96 以上）。本ブランチが足しているのは、`nvidia-vfx==0.2.0.0` の固定（upstream は無固定）、FP8 復元用の通常依存 `nvidia-cudnn-frontend`、`torchcodec` extra、任意の `nvidia-rtx` extra（torch 2.12.0 / torchvision 0.27.0 / torch-tensorrt-rtx 2.12.1）です。ブランチが upstream に加えている変更とその理由は [changes_vs_upstream.md](changes_vs_upstream.md) にあります。
+> **ブランチとベース。** 本ガイドは `0.12.2+modi`（upstream `12510264` = v0.12.2 タグ）の手順です。GPU スタックは `pyproject.toml` の upstream のピンに追従しています（torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.38 / ultralytics 8.4.96 以上）。本ブランチが足しているのは、`nvidia-vfx==0.2.0.0` の固定（upstream は無固定）、FP8 復元用の通常依存 `nvidia-cudnn-frontend`、`torchcodec` extra、任意の `nvidia-rtx` extra（torch 2.12.0 / torchvision 0.27.0 / torch-tensorrt-rtx 2.12.1）です。ブランチが upstream に加えている変更とその理由は [changes_vs_upstream.md](changes_vs_upstream.md) にあります。
 >
 > **検証済み**: Ubuntu 26.04 LTS + RTX 5080、2026-10-16。実施内容と過去ベースは[付録 B](#付録-b-本セットアップの履歴)。他のディストリでも動作しますが、パッケージ名や ffmpeg の導入手順は異なります。
 >
@@ -166,7 +166,7 @@ python -c "import python_vali as v; print(hasattr(v.PyDecoder, 'DecodeSingleSurf
 uv pip install --force-reinstall --no-deps "$WORKSPACE"/vali/dist/python_vali-4.8.8-*.whl
 ```
 
-**注: `nvidia-vfx` は 0.2.0.0（VFX SDK 1.3.0）に固定しています。** PyPI 上のエントリは 4 KB の殻で、上記インストール中に `pypi.nvidia.com` から実 wheel（443 MB）を取ってくるため、追加のインデックス指定は要りません。0.2.0.0 は `--frame-gen-backend rtx`（[frame_generation.md](frame_generation.md)）が使う `VideoFrameGeneration` effect を提供し、TensorRT を同梱しません。0.1.0.1 が入った古い venv は `uv pip install nvidia-vfx==0.2.0.0` でその場で更新できます（[付録 B](#付録-b-本セットアップの履歴)）。
+**注: `nvidia-vfx` は 0.2.0.0（VFX SDK 1.3.0）に固定しています。** PyPI 上のエントリは 4 KB の殻で、上記インストール中に `pypi.nvidia.com` から実 wheel（443 MB）を取ってくるため、追加のインデックス指定は要りません。0.2.0.0 は `--frame-generation-backend rtx`（[frame_generation.md](frame_generation.md)）が使う `VideoFrameGeneration` effect を提供し、TensorRT を同梱しません。0.1.0.1 が入った古い venv は `uv pip install nvidia-vfx==0.2.0.0` でその場で更新できます（[付録 B](#付録-b-本セットアップの履歴)）。
 
 **オプション: torchcodec バックエンド。** 実験的な torchcodec のデコード/エンコード経路（`--video-backend torchcodec`/`auto`）を使う場合は、`torchcodec` extra を追加し、同じフラグで `.[dev,nvidia,torchcodec]` を入れます（PyPI の torchcodec は GPU 非対応版のため、PyTorch インデックスの `+cu130` 版を取らせるには `--extra-index-url` が要ります）:
 
@@ -241,9 +241,9 @@ YOLO 系検出モデル（`lada-yolo-*`、`zelefans-vr-yolo-v2`）は、TensorRT
 
 テストクリップ 2 本は通常リポジトリに同梱され `$WORKSPACE/jasna/assets/`（`test_clip1_1080p.mp4`, `test_clip1_2160p.mp4`）にある。無い場合は upstream リリースから抽出する。
 
-### 6.1 オプション: RIFE フレーム補間モデル (`--frame-gen` 用)
+### 6.1 オプション: RIFE フレーム補間モデル (`--frame-generation` 用)
 
-フレームレート倍化 (`--frame-gen {2x,4x}`) を使う場合のみ必要。RIFE 重みは**同梱されない**（非商用条項のため）ので、`scripts/make_rife_torchscript.py` で TorchScript チェックポイントを自分で作成する。
+フレーム生成 (`--frame-generation {2x,4x}`) を `rife` バックエンド（`--frame-generation-backend rife`。既定の `rtx` は RTX 40 シリーズ以降で重み不要）で使う場合のみ必要。RIFE 重みは**同梱されない**（非商用条項のため）ので、`scripts/make_rife_torchscript.py` で TorchScript チェックポイントを自分で作成する。
 
 1. Practical-RIFE をクローンし、4.x のモデルパッケージ（**v4.25 で動作確認**）をダウンロードして `<repo>/train_log/` に `RIFE_HDv3.py`, `IFNet_HDv3.py`, `flownet.pkl` が揃う状態にする:
    ```bash
@@ -283,7 +283,7 @@ SwiftVR（`--secondary-restoration swiftvr` / `swiftvr-inline`。`--ltx-crop-vsr
 
 ```bash
 cd "$WORKSPACE/jasna"
-python -m jasna --version    # -> 0.12.1+modi
+python -m jasna --version    # -> 0.12.2+modi
 python -m jasna --help
 python -m jasna --input assets/test_clip1_1080p.mp4 --output /tmp/out.mp4   # 短いクリップを処理
 python -m jasna              # GUI を起動（引数なし）
@@ -344,7 +344,7 @@ python -m jasna              # GUI を起動（引数なし）
 - **RTX Super-Res で `IRuntime::deserializeCudaEngine ... Version tag does not match`**
   `nvidia-vfx` 0.1.0.1 以前に限る症状。それらの wheel は TensorRT 10.9 を同梱し、jasna の TensorRT 10.16 と soname `libnvinfer.so.10` を共有するため、nvvfx 側が先にロードされるとエンジンを読めなくなる。固定版の 0.2.0.0 は TensorRT を同梱せず、衝突を避ける先読みガードも残っている（付録 A.3）。この症状が出たら `uv pip install nvidia-vfx==0.2.0.0`。
 
-- **`--frame-gen-backend rtx` が「RTX Video Frame Generation is not available in nvidia-vfx 0.1.0.1」と言う**
+- **`--frame-generation-backend rtx` が「RTX Video Frame Generation is not available in nvidia-vfx 0.1.0.1」と言う**
   venv が 0.2.0.0 固定（5 節）より前のもの。`uv pip install nvidia-vfx==0.2.0.0`。effect には加えて RTX 40 シリーズ以降の GPU とドライバ 570.190 以降 / 580.82 以降 / 590.44 以降が必要。
 
 - **`--fp8-recon` と RTX Super-Res の併用で `Unable to load any of {libcudnn_graph.so.9.7.1, ...}` で中断**
@@ -377,11 +377,12 @@ About ダイアログと初回ウィザードは、upstream の `grab_modal()` �
 
 ベースごとのソース実行手順の変化と、本ガイドを検証した時点（新しい順）。不要になった手順は要約だけを残し、全文は本ファイルの git 履歴にあります。
 
+- **v0.12.2 ベース（2026-11-07 Linux 検証、RTX 5080、Ubuntu 26.04）**: 実行時依存が 2 つ増えた（Linux は `jeepney`、Windows は `pystray`。トレイアイコン用）。既存 venv には `uv pip install -e .[dev,nvidia]` で入る。他のピン変更なし、ネイティブコード変更なし、エンジンの再コンパイルなし、VALI の再ビルドなし（`fc39271`）。任意の torchcodec extra は 0.17.0+cu130 を試した（`uv pip install --no-deps --index-url https://download.pytorch.org/whl/cu130 torchcodec==0.17.0`。0.14 以降は torch 2.11 以上で動く）。modi の torchcodec フラグは `--video-decode-backend` / `--video-encode-backend` に、フレーム生成は `--frame-generation` と `--frame-generation-backend` になった（[frame_generation.md](frame_generation.md)）。
 - **v0.12.1 ベース（2026-11-02 検証、RTX 5080、Ubuntu 26.04）**: 依存の下限が 1 つ増えた（`safetensors>=0.6`。古い版の既存 venv は `uv pip install 'safetensors>=0.6'`。本機の venv は 0.8.0rc0 で済み）。他のピンは変わらず、エンジンの再コンパイルは不要。VALI フォークは `fc39271` へ（5.2 節）。版数が 4.8.8 のままなので wheel を作り直して `--reinstall` で入れ替える。upstream の差分は大きい（437 コミット。詳細は [changes_vs_upstream.md](changes_vs_upstream.md) 付録 B）。2026-11-02 検証: 全テストの失敗は素の upstream と同じ（どちら側にも出る表示依存の Tk レイアウトテストを除く）、modi 機能の CLI e2e 行列（GOP 途中で切った MP4 の VALI と PyAV を含む 23 ケース）が全て完走、LTX の GPU テスト合格。
 - **v0.11.3 ベース（2026-10-22 検証、RTX 5080、Ubuntu 26.04）**: ピンの変更なし（`pyproject.toml` の差は版数だけ）、native コードの変更なし、エンジンの再コンパイルも VALI の再ビルドも不要で、`0.11.2+modi` の venv がそのまま使える。upstream の差分は LTX の 2-step / 4-step モデルと VAE の高速化、scene cut 検出の重複フレーム対応、PyAV の FFmpeg ログフック撤去と寛容なメタデータ復号（詳細は [changes_vs_upstream.md](changes_vs_upstream.md) 付録 B）。2026-10-22 検証: 全テストの失敗は素の upstream と同じ 125 件（modi だけの失敗なし）、modi 機能の CLI e2e 行列が全て完走、`--ltx-crop-vsr` の GPU テスト合格。
 - **v0.11.2 ベース（2026-10-18 検証、RTX 5080、Ubuntu 26.04）**: ピンの変更は `comfy-kitchen` 0.2.36 → 0.2.38 だけ（カーネルの変更は SM 8.9 未満のみ。既存 venv なら `uv pip install comfy-kitchen==0.2.38` で足りる）。upstream は LTX の less-overlap モードと HDD インストール警告を追加。VALI の再ビルド（`0e5c01e` のまま）もエンジンの再コンパイルも不要。検証（Linux、RTX 5080、2026-10-18）: モデル重みのある checkout での全テストを、同じ deselect と timeout で素の upstream `b623466f` と比較し、失敗は upstream と同じ箇所だけ（protection、gcc-15 での native LTX ビルド、表示環境、ultralytics）。10 秒のテストクリップで modi 機能の CLI 実走（BasicVSR++ の FP8 あり/なし、torchcodec、fMP4、RTX Super Res、SwiftVR distill、SwiftVR offline、SeedVR2、RIFE と RTX のフレーム生成、`--segments`、30 秒プローブ素材での `--ltx-crop-vsr swiftvr-distill`、両方の hop での `--ltx-trial`、LTX + frame-gen の拒否）。HDD 判定は本機（NVMe）で False。`comfy-kitchen` 0.2.38 を既存 venv に入れ、kitchen 関連テスト合格。既知の罠: `model_weights/` の**無い** checkout で全テストを流すと `tests/test_fp8_upsample.py::test_fp8_forward_parity_small` で pytest プロセスごと abort する（`cudnn.create_handle()` が abort、exit 134）。v0.11.1 ベースでも同じで新規ではなく、単体では再現しない。
 - **v0.11.1 ベース（2026-10-16 検証、RTX 5080、Ubuntu 26.04）**: upstream が torch 2.12.1 / torchvision 0.27.1 を固定し、`comfy-kitchen==0.2.36` と `ultralytics>=8.4.96`（YOLO export に onnxruntime も onnxslim も要らなくなり、5.5 節は注記だけになった）を追加、`av==18.1.0` を厳密固定、デコードバックエンドの選択を `JASNA_DECODE_BACKEND` だけにした（in-code の `DECODE_BACKEND` トグルは廃止）。VALI フォーク wheel は Kruk2 氏の `0e5c01e`（4.8.8 + ASF/VC-1 タイムスタンプ修正 + decoder-open の GIL 解放）で再ビルド。検証: 同じ deselect と timeout で素の upstream と比較した full pytest（残る失敗はすべて upstream でも失敗）、modi 機能の e2e CLI 実走（native / torchcodec バックエンド、FP8、フレーム生成、SeedVR2、FlashVSR inline、SwiftVR inline / オフライン / distill、`--ltx-crop-vsr`、segments、streaming）、両デコードパスで VALI フォーク wheel が実効。同日、`python_vali==4.8.8` が PyPI に無い（素の venv では `[nvidia]` が解決できない）ことを受けて VALI を必須と位置づけ、5 節を「ビルド用パッケージ（setuptools<81 を含む）→ VALI wheel のビルド → `--find-links` 付きの jasna インストール → mmengine パッチ」の順に組み替えた。mmengine パッチは、upstream が `7c64105` で `weights_only=True` に変えた版だとソース実行で full 版の `v1.2.pth` が読めないことを確認し、フォーク側で `False` のまま同梱することにした（4 ファイル分の説明を追加）。新しい 5 節は、空の venv と新規 clone の vali から通しで確認した（`[nvidia]` が `--find-links` で解決、`DecodeSingleSurfaceAsyncDetailed` が `True`、mmengine パッチ後に `load_model()` が `v1.2.pth` を読める）。
-- **nvidia-vfx 0.2.0.0 固定（2026-10-03）**: `--frame-gen-backend rtx` の `VideoFrameGeneration` effect のため、ブランチが `nvidia-vfx==0.2.0.0` を固定（upstream は無 pin）。0.2.0.0 は TensorRT を同梱しなくなり、付録 A.3 の `libnvinfer.so.10` 衝突は構造的に消滅、Linux wheel は約 1.1 GB から 443 MB に縮小。それ以前の venv には 0.1.0.1 が入っている: `uv pip install nvidia-vfx==0.2.0.0`。
+- **nvidia-vfx 0.2.0.0 固定（2026-10-03）**: `--frame-generation-backend rtx` の `VideoFrameGeneration` effect のため、ブランチが `nvidia-vfx==0.2.0.0` を固定（upstream は無 pin）。0.2.0.0 は TensorRT を同梱しなくなり、付録 A.3 の `libnvinfer.so.10` 衝突は構造的に消滅、Linux wheel は約 1.1 GB から 443 MB に縮小。それ以前の venv には 0.1.0.1 が入っている: `uv pip install nvidia-vfx==0.2.0.0`。
 - **PyAV を PyPI から（2026-08-24）**: av 18.1.0 が current_ctx API とエンコーダが使う CUDA stream 明示指定を含んで PyPI に公開され、PyAV main（コミット `f6f0a5e`）を BtbN FFmpeg 8.1 shared ビルドにリンクして auditwheel で同梱する暫定手順が終了。暫定 wheel は `18.0.0` を報告するため、5 節のインストールで置き換わる（すぐ替えるなら `uv pip install "av>=18.1"`）。公式 wheel で Linux 実機検証: メディア層テストと、NVDEC デコード・NVENC エンコードを含むフルパイプラインの e2e。
 - **v0.10.0 ベース（2026-08-13）**: 環境変数 `JASNA_DECODE_BACKEND`（`auto` / `vali` / `pyav-hw` / `pyav-sw`）。`python_vali` のピンは 4.8.8（フォークコミット `f4a67f8`）。
 - **v0.9.1 ベース（2026-07-30 検証）**: VALI NVDEC デコードバックエンドが任意の自前ビルド wheel として復活（現 5.2 節。当時はフォークコミット `3ad0d54` = 4.8.7）。エンコーダが `CudaContext(cuda_stream=...)` で CUDA stream を渡すようになり、av 18.1.0 までは上記の PyAV main wheel が必須だった。TensorRT エンジンは一度全再コンパイル。

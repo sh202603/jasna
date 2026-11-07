@@ -82,7 +82,7 @@ jasna --input ltx.mkv --output ltx_sharp.mkv \
 
 ### 拒否される組み合わせ
 
-`--restoration-model-name` が basicvsrpp 以外、`--secondary-restoration`、`--denoise`、`--segments`、`--ltx-auto-split`、`--stream`、`--retarget-high-fps`、`--fmp4`、`--frame-gen`、VR（`--vr-mode` が off 以外に解決された場合）、画像入力、フォルダ入力、`--lut`、`--sharpen`、`--swiftvr-scale 4`、`rtx-super-res` 方式での `--rtx-scale 4`、`--swiftvr-view-window` と `--swiftvr-distill-view-window` の既定以外、`--ltx-large-canvas` と `--swiftvr-distill-stabilize` の併用。
+`--restoration-model-name` が basicvsrpp 以外、`--secondary-restoration`、`--denoise`、`--segments`、`--ltx-auto-split`、`--stream`、`--retarget-high-fps`、`--fmp4`、`--frame-generation`、VR（`--vr-mode` が off 以外に解決された場合）、画像入力、フォルダ入力、`--lut`、`--sharpen`、`--swiftvr-scale 4`、`rtx-super-res` 方式での `--rtx-scale 4`、`--swiftvr-view-window` と `--swiftvr-distill-view-window` の既定以外、`--ltx-large-canvas` と `--swiftvr-distill-stabilize` の併用。
 GUI は対象外（CLI のみ、単一ファイルのみ）。
 
 ## 仕組み

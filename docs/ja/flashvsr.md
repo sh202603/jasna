@@ -454,7 +454,7 @@ jasna は自動でこれを見張る: Phase 1 前に bundle dir が tmpfs なら
 
 ## 制約
 
-- **ファイル出力専用**。`--stream`・フォルダ/画像入力・`--frame-gen` とは併用不可
+- **ファイル出力専用**。`--stream`・フォルダ/画像入力・`--frame-generation` とは併用不可
   (フレーム生成は出力に対する別パスとして実行する)。
 - **fps リターゲット・スマートレンダリング・VR 非対応**。`--retarget-high-fps`
   (Phase 1 の frame stride が Phase 3 の再ブレンド索引とずれる)・`--segments`・

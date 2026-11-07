@@ -1,6 +1,6 @@
 # torchcodec backend (experimental, with vali / PyNvVideoCodec fallback)
 
-> **⚠️ Semantics changed with the v0.8.0 rebase (2026-07-18)**: the native backend is now PyAV (NVDEC/NVENC), and torchcodec **encode** is no longer selected by `auto` (native always outputs 10-bit HEVC/AV1, so output parity with the 8-bit-only torchcodec encoder no longer holds). It runs only when forced (`--encode-backend torchcodec`), and only for 8-bit sources. `docs/en/changes_vs_upstream.md` §7 is authoritative for the current semantics; the rest of this document (selection layer, NVENC mapping, fallback machinery) still applies.
+> **⚠️ Semantics changed with the v0.8.0 rebase (2026-07-18)**: the native backend is now PyAV (NVDEC/NVENC), and torchcodec **encode** is no longer selected by `auto` (native always outputs 10-bit HEVC/AV1, so output parity with the 8-bit-only torchcodec encoder no longer holds). It runs only when forced (`--video-encode-backend torchcodec`), and only for 8-bit sources. `docs/en/changes_vs_upstream.md` §7 is authoritative for the current semantics; the rest of this document (selection layer, NVENC mapping, fallback machinery) still applies.
 >
 > **v0.9.1-base update (2026-07-30)**: `native` decode is now itself a chain — upstream's reader tries VALI NVDEC first (with Kruk2's `python_vali` fork wheel installed), then PyAV hwaccel, then PyAV software (selected through the `JASNA_DECODE_BACKEND` environment variable since v0.10.0; the in-code `DECODE_BACKEND` toggle of the v0.9.1 base is gone). `--video-backend` sits **above** that chain: `native` hands the file to upstream's reader as-is, `torchcodec`/`auto` behave as before. On the encode side upstream added CAS sharpening (`--sharpen`) and fMP4; both stay native-only (CAS is an eligibility gate, `--fmp4` logs a warning and remuxes with `+faststart` at the end under the torchcodec encoder).
 
@@ -25,8 +25,8 @@ decode and `PyNvVideoCodec` for encode. The goal is to move toward
 `torchcodec>=0.15.0`, a single official PyTorch wheel.
 
 The only case that genuinely requires native is **10-bit output** (torchcodec's GPU
-encode is 8-bit nv12 only), plus a few unmappable NVENC settings, streaming, and
-frame generation. AV1 works via `av1_nvenc`, color is applied by the existing remux,
+encode is 8-bit nv12 only), plus a few unmappable NVENC settings and streaming.
+AV1 works via `av1_nvenc`, color is applied by the existing remux,
 and most NVENC settings map through `extra_options`. Because native is still needed
 for 10-bit, this is not a full replacement: a torchcodec path is **added** and
 anything it cannot satisfy **falls back to native**.
@@ -148,22 +148,22 @@ returns the existing reader directly.
 
 ```
 --video-backend  {native,auto,torchcodec}            # default: native
---decode-backend {inherit,native,auto,torchcodec}    # default: inherit (= --video-backend)
---encode-backend {inherit,native,auto,torchcodec}    # default: inherit
+--video-decode-backend {inherit,native,auto,torchcodec}    # default: inherit (= --video-backend)
+--video-encode-backend {inherit,native,auto,torchcodec}    # default: inherit
 ```
 
 - `native`: always vali + PyNvVideoCodec (current behavior).
 - `auto`: use torchcodec where available and eligible, else native.
 - `torchcodec`: force torchcodec; requests it cannot satisfy (10-bit / streaming, ...)
   error early.
-- `--decode-backend` / `--encode-backend` override each side independently; `inherit`
+- `--video-decode-backend` / `--video-encode-backend` override each side independently; `inherit`
   follows `--video-backend`.
 
 Added to both `jasna` (`main.py`) and `jasna-framegen` (`framegen_cli.py`). Early
 validation: `torchcodec` (decode or encode) + streaming, and `encode-backend torchcodec`
-+ `--bit-depth 10`, error. Because frame generation always encodes CFR (native),
-`jasna-framegen` downgrades a forced `torchcodec` encode backend to `auto` and uses
-torchcodec for decode only.
++ `--bit-depth 10`, error. Frame generation (`--frame-generation`, `jasna-framegen`) hands
+the encoder its multiplier; the torchcodec encoder scales its constant frame rate by it
+(since the v0.12.2 base; before, `jasna-framegen` fell back to native for the encode).
 
 ## Dependencies and install
 

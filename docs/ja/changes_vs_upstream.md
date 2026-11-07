@@ -1,9 +1,9 @@
-# 変更点サマリ: `modi`（`0.12.1+modi`）vs upstream
+# 変更点サマリ: `modi`（`0.12.2+modi`）vs upstream
 
 このブランチが upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) に対して加えている変更を、「いつ追加したか」ではなく「**今、何が違うか**」で整理したものです。
 
 - ブランチ: `modi`（fork `https://github.com/sh202603/jasna.git`）
-- バージョン: `0.12.1+modi`。upstream `1242b947`（`v0.12.1` タグ）にリベース済み
+- バージョン: `0.12.2+modi`。upstream `12510264`（`v0.12.2` タグ）にリベース済み
 - リベース方針: **重複する機能は upstream 優先。** upstream が自前で実装した項目はブランチから外し、本文ではなく[付録 A](#付録-a-upstream-に吸収されたまたは-drop-した変更)に記載します。
 
 本書の読み方:
@@ -13,7 +13,7 @@
 | [1. この公開ビルドの範囲](#1-この公開ビルドの範囲) | 公開ソースではできないこと（支援者モデル、リリース版の LTX 重み） |
 | [2. 機能一覧](#2-機能一覧) | modi の全機能・切り替え方・状態・詳細ドキュメントを 1 表に |
 | [3. 復元モデル](#3-復元モデル) | SeedVR2 一次復元、FlashVSR / SwiftVR / SwiftVR distill 二次復元、RTX Super Res の追加オプション、LTX 出力の鮮明化、自前 LTX モデルの学習 |
-| [4. フレーム生成](#4-フレーム生成) | `--frame-gen`、`rife` / `rtx` バックエンド、`jasna-framegen` |
+| [4. フレーム生成](#4-フレーム生成) | `--frame-generation`、`rife` / `rtx` バックエンド、`jasna-framegen` |
 | [5. メディアとエンジンのバックエンド](#5-メディアとエンジンのバックエンド) | torchcodec、cuDNN FP8 upsample、TensorRT-RTX フレーバー |
 | [6. GUI](#6-gui) | A/B モデル比較、動画プレーヤーのチェックポイント選択、modi 機能の設定項目 |
 | [7. このブランチで保持しているバグ修正](#7-このブランチで保持しているバグ修正) | upstream に無い修正 |
@@ -47,8 +47,8 @@
 | LTX 後処理 | LTX 出力を SwiftVR か RTX Super Res で鮮明化 | `--ltx-crop-vsr swiftvr` / `swiftvr-distill` / `rtx-super-res` | Linux・Windows 検証済み、ユーザー目視合格 | [ltx_crop_vsr.md](ltx_crop_vsr.md)、[3.6](#36-ltx-出力の鮮明化--ltx-crop-vsr) |
 | LTX 実行中の鮮明化 | compose 段で各 LTX window に RTX Super Res の deblur（upstream の LTX super resolution の上に modi の方針） | LTX モデル + `--secondary-restoration rtx-super-res`（CLI と GUI） | 自前学習の LTX モデルで Linux 検証済み、ユーザー目視合格（v0.11.3 ベース）。v0.12.1 ベースでは自前学習の LTX モデルで Linux と Windows を検証済み、ユーザー目視合格 | [3.7](#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res) |
 | LTX モデルの学習 | 公開の LTX-2.3 チェックポイントの変換と、jasna の LTX 経路向け IC-LoRA の学習 | `scripts/ltx_lora_training/` | Linux で変換・学習・推論まで検証済み、Windows と ARM64 は未検証 | [ltx_lora_training.md](ltx_lora_training.md)、[3.8](#38-自前-ltx-モデルの学習scriptsltx_lora_training) |
-| フレーム生成 | 2x / 4x のフレームレート倍化 | `--frame-gen 2x\|4x`、`--frame-gen-backend rife\|rtx`、`jasna-framegen` | Linux・Windows 検証済み | [frame_generation.md](frame_generation.md)、[4](#4-フレーム生成) |
-| メディアバックエンド | torchcodec のデコード/エンコード | `--video-backend`、`--decode-backend`、`--encode-backend` | 実験的。Linux・Windows 検証済み | [torchcodec_backend.md](torchcodec_backend.md)、[5.1](#51-torchcodec-動画バックエンド) |
+| フレーム生成 | upstream の 2x RTX フレーム生成の上に 4x、RIFE バックエンド、RTX 品質モード、スタンドアロン CLI | `--frame-generation 2x\|4x`、`--frame-generation-backend rtx\|rife`、`jasna-framegen` | v0.12.2 ベースで Linux 検証済み（e2e）、v0.12.1 ベースで Linux・Windows 検証済み | [frame_generation.md](frame_generation.md)、[4](#4-フレーム生成) |
+| メディアバックエンド | torchcodec のデコード/エンコード | `--video-backend`、`--video-decode-backend`、`--video-encode-backend` | 実験的。Linux・Windows 検証済み（v0.12.2 ベースでは torchcodec 0.17 を Linux で） | [torchcodec_backend.md](torchcodec_backend.md)、[5.1](#51-torchcodec-動画バックエンド) |
 | エンジンバックエンド | cuDNN FP8 の upsample 段 | `--fp8-recon` | 実験的。Linux・Windows 検証済み | [fp8_recon.md](fp8_recon.md)、[5.2](#52-cudnn-fp8-upsample-バックエンド--fp8-recon) |
 | エンジンフレーバー | TensorRT-RTX（JIT エンジン） | `nvidia-rtx` extra を導入 | Linux・Windows 検証済み | [tensorrt_rtx.md](tensorrt_rtx.md)、[5.3](#53-tensorrt-rtx-フレーバーnvidia-rtx-extra) |
 | GUI | A/B モデル比較 | 区間エディターの **A/B 比較…** | Linux・Windows 検証済み | [segments.md](segments.md#ab-モデル比較)、[6.1](#61-ab-モデル比較区間エディター) |
@@ -70,7 +70,7 @@
 - **jasna 側の適応。** この復元器ではクロップのパディングを reflect でなくゼロ埋めにする（`pad_mode`。LoRA の訓練分布）、ワイヤは BGR のまま親アダプタで RGB 変換、そして BasicVSR++ を bit 不変に保つため復元器の属性でゲートした blend 側の 2 つの revert: `_revert_valid_edges`（VAE/DiT がゼロパッドの黒を有効領域 2〜3px に滲ませ、bbox 縁の暗線として合成されていた）と `_revert_outside_mask`（1-step diffusion はクロップ全体を再合成するため blend のフォールオフ環帯に低周波のずれが乗っていた。検出マスクの信頼ゾーン外をすべて入力へ戻し、blend mask 自身のフォールオフを重みに使う。クロップを埋める大型モザイクにはクロップ境界ランプを追加）。
 - **高速化**（`--seedvr2-accel`、既定 off）: VAE の融合経路（`fused_vae`、comfy-kitchen のカーネル）と FP8 DiT（`fp8_dit`。LoRA を先に基底重みへマージ）。どちらも fork [sh202603/ComfyUI-SeedVR2_VideoUpscaler](https://github.com/sh202603/ComfyUI-SeedVR2_VideoUpscaler) の `modi` ブランチが提供します。worker は使えない部品を外して理由を ready ハンドシェイクで返します（upstream の checkout では両方外れ、出力は off と bit 一致）。2 分素材の実行全体の壁時計: Linux RTX 5080 で 1.68〜1.77 倍速（480p 117 → 70 秒、1080p 220 → 126 秒、4K 272 → 154 秒）、Windows RTX 5080 で 1.45〜1.57 倍速。GPU 全体の VRAM ピークは 3.1〜3.7 GiB 減。出力は off に対して PSNR 46〜50 dB で目視同等。
 - **フラグ。** `--seedvr2-repo`（必須）、`--seedvr2-python`、`--seedvr2-lora`、`--seedvr2-window` / `--seedvr2-overlap`（33 / 9）、`--seedvr2-color-fix {none,lab,wavelet}`、`--seedvr2-empty-cache {auto,always,never}`、`--seedvr2-accel`、base 重みの上書き `--seedvr2-model-dir`、`--seedvr2-dit`、`--seedvr2-lora-rank`。
-- **制約。** VR モード、`--frame-gen`、`flashvsr-inline`、`swiftvr-inline` は起動時に拒否（常駐 worker 2 つは 16 GB を超える）。TVAI と `--stream` は警告。オフラインの `flashvsr` / `swiftvr` は併用可（Phase が同時常駐しない）で、これが最高品質構成です。seedvr2 選択時は BasicVSR++ のエンジンコンパイルをスキップします。v0.11.1 ベースからは `seedvr2` が upstream の復元モデル選択（`CLI_RESTORATION_MODELS`、`provide_restoration_models`）の 1 項目になりました。
+- **制約。** VR モード、`--frame-generation`、`flashvsr-inline`、`swiftvr-inline` は起動時に拒否（常駐 worker 2 つは 16 GB を超える）。TVAI と `--stream` は警告。オフラインの `flashvsr` / `swiftvr` は併用可（Phase が同時常駐しない）で、これが最高品質構成です。seedvr2 選択時は BasicVSR++ のエンジンコンパイルをスキップします。v0.11.1 ベースからは `seedvr2` が upstream の復元モデル選択（`CLI_RESTORATION_MODELS`、`provide_restoration_models`）の 1 項目になりました。
 - **状態。** ユニット `tests/test_seedvr2_lora.py` + `test_main.py` の検証マトリクス。Linux・Windows で e2e 検証済み（出力フレーム数 = 入力、worker 正常終了。480p 全編モザイクで全体 VRAM ピーク 12.6 GB）。A/B 比較（[6.1](#61-ab-モデル比較区間エディター)）でも seedvr2 を側として選べます。
 
 ### 3.2 FlashVSR 二次復元
@@ -89,7 +89,7 @@
 - **`--flashvsr-lora`**（inline 専用）: 公開している `lada_flashvsr_secondary_lora_v1.pt` を DiT に bf16 アダプタとして適用し、FlashVSR の中帯域の過鮮鋭（4〜8 px 帯で約 −30%）と過剰な粒を抑えます。`--flashvsr-accel` と併用可。オフラインは拒否（主用途の SeedVR2 一次では FlashVSR の足す粒の大半を消すため）。
 - **tiny-long パッチ**: inline には multi-chunk の修正（per-chunk のキャッシュ clear 2 箇所の無効化）が必要です。fork は含み、upstream の checkout には [`patches/flashvsr_plus_tinylong_multichunk_fix.patch`](../../patches/flashvsr_plus_tinylong_multichunk_fix.patch) を当てます。restorer は起動時に検査し、無ければ明示エラーで停止します。
 - **フラグ**: `--flashvsr-repo`（必須）、`--flashvsr-python`、`--flashvsr-model-dir`、`--flashvsr-version` / `--flashvsr-dtype`、`--flashvsr-scale {2,4}`、`--flashvsr-tiles`、`--flashvsr-accel`、`--flashvsr-lora`、オフライン用の `--flashvsr-max-clip-frames`、`--flashvsr-unload-dit`、`--flashvsr-tiled-vae`、`--flashvsr-bundle-dir`、`--flashvsr-keep-bundle`。
-- **制約**: ファイル出力専用（`--stream` と画像入力は不可）、`--frame-gen` 不可（別パスで実行）。オフラインはさらに `--retarget-high-fps`、`--segments`、VR を拒否。inline は SeedVR2 一次と排他、オフラインは併用可。inline はモザイクが多い区間で FlashVSR の約 15 crop-fps に律速されます。
+- **制約**: ファイル出力専用（`--stream` と画像入力は不可）、`--frame-generation` 不可（別パスで実行）。オフラインはさらに `--retarget-high-fps`、`--segments`、VR を拒否。inline は SeedVR2 一次と排他、オフラインは併用可。inline はモザイクが多い区間で FlashVSR の約 15 crop-fps に律速されます。
 - **状態**: ユニット `tests/test_flashvsr_{offline,inline}.py` + `test_main.py`。Linux・Windows で両モード・両 scale・480p と 1080p の e2e 検証済み（フレーム数 = 入力、変化はモザイク領域のみ）。要点の数値（Linux、480p、4930 フレーム、clip 90）: inline scale 2 / tiles 1 は 113 秒・GPU 全体ピーク 10.1 GB、scale 4 / tiles 2 は 491 秒・13.7 GB、オフライン scale 2 は 194 秒・7.8 GB。Windows 16 GB の 1080p は tiles 2 を推奨。計測と色補正ゲートは [flashvsr.md](flashvsr.md)。
 
 ### 3.3 SwiftVR 二次復元
@@ -102,7 +102,7 @@
 - **色補正は常時適用**（wavelet、一次出力の bicubic 拡大を参照）、GPU 上でフレームごとに適用。primitive は FlashVSR worker を path 読み込みで共有し、そのファイルは lada-ex と逐語同一のままにします。`JASNA_SWIFTVR_COLOR_FIX` は検証専用の上書き。
 - **切り出し view の平滑化（`--swiftvr-view-window`、既定 15、`0` で無効）**: scale 2 の揺れの主因は、SwiftVR に渡す切り出しの枠がフレームごとに動くこと（クロップは検出枠に追従し、SwiftVR はサブピクセルのずれに反応してディテールを描き直す）でした。一次段の末尾で各フレームの 256 格子を前後 N フレームの移動平均の配置（view）へ再サンプルして渡し、blend は view から元フレームへ直接リサンプルします。crop 単位の flow-warping error 比は scale 2 で 4.99 → 2.57（scale 4 は 2.16）。一次復元、mask、worker、ワイヤは不変で、無効時と他の二次復元は bit 不変。`jasna/tracking/crop_view.py`、`restoration_pipeline.py`、`blend_buffer.py`、`pipeline_items.py`。原因の特定と対策は [mioh-labs](https://github.com/mioh-labs/mioh) の報告によります。
 - **フラグ**: `--swiftvr-repo`（必須）、`--swiftvr-python`、`--swiftvr-model-dir`、`--swiftvr-scale {2,4}`、`--swiftvr-view-window`、`--swiftvr-accel`、オフライン専用の `--swiftvr-bundle-dir` / `--swiftvr-keep-bundle`。dtype、version、tiles、LoRA、max-clip-frames はありません。
-- **制約**: FlashVSR の各モードと同じ起動時検査（inline: fp8-recon 自動有効化、`--frame-gen` 拒否、SeedVR2 一次と排他。オフライン: `--stream`、VR、`--segments`、`--frame-gen`、`--retarget-high-fps`、フォルダ/画像入力を拒否、SeedVR2 一次は可）。GUI には出ません。
+- **制約**: FlashVSR の各モードと同じ起動時検査（inline: fp8-recon 自動有効化、`--frame-generation` 拒否、SeedVR2 一次と排他。オフライン: `--stream`、VR、`--segments`、`--frame-generation`、`--retarget-high-fps`、フォルダ/画像入力を拒否、SeedVR2 一次は可）。GUI には出ません。
 - **状態**: `tests/test_swiftvr_inline.py`、`tests/test_swiftvr_offline.py`、`test_main.py`。Linux・Windows で両モード・両 scale・480p と 1080p の e2e 検証済み。目視 A/B（利用者）では scale 4 の質感は FlashVSR と同等、view 平滑化後の scale 2 は時間安定性で scale 4 と同等。GPU 全体ピーク（Linux inline）: scale 4 FP8 で 12.6 GB、scale 2 で 10.3 GB。全計測、Windows の注意事項、「時間安定性を決める要因」の調査は [swiftvr.md](swiftvr.md)。
 
 ### 3.4 SwiftVR distill 二次復元
@@ -111,7 +111,7 @@
 
 - **復元器**: `jasna/restorer/swiftvr_distill_secondary_restorer.py`（中央フレーム 4 枚ずつのバッチ、5 フレーム窓は clip の端を繰り返す）。`swiftvr_distill_model.py` のモデル定義は公開 README どおり（3x3 conv 15→24 と ReLU、`x + 0.1 * conv(relu(conv(x)))` のブロック 12 個、3x3 conv 24→12 と PixelShuffle(2)、出力 = 中央フレームの双線形 2 倍 + その細部）。ローダーは検査済みの dict だけを `weights_only=True` で受け付けます。
 - **フラグ**: `--swiftvr-distill-model`、`--swiftvr-distill-view-window`（既定 15。3.3 の view 平滑化を再利用）、`--swiftvr-distill-strength`（既定 0.75、0〜2。双線形拡大に足す分の比率）、`--swiftvr-distill-stabilize`（既定 0、実験的。テストクリップでは強さを下げたのと同じ引き換えにしかならなかった）。
-- **連動なし**: fp8-recon は自動有効化されず、`--frame-gen` も切られず、SeedVR2 一次とも排他にならず、色補正もありません。GUI には出ません。`--stream` と `--segments` は未検証。
+- **連動なし**: fp8-recon は自動有効化されず、`--frame-generation` も切られず、SeedVR2 一次とも排他にならず、色補正もありません。GUI には出ません。`--stream` と `--segments` は未検証。
 - **状態**: `tests/test_swiftvr_distill.py` + `test_main.py`。Windows（2026-10-05）と Linux（2026-10-08）で検証済み: 1080p 素材で既定値の揺れの増加は +8.6%、質感 122%（二次復元なし基準）、scale 2 の `swiftvr-inline` は +10.9% / 130%。二次段の時間は SwiftVR の約 1/7（1080p 4203 フレーム: 5.8 秒対 38.9 秒）、VRAM の上乗せは約 5.5 GB に対して最大 0.4 GB。8K SBS の VR 素材も完走。利用者の目視では揺れの違和感は少なく質感も悪くない。詳細は [swiftvr.md](swiftvr.md#swiftvr-distill--secondary-restoration-swiftvr-distill)。
 
 ### 3.5 RTX Super Res の追加オプション
@@ -129,7 +129,7 @@
 
 - **モジュール** `jasna/ltx/refine.py`: 整合確認（2 本をパケット単位で demux し、枚数、解像度、各フレームの stream 先頭からの時刻が半フレーム以内で一致すること）、scan（`scan_span` を 1 segment で。`--ltx-large-canvas` は指定どおり。終了後に検出器を解放）、1 パスの駆動部 `WindowRefiner`（LTX フレームが届くたびに canvas を作り、window が揃ったら ×2、覆う window がすべて終わるまでフレームを pinned ホストバッファに保持（最大 121 枚））。LTX 出力と元動画を並走デコードし、track polygon 内の輝度差平均で LTX が復元した window と触っていない window を見分け（閾値 3/255）、後者は警告して skip します。このビルドの検出器数値差だけで出た track を、モザイクのまま鮮明化しないためです。
 - **配線**: `SessionConfig.ltx_crop_vsr` / `ltx_crop_vsr_source`。`build_restoration_session` は検出器のエンジンだけコンパイルし一次モデルを読みません。`build_ltx_crop_vsr_restorer` が scan 後に restorer を作り（scale 2、view 平滑化なし。`RtxSuperresSecondaryRestorer(input_size=None)` は nvvfx の effect が出力サイズに束縛されるため canvas 辺 512 / 768 px ごとに処理一式を読み込みます）、`Pipeline.run` が `_run_ltx_refine` へ分岐します。BasicVSR++ の重みは不要。
-- **拒否**: 一次側のオプション、フレーム列や全画面を変えるもの（`--segments`、`--ltx-auto-split`、`--stream`、`--retarget-high-fps`、`--fmp4`、`--frame-gen`、VR、画像とフォルダ入力、`--lut`、`--sharpen`）、`--swiftvr-scale 4`、`rtx-super-res` 方式での `--rtx-scale 4`、view-window 系、`--ltx-large-canvas` と `--swiftvr-distill-stabilize` の併用。
+- **拒否**: 一次側のオプション、フレーム列や全画面を変えるもの（`--segments`、`--ltx-auto-split`、`--stream`、`--retarget-high-fps`、`--fmp4`、`--frame-generation`、VR、画像とフォルダ入力、`--lut`、`--sharpen`）、`--swiftvr-scale 4`、`rtx-super-res` 方式での `--rtx-scale 4`、view-window 系、`--ltx-large-canvas` と `--swiftvr-distill-stabilize` の併用。
 - **状態**（Linux、2026-10-16）: 30 秒のプローブ素材 2 組（720x480 と 1080p、リリース v0.11.1 の LTX 出力）で両方式が完走し、plan はリリースと同じ（2 track、11 window）、枚数とタイミングは LTX 出力と一致（0.5 ms 以内）。再エンコード基準で texture 115〜122%、揺れの増加 +8〜11%。30 秒素材の壁時計は distill で 23〜28 秒（VRAM 上乗せ 2.5〜2.8 GB）、SwiftVR で 50〜55 秒（9.8〜10.8 GB、16 GB カード向け）。ユーザー目視（404p〜720p の実素材 5 本、SwiftVR 強度 1.0）は狙いどおりで合格。Windows（RTX 5060 Ti、2026-10-16）でも同じ 2 組の両方式が完走し、plan、枚数、時刻は Linux と同じ（壁時計は distill 72〜76 秒、SwiftVR 135〜181 秒、SwiftVR の VRAM は GPU 全体で最大 14.1 GB）。768 px canvas、小さいモザイクの素材は未了。**RTX Super Res 方式**（Linux、2026-10-22、同じ素材）: ×2 の拡大だけでは再エンコードとほぼ同じ（texture 94〜99%）で、鮮明化は deblur パスが担う（medium で texture 120% / 116%、揺れ +16% / +7%、distill と同水準）。壁時計 10〜19 秒、VRAM 上乗せ 1.2〜2.1 GB。ユーザー目視合格（720x480 ははっきり鮮明、distill は柔らかいが細部は自然。1080p は各方式とも LTX 出力と大差なし）。テスト: `tests/test_ltx_refine.py`、`test_ltx_refine_cli.py`、`test_ltx_refine_gpu.py`。詳細は [ltx_crop_vsr.md](ltx_crop_vsr.md)。
 
 ### 3.7 LTX 実行中の window の鮮明化（`--secondary-restoration rtx-super-res`）
@@ -158,16 +158,16 @@ upstream 0.12.1 が LTX window 向けの RTX Super Res を入れました（`b50
 
 ## 4. フレーム生成
 
-AI 補間フレームを挿入して出力フレームレートを上げます: `--frame-gen {none,2x,4x}`。ファイル出力のみ。
+upstream 0.12.2 は NVIDIA RTX Video Frame Generation による 2x のフレーム生成を入れました（`--frame-generation 2x`、Output タブ、LTX ジョブも対象）。modi には先にこの機能があり（`--frame-gen`、RIFE / RTX バックエンド、2x と 4x、スタンドアロンの `jasna-framegen`）、いまは upstream の配管の上に modi の方針を載せています: `--frame-generation {none,2x,4x}`、`--frame-generation-backend {rtx,rife}`、`--frame-generation-rtx-mode`、`--frame-generation-model-path`。ファイル出力のみ。
 
-- **なぜ二次復元ではなく新ステージか**: 二次復元は 256px クロップを処理しフレーム数を変えませんが、フレーム生成は全解像度の出力フレームに対してフレーム数と PTS を増やします。パイプラインの `FrameWriter` を薄く包むデコレータ（`FrameGenWriter`）で、本体とエンコーダは無改造です。連続する 2 フレームごとに実フレームを出力後 `M-1` 枚の補間を `pts_k = prev_pts + round((curr_pts - prev_pts) * k / M)` で挿入。音声はタイムコードを保つので尺と同期は不変。総フレーム数は `(N-1)*M + 1`。エンコーダの fps/GOP はソース fps × 倍率を `output_fps` に渡して正します（`--retarget-high-fps` の間引き後 fps にも倍率が乗る）。
-- **バックエンド**（`--frame-gen-backend`、`FrameGenerator` プロトコルで差し替え可能）:
-  - `rife`（既定）: blend-encode スレッド上で全解像度の RIFE を PyTorch 実行、既定 fp16（`--fp16` に追従。float32 グリッドを焼き込んだ外部 TorchScript は検出して fp32 へ）。TorchScript チェックポイント（推奨）か、同梱 RIFE 4.6 `IFNet`（`jasna/models/rife/`）への state_dict を読みます。重みは `--frame-gen-model-path` か `model_weights/rife.pth` で、**同梱しません**（Practical-RIFE の重みは非商用条項）。`scripts/make_rife_torchscript.py` が Practical-RIFE の checkout を変換します（4.25 で確認）。fp16 は fp32 の約 1.9 倍速で両者の PSNR は約 50 dB。
-  - `rtx`: nvvfx `VideoFrameGeneration` による NVIDIA RTX Video Frame Generation（`nvidia-vfx` 0.2.0.0 以降）。重み不要。compute capability 8.9 以上（Ada / RTX 40 以降。SDK は Turing/Ampere で動かない）限定で、満たさなければ `rife` を案内するエラー。Linux はドライバ 570.190 / 580.82 / 590.44 以降。`--frame-gen-rtx-mode {low,medium,high}`（既定 `medium`。`high` は約 6 倍遅く改善はわずか）。最初のフレームサイズで遅延ロードし、サイズ変更時に再ロード（約 15 ms）するのでフォルダ一括でも generator を 1 つ共有。RTX 5080 の実測: 1080p で生成 1 枚 1.53 ms 対 RIFE fp16 10.1 ms（2160p は 2.51 対 48.3 ms）、補間 PSNR は RIFE 比 +0.7 dB（1080p）/ +1.6 dB（2160p）、RIFE との目視 A/B 合格（残像やエッジの破綻なし）。Windows も検証済み（2026-10-03）。`jasna/framegen/rtx_frame_generator.py`。
-- **スタンドアロン `jasna-framegen`**（`jasna/framegen_cli.py`、2 つ目の console script）: 復元済み動画に**フレーム生成だけ**を適用します（検出も復元もしない）。同じ NVDEC/NVENC 経路と `FrameGenWriter` を再利用し、`jasna.pipeline` と `jasna.protection` を一切 import しません（テストで担保）。公式リリースで復元 → ここでアップコンバート、という 2 パス運用ができます。フォルダ入出力 + `--output-pattern`、動画のみ、バッチ全体で generator を 1 つ共有。`--rtx-mode` で RTX の品質モードを選びます。
-- **GUI**: **エンコード**セクションに倍率、バックエンド、RTX モード、RIFE 重みパス。
-- **制約**: `--stream` 不可。`--segments`（コピー区間と出力レートが一致しなくなる）、LTX（LTX パスは frame-gen writer を通らずエンコーダへ直接書く。GUI は LTX ジョブでスキップ）、SeedVR2 一次、FlashVSR / SwiftVR の両モード（フレーム生成は別パスで）と併用不可。`swiftvr-distill` は切りません。
-- **状態**: `tests/test_frame_gen_writer.py`、`test_rife_frame_generator.py`、`test_framegen_cli_*.py`。両 OS の実機で、30fps / 10661 フレームの入力が 60fps / 21321 フレームになり、`ffprobe` で尺と音声同期の不変を確認。詳細は [frame_generation.md](frame_generation.md)。
+- **配管（upstream のもの）**: `Pipeline._frame_writer` がパイプラインの `FrameWriter` を包みます。writer は PTS を倍率倍にし、エンコーダは元の time base を倍率で割る（`frame_generation` は倍率。upstream の `True` は 2x のまま）ので、生成フレームの PTS はどの time base でも整数に収まります。最後のフレームは繰り返して `N` フレームを `N * M` にし、尺を保ちます。ビットレート上限は倍率に応じて上がります。LTX ジョブは compose 開始時に writer を開く（denoiser が消えた後に生成器が載る）ので、LTX でもフレーム生成が使えます。`jasna/frame_generation.py` に writer（`FrameGenerationWriter`。`interpolate()` を持つ生成器か upstream の中点 callable）と、modi の RTX 生成器を upstream の効果と同じく既定 stream で走らせる `RtxFrameGeneration` があります。
+- **バックエンド**（`--frame-generation-backend`、`jasna/framegen/`）:
+  - `rtx`（既定。upstream と同じ）: nvvfx `VideoFrameGeneration` による NVIDIA RTX Video Frame Generation（`nvidia-vfx` 0.2.0.0 以降）。重み不要。compute capability 8.9 以上（Ada / RTX 40 以降。SDK は Turing/Ampere で動かない）限定で、満たさなければ `rife` を案内します。Linux はドライバ 570.190+ / 580.82+ / 590.44+。`--frame-generation-rtx-mode {low,medium,high}`（既定 `medium`。`high` は約 6 倍遅く利得はわずか）は modi が upstream の効果に足したものです。RTX 5080 の実測（v0.11 ベース）: 生成 1 フレームあたり 1080p で 1.53 ms（RIFE fp16 は 10.1 ms。2160p は 2.51 対 48.3 ms）、補間 PSNR は RIFE 比 +0.7 dB（1080p）/ +1.6 dB（2160p）。RIFE との目視 A/B 合格。
+  - `rife`: blend-encode スレッド上で全解像度の RIFE を PyTorch 実行、既定 fp16（`--fp16` に追従。float32 グリッドを焼き込んだ外部 TorchScript は検出して fp32 へ）。TorchScript チェックポイント（推奨）か、同梱 RIFE 4.6 `IFNet`（`jasna/models/rife/`）への state_dict を読みます。重みは `--frame-generation-model-path` か `model_weights/rife.pth`。**同梱しません**（Practical-RIFE の重みは非商用条項）。`scripts/make_rife_torchscript.py` が Practical-RIFE の checkout を変換します（4.25 で確認）。対応 GPU すべてで動くので、Turing / Ampere はこちらを使います。
+- **スタンドアロン `jasna-framegen`**（`jasna/framegen_cli.py`、2 つ目の console script）: 復元済み動画に**フレーム生成だけ**を適用します（検出も復元もしない）。同じ NVDEC/NVENC 経路と共通の writer を再利用し（生成器は 1 回だけ作ってフォルダ一括で使い回す）、`jasna.pipeline` と `jasna.protection` を import しません（テストで保証）。`--output-pattern` 付きのフォルダ入出力、動画のみ。`--backend`、`--rtx-mode`、`--model-path`。
+- **GUI**: **Output** タブの upstream の**フレーム生成**行に 4x を足しました。バックエンド行（Advanced 表示）、RTX モードと RIFE 重みの行（Expert 表示）は modi のものです。RTX 40 以降でない GPU では RIFE だけを提示し、フレーム生成自体は使えます（upstream は機能ごと灰色にします）。以前の modi ビルドが保存したプリセット（`frame_gen`、`frame_gen_*`）は移行します。
+- **制約**: `--stream` 不可。`--segments` と `--ltx-auto-split`（upstream の規則。コピー区間と出力レートが一致しなくなる）、SeedVR2 一次、FlashVSR / SwiftVR の両モード（フレーム生成は別パスで）と併用不可。`swiftvr-distill` は切りません。
+- **状態**: upstream の `test_frame_generation.py` の隣に `tests/test_frame_generation_modi.py`、`test_rife_frame_generator.py`、`test_rtx_frame_generator.py`、`test_framegen_cli_*.py`。10 秒のテストクリップは両バックエンドとも 2x で 600 フレーム、4x で 1200 フレームになり、BasicVSR++ と（trial 重みの）LTX の両方で通ります。詳細は [frame_generation.md](frame_generation.md)。
 
 ---
 
@@ -175,10 +175,10 @@ AI 補間フレームを挿入して出力フレームレートを上げます: 
 
 ### 5.1 torchcodec 動画バックエンド
 
-native（upstream の PyAV NVDEC/NVENC と、その VALI → PyAV-hw → PyAV-sw デコード連鎖）の代わりに使える実験的な `torchcodec>=0.15.0` バックエンド。オプション依存、既定 off。`--video-backend {native,auto,torchcodec}` と個別上書きの `--decode-backend` / `--encode-backend {inherit,...}`。GUI は**エンコード**の「ビデオバックエンド」ドロップダウン。`--video-backend` は upstream の `JASNA_DECODE_BACKEND` 連鎖の**上位層**で、`native` 選択時にその連鎖が働きます。
+native（upstream の PyAV NVDEC/NVENC と、その VALI → PyAV-hw → PyAV-sw デコード連鎖）の代わりに使える実験的な `torchcodec>=0.15.0` バックエンド。オプション依存、既定 off。`--video-backend {native,auto,torchcodec}` と個別上書きの `--video-decode-backend` / `--video-encode-backend {inherit,...}`。GUI は**エンコード**の「ビデオバックエンド」ドロップダウン。`--video-backend` は upstream の `JASNA_DECODE_BACKEND` 連鎖の**上位層**で、`native` 選択時にその連鎖が働きます。
 
 - **decode**: `auto` は torchcodec を優先し、失敗時は native へフォールバック。`--retarget-high-fps` の frame stride は native 専用（torchcodec 強制時はエラー、`auto` は native へ）。
-- **encode**: **`auto` では選択されません。** upstream の native エンコーダは HEVC/AV1 を 10-bit P010 で出力し、torchcodec エンコーダは 8-bit 専用なので、黙って選ぶと出力ビット深度が変わるためです。`--encode-backend torchcodec` の強制時のみ、8-bit ソース + HEVC/AV1 + マッピング可能な NVENC 設定で動きます（streaming、`--segments`、フレーム生成、fps 変更は拒否。`--sharpen` は適格性ゲート、`--fmp4` は警告）。色空間は encoder 内蔵の ffmpeg copy-remux が H.273 コードポイントで付与します（HEVC は `hevc_metadata` BSF の VUI 書き換えも）。
+- **encode**: **`auto` では選択されません。** upstream の native エンコーダは HEVC/AV1 を 10-bit P010 で出力し、torchcodec エンコーダは 8-bit 専用なので、黙って選ぶと出力ビット深度が変わるためです。`--video-encode-backend torchcodec` の強制時のみ、8-bit ソース + HEVC/AV1 + マッピング可能な NVENC 設定で動きます（streaming、`--segments`、フレーム生成、fps 変更は拒否。`--sharpen` は適格性ゲート、`--fmp4` は警告）。色空間は encoder 内蔵の ffmpeg copy-remux が H.273 コードポイントで付与します（HEVC は `hevc_metadata` BSF の VUI 書き換えも）。
 - 起動ログに選択結果（`[decode: ..., encode: ...]`）、リーダー/エンコーダに `backend` 属性、エンコードは専用ワーカースレッド。`jasna/media/backend.py`（選択）、`torchcodec_decoder.py`、`torchcodec_encoder.py`。
 - **既知の未対応**: torchcodec エンコーダは章は保存するが字幕・データストリームは脱落（native は全部保存）、CQ 既定値はハードコード 25（upstream の codec 別既定と異なる。`--cq` 明示指定は届く）。
 - **状態**: 両 OS で検証済み。設計、能力マトリクス、計測は [torchcodec_backend.md](torchcodec_backend.md)（デコードは中立、律速は検出段）。
@@ -224,8 +224,8 @@ BasicVSR++ の **upsample** サブエンジンを cuDNN graph API の FP8 畳み
 
 ### 6.3 modi 機能の設定項目
 
-- **基本**: 「FP8 復元（実験的）」トグル（`--fp8-recon`）。
-- **エンコード**: **フレーム生成**（倍率、バックエンド、RTX モード、RIFE 重みパス）と**ビデオバックエンド**（native / auto / torchcodec、両側に適用）。
+- **Processing** タブ（Expert 表示）: 「FP8 復元（実験的）」トグル（`--fp8-recon`）。upstream の FP16 と compile のスイッチの隣。
+- **Output** タブ: upstream の**フレーム生成**行に 4x を追加。バックエンド（Advanced 表示）、RTX モードと RIFE 重み（Expert 表示）の行。**ビデオバックエンド**（native / auto / torchcodec、両側に適用。Expert 表示）。
 - **二次復元**: RTX Super Res の**強さ**スライダーと**高ビットレートモデル**スイッチ。
 - **区間エディター**: **A/B 比較…** ボタン。**動画プレーヤー**: 復元チェックポイントのドロップダウン。
 - GUI に出ないもの: SeedVR2、FlashVSR、SwiftVR、SwiftVR distill、`--ltx-crop-vsr`、TensorRT-RTX フレーバー（venv の選択）。
@@ -237,7 +237,7 @@ BasicVSR++ の **upsample** サブエンジンを cuDNN graph API の FP8 畳み
 `modi` で修正し、upstream には無いバグ。upstream が後から自前で直したものは[付録 A](#付録-a-upstream-に吸収されたまたは-drop-した変更)にあります。
 
 - **一次復元のバッファ保持レース**（`jasna/restorer/restoration_pipeline.py`）: TRT runner の永続出力バッファの view を保持したまま別スレッドで後から uint8 へコピーアウトしており、その前に次クリップの推論が同バッファを上書きすると、復元領域が別クリップのデータになっていました。`primary_raw = self.restorer.raw_process(...).clone()` で、バッファが再利用される前に一次 stream 上でコピーアウトします。Linux の「チャンク移動」（issue #2 / upstream #158）のもう一方の原因（デコーダ側）は upstream v0.6.2 の stream 同期が直しており、この復元側の箇所はそれとは独立です。
-- **フォルダ一括でのフレーム生成**: generator は 1 回だけ構築して全動画で共有しますが、`FrameGenWriter.close()` が 1 本目の後にその借用 generator を close していたため 2 本目がクラッシュしていました。writer は generator に触らず、構築した側（CLI のフォルダループ / GUI のジョブ）が一括処理後に 1 回 close します。
+- **フォルダ一括でのフレーム生成**: generator は 1 回だけ構築して全動画で共有しますが、`FrameGenerationWriter.close()` が 1 本目の後にその借用 generator を close していたため 2 本目がクラッシュしていました。writer は generator に触らず、構築した側（CLI のフォルダループ / GUI のジョブ）が一括処理後に 1 回 close します。
 - **外部 worker が jasna のライブラリディレクトリを継承していた**（`jasna/restorer/worker_env.py`、2026-10-16）: FlashVSR、SwiftVR、SeedVR2 の worker は自前の torch と cuDNN で動きますが `LD_LIBRARY_PATH` を継承しており、FP8 が on（`swiftvr-inline` が有効化する）だと新しい torch の worker が jasna 側の cuDNN サブライブラリを読んで最初の畳み込みで死にました（`CUDNN_STATUS_SUBLIBRARY_LOADING_FAILED`。SwiftVR venv が torch 2.14 / cuDNN 9.24 に移って顕在化）。`external_worker_env()` が全 worker の環境を作り、`PYTHONPATH` を落とし、`LD_LIBRARY_PATH` からこのインタプリタの配下にある項目を除きます。
 - **Linux/X11 でモーダルダイアログが空表示になる**: About ダイアログと初回ウィザードは upstream の `grab_modal()` を 250 ms 遅らせて呼びます（`jasna/gui/app.py`、`jasna/gui/wizard.py`）。ウィジェットの描画より先にモーダルグラブを掛けると、一部の X11 ウィンドウマネージャでリサイズ不可の `CTkToplevel` が空のまま残るためです。upstream の他のダイアログはグラブ前に `wait_visibility()` を呼んでおり、変更していません。
 - **FP8 バックエンドの cuDNN ロード順**: [5.2](#52-cudnn-fp8-upsample-バックエンド--fp8-recon) を参照。
@@ -262,7 +262,7 @@ BasicVSR++ の **upsample** サブエンジンを cuDNN graph API の FP8 畳み
 
 ✓ 併用可（起動時に拒否されない）、✗ 起動時に拒否、warn = 警告して実行、auto = 自動で有効化、— 該当なし（LTX 列は、LTX を走らせる必要がある箇所はこのビルドで実行できないため —）。
 
-| 機能 | `--stream` | `--segments` | `--frame-gen` | VR（`--vr-mode`） | フォルダ / 画像入力 | LTX 一次 | SeedVR2 一次 | inline の FlashVSR / SwiftVR | `--fp8-recon` |
+| 機能 | `--stream` | `--segments` | `--frame-generation` | VR（`--vr-mode`） | フォルダ / 画像入力 | LTX 一次 | SeedVR2 一次 | inline の FlashVSR / SwiftVR | `--fp8-recon` |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | SeedVR2 一次 | warn | ✓ | ✗ | ✗ | ✓ | — | — | ✗ | ✓ |
 | FlashVSR オフライン（`flashvsr`） | ✗ | ✗ | ✗ | ✗ | 動画のみ | — | ✓ | — | ✓ |
@@ -313,11 +313,17 @@ BasicVSR++ の **upsample** サブエンジンを cuDNN graph API の FP8 畳み
 
 各ベースへのリベースで取り込んだ upstream の主変更と本フォークの対応の記録（新しい順）。
 
+### `v0.12.2` ベース（2026-11-07 取り込み）
+
+upstream は v0.12.2 をリリースした（`1242b947` から 159 コミット、うち 12 は protection の pin）。主要点: **設定画面の simple / advanced / expert 表示**（Basic と Advanced Processing のセクションは Detection と Processing になり、各行が自分を見せる最低の表示レベルを宣言する。区間エディターの seed プレビューとズームキャンバスは独立モジュールへ。`SessionCache` がプレビューワーカーとプロセッサで session を共有）、**RTX Video Frame Generation による 2x フレーム生成**（`--frame-generation`。BasicVSR++ と LTX）、**復元設定を全出力の comment タグへ**（`settings_tag.py`）、デコーダ選択の設定化（`SessionConfig.decode_backend`、Expert 表示の **Video Decoder**。CLI は `JASNA_DECODE_BACKEND` のまま）、**VR180 の左右と上下で LTX**（`StereoLayout`。SBS 専用の `crop_eye_width` / `x_bounds` / `SbsDetectionAdapter` / `is_sbs` は廃止）、LTX の VAE encoder / decoder 選択と `--ltx-overlap`、twin（右目）と共有検出のトラック修正、検出枠のスパイクに対するカメラの緩和、6 GB / 8 GB のデコード予算、VRAM の確保プローブ、Ctrl+C と SIGTERM での全ワーカー停止と停止ジョブの出力をそこで閉じる処理（`VideoEncoder.abort()`）、出力が入力を上書きしない保護、`--segments` の VFR 対応、NVENC の B フレーム上限、VALI の seek 時刻を µs に切り捨て（#709）、cuvid の予備サーフェス、トレイアイコン（`pystray` / `jeepney`）、online activation の選択、`--denoise-step`・`--enable-crossfade`・`--experimental-ltx-less-overlap` の廃止（denoise は常に二次復元の前、crossfade は常時 ON、`--ltx-overlap` はフレーム数）。
+
+fork 側: modi の 153 コミットを `12510264` に一度の rebase で再生（skip も空も無し）。停止は 15 回で、大半は `pipeline_threads.py`（upstream の `PassContext`）、upstream が書き直した GUI セクション、modi のテストが載っていたテストファイル。新コミットは 2 本。**追従**: modi の torchcodec 選択は `video_decode_backend` / `video_encode_backend`（`--video-decode-backend` / `--video-encode-backend`）に改名した。upstream の `Pipeline.decode_backend` が VALI / PyAV の選択を指すようになり、同名のまま黙って衝突していたため。`PassContext.open_reader` は modi の `make_video_reader` を通る。エンコーダ工場は設定タグとフレーム生成の倍率を両エンコーダへ渡す（torchcodec エンコーダはタグを書き、固定フレームレートを倍率倍し、`abort()` を持つ）。`--ltx-crop-vsr` は `video_frames(decode_backend=)`、`scan_span(stereo=)`、`composite_frame(projector=)` に追従。A/B 比較は `StereoLayout` API に追従。プレーヤーの EMA / sub-engine 検査は `SessionCache` の build 内へ（明示的に選んだ checkpoint のときだけ）。FP8 トグルは Processing タブの expert 行へ。safe border のクロップは upstream の 4 要素の目境界に追従。**フレーム生成**（[4](#4-フレーム生成)）: modi の writer、バックエンド、GUI 行を upstream の `--frame-generation` 配管に載せ替えた。`--frame-gen*` は廃止、プリセットは移行する。**テスト**: upstream と衝突した 7 ファイルの modi テストは `tests/test_*_modi.py` へ。方針が違う 3 行だけ upstream のテストを変えた（エンコーダは倍率を受け取る、`4x` は正しい選択肢、RTX フレーム生成の無い GPU は機能でなくバックエンドを固定する）。`conftest.py` は各テストの後に root のログレベルを戻す。**環境**: `jeepney`（Linux）/ `pystray`（Windows）が新しい実行時依存（`uv pip install -e .[dev,nvidia]`）。他のピンは不変、エンジンの再コンパイル無し、VALI の再ビルド無し（`fc39271`）。任意の torchcodec extra は Linux で 0.17.0+cu130 を試した。
+
 ### `v0.12.1` ベース（2026-11-02 取り込み）
 
 upstream は v0.12.1 をリリースした（`cf8a968c` から 437 コミット）。主要点: **LTX の RTX Super Res**（`b508fdab`。compose が拡大する window を ×2、GUI と auto split を含む）、**1-step LTX モデル**（`ltx-basic`、`LtxModelName` の `distilled1`）、VAE decoder の選択（full / half / max）と decoder カーネル融合（upstream の測定で LTX 2-step が 5090 で 0.11.3 比約 30 % 速い）、RTX 50 の INT8 prompt cross-attention、リリースごとのブランチでのモデル再配布、crossfade の先頭 9 フレームの修正、6 GB カード対応、範囲ジョブと auto split をまとめる `build_job_pipeline` / `SegmentJob`、`job_models` と `SessionConfig.model_path`、`max_gap` と `min_duration` を取る `scan_span` / `plan_video`（LTX の track の gap が `--max-detection-gap` に従う）、全フレームへのカラー LUT（frame writer から `apply_lut` が消え、LUT 指定の区間ジョブはコピー区間も再エンコード）、確信度の高い空ボックスを捨てる RF-DETR、stage 落ちでの全停止（`be0bd354`）、ストリーミングの LUT、ベンダーごとの `--batch-size` 既定、AMD（ROCm）対応、手動有効化の削除、`tests/factories.py` と共有 fixture へのテストスイートの書き直し。`safetensors>=0.6` が新規、VALI フォークの pin は `fc39271`（負の preroll seek。GOP 途中で切った MP4 向け）へ進んだ。
 
-fork 側: modi の 145 コミットを `1242b947` に再生（`ee20d5fc` は skip、upstream の `be0bd354` が置き換える。upstream の旧設定パネルテスト用 fake の `c5e85a96` は空になった）、このフォーク自前の LTX window 鮮明化の 3 コミットは再生せず、docs と LTX 学習道具のコミットは cherry-pick した。衝突の大半はテストファイル（upstream 側を採用）で、ほかは `build_pipeline` の呼び出し（`build_job_pipeline` へ。modi のフレーム生成と video backend の引数も取る）、`jasna/trt/__init__.py`（upstream の関数内 `import tensorrt` をこのフォークの規約どおり `jasna.trt._backend` 経由に）、upstream の `cudagraphs` 引数の隣の FP8 upsample、`video_session_config`（upstream の LTX 二次復元の規則に modi のモデル上書き）、`docs/{en,ja}/cli.md` の行。新規コミットは 2 本: upstream の LTX super resolution の上の modi の鮮明化方針（[3.7](#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res)）と、API 追従（`FrameGenWriter`・framegen CLI の writer・torchcodec エンコーダの `FrameWriter` 契約、`--ltx-crop-vsr` の scan の `max_gap` / `min_duration`、オフライン FlashVSR 第 3 段の batch size）。**テスト**: upstream が書き直した・削除したファイルにあった modi のテストは、upstream の factories に載る modi 専用ファイル（`tests/test_*_modi.py`、`test_trt_rtx_utils.py`、`test_trt_rtx_runner.py`）へ移した。このベース以降、modi はテストをこの種のファイルにだけ足す。検証（Linux、RTX 5080、2026-11-02、VALI フォーク wheel `fc39271`）: 重みありの全テストを同じ deselect と timeout で素の v0.12.1 と比べ、modi 16 failed / 3884 passed / 46 errors、upstream 18 / 3187 / 46。失敗集合の差は表示に依存する Tk のレイアウトテストだけ（modi だけ 2 件、upstream だけ 4 件。modi だけの 2 件は素の upstream でも単独実行で落ちる）で、残りは protection、gcc-15 での native LTX block のビルド、表示環境。1 回目の実行では upstream の pipeline テストと TensorRT 無しの import テストに modi だけの失敗が出たが、modi の配線が原因だったので直した（native の reader / encoder クラスを video backend 層に渡す、`jasna.trt` の関数内で TensorRT を import する形に戻す）。CLI e2e 行列（23 ケース）は完走: FP8 あり・なしの BasicVSR++、torchcodec、fMP4、RTX Super Res、SwiftVR distill / offline、SeedVR2、RIFE と RTX のフレーム生成、LUT あり・なしの `--segments`（LUT がコピー区間にも乗る）、GOP 途中で切った MP4 の VALI と PyAV（各 122 フレーム）、`--ltx-crop-vsr` の両 backend、両 hop の `--ltx-trial`、`rtx-super-res` 付きの `--ltx-trial`（`deblur=low`、`512x512 -> 1024x1024`、profile 鍵 `decode free VRAM+rtx`）、LTX の中断（denoise 中の SIGINT）と再開、`jasna-framegen`、LTX + frame-gen の拒否。LTX の GPU テストも合格。ここでは LTX は trial 重みでしか動かないので、upstream の新しい LTX モデル、VAE のモード、実重みでの再開はこのフォークでは未検証。検証（Windows 11、RTX 5080、2026-11-03、VALI フォーク wheel `fc39271` をこの機械でビルド）: 全テストを同じ deselect で素の v0.12.1 と比べ、modi 17 failed / 3872 passed / 46 errors、upstream 17 / 3177 / 46 で、失敗集合は完全一致（protection、Linux 前提のテスト、表示環境、`cl` が PATH に無いための native LTX block のビルド）。CLI 12 ケース（BasicVSR++、RTX Super Res、SwiftVR distill、RTX のフレーム生成、LUT 付き `--segments`、GOP 途中カットの VALI と PyAV（各 122 フレーム）、`--ltx-crop-vsr rtx-super-res`、`--ltx-trial` とその `rtx-super-res` 付き、`--rtx-scale 4` の拒否、`jasna-framegen`）、LTX の中断（denoise 中の Ctrl-C）と再開、自前学習の LTX モデルでの素の実行と `rtx-super-res` 付きの実行（ユーザー目視合格）、GUI の LTX 二次復元（deblur none が low に写る）が合格。
+fork 側: modi の 145 コミットを `1242b947` に再生（`ee20d5fc` は skip、upstream の `be0bd354` が置き換える。upstream の旧設定パネルテスト用 fake の `c5e85a96` は空になった）、このフォーク自前の LTX window 鮮明化の 3 コミットは再生せず、docs と LTX 学習道具のコミットは cherry-pick した。衝突の大半はテストファイル（upstream 側を採用）で、ほかは `build_pipeline` の呼び出し（`build_job_pipeline` へ。modi のフレーム生成と video backend の引数も取る）、`jasna/trt/__init__.py`（upstream の関数内 `import tensorrt` をこのフォークの規約どおり `jasna.trt._backend` 経由に）、upstream の `cudagraphs` 引数の隣の FP8 upsample、`video_session_config`（upstream の LTX 二次復元の規則に modi のモデル上書き）、`docs/{en,ja}/cli.md` の行。新規コミットは 2 本: upstream の LTX super resolution の上の modi の鮮明化方針（[3.7](#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res)）と、API 追従（`FrameGenerationWriter`・framegen CLI の writer・torchcodec エンコーダの `FrameWriter` 契約、`--ltx-crop-vsr` の scan の `max_gap` / `min_duration`、オフライン FlashVSR 第 3 段の batch size）。**テスト**: upstream が書き直した・削除したファイルにあった modi のテストは、upstream の factories に載る modi 専用ファイル（`tests/test_*_modi.py`、`test_trt_rtx_utils.py`、`test_trt_rtx_runner.py`）へ移した。このベース以降、modi はテストをこの種のファイルにだけ足す。検証（Linux、RTX 5080、2026-11-02、VALI フォーク wheel `fc39271`）: 重みありの全テストを同じ deselect と timeout で素の v0.12.1 と比べ、modi 16 failed / 3884 passed / 46 errors、upstream 18 / 3187 / 46。失敗集合の差は表示に依存する Tk のレイアウトテストだけ（modi だけ 2 件、upstream だけ 4 件。modi だけの 2 件は素の upstream でも単独実行で落ちる）で、残りは protection、gcc-15 での native LTX block のビルド、表示環境。1 回目の実行では upstream の pipeline テストと TensorRT 無しの import テストに modi だけの失敗が出たが、modi の配線が原因だったので直した（native の reader / encoder クラスを video backend 層に渡す、`jasna.trt` の関数内で TensorRT を import する形に戻す）。CLI e2e 行列（23 ケース）は完走: FP8 あり・なしの BasicVSR++、torchcodec、fMP4、RTX Super Res、SwiftVR distill / offline、SeedVR2、RIFE と RTX のフレーム生成、LUT あり・なしの `--segments`（LUT がコピー区間にも乗る）、GOP 途中で切った MP4 の VALI と PyAV（各 122 フレーム）、`--ltx-crop-vsr` の両 backend、両 hop の `--ltx-trial`、`rtx-super-res` 付きの `--ltx-trial`（`deblur=low`、`512x512 -> 1024x1024`、profile 鍵 `decode free VRAM+rtx`）、LTX の中断（denoise 中の SIGINT）と再開、`jasna-framegen`、LTX + frame-gen の拒否。LTX の GPU テストも合格。ここでは LTX は trial 重みでしか動かないので、upstream の新しい LTX モデル、VAE のモード、実重みでの再開はこのフォークでは未検証。検証（Windows 11、RTX 5080、2026-11-03、VALI フォーク wheel `fc39271` をこの機械でビルド）: 全テストを同じ deselect で素の v0.12.1 と比べ、modi 17 failed / 3872 passed / 46 errors、upstream 17 / 3177 / 46 で、失敗集合は完全一致（protection、Linux 前提のテスト、表示環境、`cl` が PATH に無いための native LTX block のビルド）。CLI 12 ケース（BasicVSR++、RTX Super Res、SwiftVR distill、RTX のフレーム生成、LUT 付き `--segments`、GOP 途中カットの VALI と PyAV（各 122 フレーム）、`--ltx-crop-vsr rtx-super-res`、`--ltx-trial` とその `rtx-super-res` 付き、`--rtx-scale 4` の拒否、`jasna-framegen`）、LTX の中断（denoise 中の Ctrl-C）と再開、自前学習の LTX モデルでの素の実行と `rtx-super-res` 付きの実行（ユーザー目視合格）、GUI の LTX 二次復元（deblur none が low に写る）が合格。
 
 ### `v0.11.3` ベース（2026-10-22 取り込み）
 

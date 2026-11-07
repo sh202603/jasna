@@ -210,7 +210,7 @@ of the parts: it only takes the DiT from 126 ms to 101 ms and recompiles for eve
 | Combination | Behavior |
 |---|---|
 | `--vr-mode sbs`/`sbs-fisheye`, or `auto` detecting VR | Startup error (jasna's VR crops are projection-conditioned — unverified for the LoRA) |
-| `--frame-gen` | Startup error (no VRAM budget next to the resident worker; run it as a separate pass) |
+| `--frame-generation` | Startup error (no VRAM budget next to the resident worker; run it as a separate pass) |
 | `--secondary-restoration flashvsr-inline` | Startup error (two resident workers exceed a 16 GB card) |
 | `--secondary-restoration flashvsr` (offline) | **Allowed.** The phases never co-reside, so SeedVR2 restoration + FlashVSR 4x composes into the maximum-quality stack |
 | `--secondary-restoration tvai` | Warning only (sharpening on top of a diffusion primary risks over-enhancement) |

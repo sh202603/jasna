@@ -52,7 +52,7 @@ $env:TEMP = 'Z:\Temp'
 
 | Option | Default | Notes |
 | ------ | ------- | ----- |
-| `--restoration-model-name` | `basicvsrpp` | Video restoration model: `basicvsrpp` (fast), `ltx-basic` (Basic Quality LTX: about 1.7x faster than `ltx`, slightly softer), `ltx` (Standard Quality LTX: more detail, much slower; recommended), `ltx-4step` (Good Quality: a bit more detail than `ltx`, about 1.5x slower), `ltx-8step` (High Quality: more detail than `ltx`, about 2.5x slower) or `ltx-undistilled` (Top Quality: slightly better, about 5x slower than `ltx`). See [Choosing models](models.md#restoration-model). *(+modi)* also `seedvr2` (SeedVR2 3B diffusion + LoRA in an external venv, quality mode, much slower; needs `--seedvr2-repo`; cannot be combined with `--frame-gen`, VR or the inline FlashVSR/SwiftVR secondaries). See [seedvr2.md](seedvr2.md). |
+| `--restoration-model-name` | `basicvsrpp` | Video restoration model: `basicvsrpp` (fast), `ltx-basic` (Basic Quality LTX: about 1.7x faster than `ltx`, slightly softer), `ltx` (Standard Quality LTX: more detail, much slower; recommended), `ltx-4step` (Good Quality: a bit more detail than `ltx`, about 1.5x slower), `ltx-8step` (High Quality: more detail than `ltx`, about 2.5x slower) or `ltx-undistilled` (Top Quality: slightly better, about 5x slower than `ltx`). See [Choosing models](models.md#restoration-model). *(+modi)* also `seedvr2` (SeedVR2 3B diffusion + LoRA in an external venv, quality mode, much slower; needs `--seedvr2-repo`; cannot be combined with `--frame-generation`, VR or the inline FlashVSR/SwiftVR secondaries). See [seedvr2.md](seedvr2.md). |
 | `--restoration-model-path` | `model_weights/lada_mosaic_restoration_model_generic_v1.2.pth`, or `model_weights/ltx-restore` for LTX | Restoration weights (a folder for LTX). |
 | `--seedvr2-repo` | — | *(+modi)* Path to your `ComfyUI-SeedVR2_VideoUpscaler` checkout. Required for `seedvr2`. |
 | `--seedvr2-python` | `<repo>/.venv/bin/python` | *(+modi)* Python of the SeedVR2 venv. |
@@ -165,16 +165,15 @@ continue an LTX job or a job with `--segments` from saved work. See [Pause and c
 | `--lut` | — | `.cube` color LUT (1D or 3D) applied as the video is written. Also in the app: **Color LUT** in the **Output** tab. |
 | `--sharpen` | `0` | Sharpen the picture before encoding, from `0` (off) to `1` (strongest). Matches ffmpeg's `cas` filter, so no second pass is needed. See [Advanced processing](advanced_processing.md). |
 | `--retarget-high-fps` | off | 60 → 30 FPS (and 59.94 → 29.97) by keeping every second frame. Other rates unchanged; audio stays in sync. Not available with `--stream` or `--segments`. |
-| `--frame-generation` | `none` | `2x` doubles the frame rate for smoother motion with NVIDIA RTX Video Frame Generation. Needs an RTX 40-series or newer GPU. Audio and length stay the same. Not available with `--stream`, `--segments` or `--ltx-auto-split`. |
+| `--frame-generation` | `none` | `2x` doubles the frame rate for smoother motion with NVIDIA RTX Video Frame Generation. Needs an RTX 40-series or newer GPU. Audio and length stay the same. Not available with `--stream`, `--segments` or `--ltx-auto-split`. *(+modi)* `4x` too; the GPU requirement is the `rtx` backend's, `--frame-generation-backend rife` runs on every GPU; not with `seedvr2`, FlashVSR or SwiftVR. See [frame_generation.md](frame_generation.md). |
 | `--fmp4` | off | Play `.mp4`/`.mov` output while it is still being made; it also survives an interrupted job. Not available with `--stream`, `--segments` or `--ltx-auto-split`. See [Advanced processing](advanced_processing.md). |
 | `--segments` | — | Restore only these ranges of one video, in seconds or `mm:ss`, e.g. `10-25,01:10-01:30.5`. Cannot be combined with `--stream`, `--retarget-high-fps`, `--fmp4`, `--ltx-auto-split` or `--frame-generation`, or with image or folder input. See [Segments](segments.md). |
 | `--working-directory` | output dir | Where temporary files and saved progress are written. See [Segments](segments.md). |
-| `--frame-gen` | `none` | *(+modi)* AI frame interpolation to `2x`/`4x` the output frame rate. File output only; not with `--segments`, LTX, `seedvr2`, FlashVSR or SwiftVR. See [frame_generation.md](frame_generation.md). |
-| `--frame-gen-backend` | `rife` | *(+modi)* `rife` (RIFE in PyTorch, any supported GPU, needs `rife.pth`) or `rtx` (NVIDIA RTX Video Frame Generation via `nvidia-vfx` 0.2.0.0+, RTX 40 series or newer, no weights, ~10x faster). |
-| `--frame-gen-model-path` | `model_weights/rife.pth` | *(+modi)* Optional RIFE weights path (TorchScript `.pth` recommended). RIFE only. |
-| `--frame-gen-rtx-mode` | `medium` | *(+modi)* RTX Video Frame Generation quality mode, `low`/`medium`/`high`. `high` is ~6x slower than `medium` for a marginal gain. |
+| `--frame-generation-backend` | `rtx` | *(+modi)* `rtx` (NVIDIA RTX Video Frame Generation via `nvidia-vfx` 0.2.0.0+, RTX 40 series or newer, no weights, ~10x faster) or `rife` (RIFE in PyTorch, any supported GPU, needs `rife.pth`). |
+| `--frame-generation-model-path` | `model_weights/rife.pth` | *(+modi)* Optional RIFE weights path (TorchScript `.pth` recommended). RIFE only. |
+| `--frame-generation-rtx-mode` | `medium` | *(+modi)* RTX Video Frame Generation quality mode, `low`/`medium`/`high`. `high` is ~6x slower than `medium` for a marginal gain. |
 | `--video-backend` | `native` | *(+modi, experimental)* `native`, `auto`, or `torchcodec`. See [torchcodec_backend.md](torchcodec_backend.md). |
-| `--decode-backend` / `--encode-backend` | `inherit` | *(+modi)* Override the backend per side; `torchcodec` encode is 8-bit only and must be forced. |
+| `--video-decode-backend` / `--video-encode-backend` | `inherit` | *(+modi)* Override the backend per side; `torchcodec` encode is 8-bit only and must be forced. |
 
 ### Choosing a codec
 

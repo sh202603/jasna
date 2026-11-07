@@ -115,11 +115,13 @@ No output file is created.
 This fork adds a few controls to the settings panel; each has a tooltip and a
 CLI counterpart in the [CLI reference](cli.md).
 
-- **Basic**: **FP8 Restoration (experimental)**, the cuDNN FP8 upsample backend
-  (`--fp8-recon`, [fp8_recon.md](fp8_recon.md)).
-- **Encoding**: **Frame generation** (factor, backend, RTX mode, RIFE weights
-  path; `--frame-gen`, [frame_generation.md](frame_generation.md)) and
-  **Video Backend** (native / auto / torchcodec; `--video-backend`,
+- **Processing** tab (Expert view): **FP8 Restoration (experimental)**, the cuDNN FP8
+  upsample backend (`--fp8-recon`, [fp8_recon.md](fp8_recon.md)).
+- **Output** tab: upstream's **Frame Generation** row with 4x; the backend (Advanced
+  view), RTX mode and RIFE weights path (Expert view; `--frame-generation-backend`,
+  `--frame-generation-rtx-mode`, `--frame-generation-model-path`,
+  [frame_generation.md](frame_generation.md)) and **Video Backend** (Expert view;
+  native / auto / torchcodec; `--video-backend`,
   [torchcodec_backend.md](torchcodec_backend.md)).
 - **Secondary restoration**: the RTX Super Res **strength** slider and
   **high-bitrate models** switch (`--rtx-strength`, `--rtx-highbitrate`).

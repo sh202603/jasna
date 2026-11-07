@@ -115,12 +115,13 @@ SSD を使ってください。ハードディスク（HDD）では起動とモ�
 このフォークは設定パネルにいくつかの項目を追加しています。それぞれに
 ツールチップがあり、[CLI リファレンス](cli.md)に対応するオプションがあります。
 
-- **基本**: **FP8 復元（実験的）**。cuDNN FP8 の upsample バックエンドです
-  （`--fp8-recon`、[fp8_recon.md](fp8_recon.md)）。
-- **エンコード**: **フレーム生成**（倍率、バックエンド、RTX モード、RIFE 重みの
-  パス。`--frame-gen`、[frame_generation.md](frame_generation.md)）と
-  **ビデオバックエンド**（native / auto / torchcodec。`--video-backend`、
-  [torchcodec_backend.md](torchcodec_backend.md)）。
+- **Processing** タブ（Expert 表示）: **FP8 復元（実験的）**。cuDNN FP8 の upsample
+  バックエンドです（`--fp8-recon`、[fp8_recon.md](fp8_recon.md)）。
+- **Output** タブ: upstream の**フレーム生成**行に 4x を追加。バックエンド（Advanced
+  表示）、RTX モードと RIFE 重みのパス（Expert 表示。`--frame-generation-backend`、
+  `--frame-generation-rtx-mode`、`--frame-generation-model-path`、
+  [frame_generation.md](frame_generation.md)）と**ビデオバックエンド**（Expert 表示。
+  native / auto / torchcodec。`--video-backend`、[torchcodec_backend.md](torchcodec_backend.md)）。
 - **二次復元**: RTX Super Res の**強さ**スライダーと**高ビットレートモデル**
   スイッチ（`--rtx-strength`、`--rtx-highbitrate`）。
 - **区間エディター**: **A/B 比較…**（[segments.md](segments.md#ab-モデル比較)）。
