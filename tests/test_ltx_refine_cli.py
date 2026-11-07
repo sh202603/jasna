@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import torch
 
 from tests.factories import session_config
 
@@ -224,3 +225,30 @@ class TestSession:
             session_config(ltx_crop_vsr="swiftvr")
         with pytest.raises(ValueError, match="must be one of"):
             session_config(ltx_crop_vsr="flashvsr", ltx_crop_vsr_source=tmp_path / "s.mp4")
+
+
+def test_the_refine_output_carries_the_settings_tag(tmp_path):
+    """The refine opens its encoder itself: it has to hand over the settings tag like the other passes."""
+    from test_pipeline_run import _fake_metadata, _pipeline
+
+    pipeline = _pipeline(ltx_crop_vsr="swiftvr-distill", ltx_crop_vsr_source=tmp_path / "source.mp4")
+    pipeline.configure_vr(_fake_metadata())
+
+    def refine(*, writer, **_kwargs):
+        writer.write(torch.zeros(3, 8, 8, dtype=torch.uint8), 0)
+
+    with (
+        patch("jasna.pipeline.get_video_meta_data", return_value=_fake_metadata()),
+        patch("jasna.ltx.refine.run_refine", side_effect=refine),
+        patch("jasna.pipeline.VideoEncoder") as encoder_cls,
+        patch.object(pipeline, "_log_memory_at_end"),
+    ):
+        pipeline._run_ltx_refine(_fake_metadata())
+
+    settings = encoder_cls.call_args.kwargs["settings"]
+    assert settings["ltx_crop_vsr"] == "swiftvr-distill"
+    assert "basicvsrpp" not in settings and "ltx" not in settings
+    # A finished refine keeps the rest of the source's audio; close() alone would abort the output.
+    encoder = encoder_cls.return_value
+    encoder.__exit__.assert_called_once()
+    encoder.abort.assert_not_called()

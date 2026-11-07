@@ -1087,7 +1087,10 @@ def _phase3_reblend(
 ) -> None:
     from jasna.accelerator import vendor_for_device
     from jasna.main import _resolve_cli_encoder_settings, batch_size_from_args
+    from jasna.session_config import DEFAULT_CODEC
 
+    # --codec defaults to None, so that an explicit choice can be told from the default.
+    codec = DEFAULT_CODEC if args.codec is None else str(args.codec).lower()
     video_backend = str(getattr(args, "video_backend", "native")).lower()
 
     def _resolve(override: str) -> str:
@@ -1100,11 +1103,11 @@ def _phase3_reblend(
         "input": str(input_path),
         "output": str(output_path),
         "device": str(args.device),
-        "codec": str(args.codec).lower(),
+        "codec": codec,
         "encoder_settings": _resolve_cli_encoder_settings(
             str(getattr(args, "encoder_settings", "") or ""),
             cq=getattr(args, "cq", None),
-            codec=str(args.codec).lower(),
+            codec=codec,
             vendor=vendor_for_device(str(getattr(args, "device", "cuda:0"))),
         ),
         "lut_path": lut_arg or None,
