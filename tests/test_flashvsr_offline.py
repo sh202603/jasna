@@ -799,3 +799,19 @@ class TestFlashvsrAccel:
         monkeypatch.setattr(drv._worker, "_accel_demoted", lambda: [])
         with pytest.raises(RuntimeError, match="boom"):
             drv._upscale_clip_checked(None, None, torch)
+
+
+def test_phase3_takes_the_default_codec_when_codec_is_not_given(tmp_path):
+    """``--codec`` defaults to None; real parser defaults catch what a hand-built namespace would hide."""
+    from jasna.accelerator import AcceleratorVendor
+    from jasna.main import build_parser
+
+    args = build_parser().parse_args(["--input", "in.mp4", "--output", "out.mkv"])
+    with (
+        patch("jasna.accelerator.vendor_for_device", return_value=AcceleratorVendor.NVIDIA),
+        patch.object(fo, "_jasna_phase_cmd") as phase_cmd,
+        patch.object(fo, "_run_checked"),
+    ):
+        fo._phase3_reblend(args, tmp_path, tmp_path / "in.mp4", tmp_path / "out.mkv")
+
+    assert phase_cmd.call_args.args[1]["codec"] == "hevc"

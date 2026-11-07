@@ -2,7 +2,7 @@
 Super Res: the output has the LTX output's frame count and timing, and every window of
 the release's plan is restored.
 The clip was restored by release v0.11.1 (window hop 88), so the refine runs with
-``--no-experimental-ltx-less-overlap`` to plan the same 11 windows; the v0.11.2 default
+``--ltx-overlap 33`` (the former no-less-overlap mode) to plan the same 11 windows; the v0.11.2 default
 (hop 104) plans 9."""
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ def test_refine_keeps_the_ltx_output_frames_and_timing(tmp_path, backend):
             sys.executable, "-m", "jasna",
             "--input", str(LTX_OUTPUT), "--output", str(output),
             "--ltx-crop-vsr", backend, "--ltx-crop-vsr-source", str(SOURCE),
-            "--no-experimental-ltx-less-overlap",
+            "--ltx-overlap", "33",
             "--cq", "20", "--log-level", "info", "--no-progress",
         ],
         capture_output=True, text=True, timeout=900, env=environment,
