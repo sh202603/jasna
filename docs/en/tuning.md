@@ -94,6 +94,7 @@ These are for troubleshooting and testing. The defaults are best for most people
 | `JASNA_AMD_GRAPHS` | `1` (default), `0` | AMD: `0` turns off a BasicVSR++ speed-up. Try it if you get GPU errors or run out of VRAM. |
 | `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL` | `1` (default), `0` | AMD: `0` turns off a faster attention mode. Try it together with `JASNA_AMD_GRAPHS=0` if you get GPU errors. |
 | `TVAI_MODEL_DATA_DIR`, `TVAI_MODEL_DIR` | folder paths | Your Topaz Video model folders, needed for TVAI (see [Secondary restoration](models.md#secondary-restoration)). |
+| `JASNA_FORCE_FREE_BYTES` | number (GiB) | Unified-memory GPUs whose NVML total disagrees with CUDA's (GB10 / RTX Spark): replaces the OS available-RAM figure the app reads there, e.g. `28`. Needed because the OS's available RAM under-counts what the GPU can use there; without it the memory budget is far too small. Has no effect on discrete GPUs. |
 
 Windows: open Command Prompt in the Jasna folder, set the variable and start
 Jasna in the same window (or save both lines as a `.bat` file there):

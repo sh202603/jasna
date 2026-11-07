@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
+import psutil
 import torch
 import torch.nn.functional as F
 
@@ -120,6 +121,10 @@ class KernelBackend(StrEnum):
 def kernel_backend(device: torch.device | str) -> KernelBackend:
     resolved = torch.device(device)
     if resolved.type != "cuda":
+        return KernelBackend.CPU
+    if os.environ.get("JASNA_LTX_KERNELS", "").lower() == "torch":
+        # Escape hatch: run the pure-torch reference kernels on GPUs where the fused
+        # Triton kernels do not fit (e.g. shared memory limits on some SoC parts).
         return KernelBackend.CPU
     if is_amd_device(resolved):
         # A release ships Triton only for UNet 4x; LTX runs on prebuilt kernels without importing it.
@@ -279,10 +284,40 @@ def _nvml_check(nvml, status: int) -> None:
         raise RuntimeError(f"NVML: {nvml.nvmlErrorString(status).decode()}")
 
 
+def _nvml_total_disagrees_with_cuda(nvml_total: int, cuda_total: int) -> bool:
+    # A real dGPU's NVML total stays within the WDDM reservation, well under 5% of
+    # CUDA's; SoC GPUs (NVIDIA GB10 and friends) answer the v1 query with a bogus
+    # small pool, so their totals disagree outright.
+    return nvml_total * 20 < cuda_total * 19
+
+
+def _forced_free_bytes() -> int | None:
+    """JASNA_FORCE_FREE_BYTES=<GiB>: replaces the host's available-RAM figure in the SoC
+    mismatch branch, for boxes where that figure under-counts what the GPU can use."""
+    raw = os.environ.get("JASNA_FORCE_FREE_BYTES", "").strip()
+    if not raw:
+        return None
+    try:
+        return int(float(raw) * (1 << 30))
+    except ValueError:
+        log.warning("JASNA_FORCE_FREE_BYTES=%r is not a number; ignoring it", raw)
+        return None
+
+
 def _nvml_free_bytes(device: torch.device) -> int:
-    nvml, handle = _nvml_device(str(torch.cuda.get_device_properties(device).uuid))
+    props = torch.cuda.get_device_properties(device)
+    nvml, handle = _nvml_device(str(props.uuid))
     memory = _NvmlMemory()
     _nvml_check(nvml, nvml.nvmlDeviceGetMemoryInfo(handle, ctypes.byref(memory)))
+    if _nvml_total_disagrees_with_cuda(memory.total, props.total_memory):
+        forced = _forced_free_bytes()
+        if forced is not None:
+            return forced
+        # CUDA's own free figure is pinned at ~99.5% of its total on these boxes, so
+        # it cannot cap the budget either; the host's available RAM is the honest
+        # bound on a unified-memory box, and the caller's min() caps the process
+        # view at it.
+        return psutil.virtual_memory().available
     return memory.free
 
 

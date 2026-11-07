@@ -54,6 +54,14 @@ def _detection_engine_exists(
     fp16: bool,
     device: str,
 ) -> bool:
+    import os
+
+    if os.environ.get("JASNA_RFDETR_BACKEND", "").strip().lower() in ("onnxruntime", "torch"):
+        # The detector runs through onnxruntime / eager torch instead of TensorRT
+        # (platforms where TRT engine building is broken, NVIDIA/TensorRT#4904,
+        # and Windows ARM64 WoA).
+        return True
+
     import torch
 
     from jasna.accelerator import is_amd_device

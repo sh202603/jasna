@@ -12,8 +12,10 @@ import http.client
 import json
 import logging
 import math
+import platform
 import ssl
 import stat
+import sys
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -156,9 +158,37 @@ def _fill_tensor_groups(reader, group_names, groups) -> None:
 
 
 class _PlaintextHandle:
+    # On Windows ARM64, torch's UntypedStorage slicing (which safetensors uses to
+    # wrap a loaded tensor) raises an access violation on multi-GB tensors, so read
+    # tensor bytes straight into the destination instead of going through storage.
+    _PURE_IO = sys.platform == "win32" and platform.machine().lower() in ("arm64", "aarch64")
+
     def __init__(self, path: Path) -> None:
-        from safetensors import safe_open
-        self._source = safe_open(str(path), framework="pt", device="cpu")
+        self._path = path
+        if self._PURE_IO:
+            # Never build the mmap-backed safe_open: committing the mapping of a 12+ GiB file
+            # against the page-file limit is what kills the process here (os error 1455 at
+            # __enter__, or SIGSEGV on a later page fault — non-deterministic in the commit
+            # headroom). The header read below plus read/seek of each tensor needs no mapping.
+            from jasna.ltx.plain_io_reader import PlainIoSource
+
+            self._source = PlainIoSource(path)
+        else:
+            from safetensors import safe_open
+
+            self._source = safe_open(str(path), framework="pt", device="cpu")
+        self._io_ranges: dict[str, tuple[int, int, tuple[int, ...], str]] | None = None
+        if self._PURE_IO:
+            import struct
+            with open(path, "rb") as handle:
+                length = struct.unpack("<Q", handle.read(8))[0]
+                meta = json.loads(handle.read(length))
+            base = 8 + length
+            self._io_ranges = {
+                name: (base + int(spec["data_offsets"][0]), base + int(spec["data_offsets"][1]),
+                       tuple(spec["shape"]), spec["dtype"])
+                for name, spec in meta.items() if name != "__metadata__"
+            }
 
     def __enter__(self):
         self._source.__enter__()
@@ -177,7 +207,14 @@ class _PlaintextHandle:
         return self._source.metadata()
 
     def get_tensor(self, name: str):
-        return self._source.get_tensor(name)
+        if self._io_ranges is None:
+            return self._source.get_tensor(name)
+        import torch
+        begin, end, _shape, dtype = self._io_ranges[name]
+        with open(self._path, "rb") as handle:
+            handle.seek(begin)
+            raw = handle.read(end - begin)
+        return torch.frombuffer(bytearray(raw), dtype=getattr(torch, _TORCH_DTYPES[dtype])).view(_shape)
 
     def tensor_specs(self):
         import torch
@@ -188,7 +225,21 @@ class _PlaintextHandle:
         return result
 
     def get_tensor_into(self, name: str, destination) -> None:
-        destination.copy_(self._source.get_tensor(name))
+        if self._io_ranges is None:
+            destination.copy_(self._source.get_tensor(name))
+            return
+        import ctypes
+        begin, end, _shape, _dtype = self._io_ranges[name]
+        nbytes = end - begin
+        if destination.numel() * destination.element_size() != nbytes:
+            raise ValueError(f"destination size does not match tensor {name!r}")
+        if not destination.is_contiguous():
+            destination.copy_(self.get_tensor(name))
+            return
+        buffer = (ctypes.c_ubyte * nbytes).from_address(destination.data_ptr())
+        with open(self._path, "rb") as handle:
+            handle.seek(begin)
+            handle.readinto(memoryview(buffer))
 
     def read_tensors_into(self, group_names, groups) -> None:
         _fill_tensor_groups(self, group_names, groups)

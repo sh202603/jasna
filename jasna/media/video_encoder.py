@@ -3,6 +3,7 @@ from __future__ import annotations
 import heapq
 import logging
 import math
+import os
 import queue
 import threading
 from collections import deque
@@ -401,6 +402,23 @@ def resolve_encoder_options(
 ) -> tuple[EncoderSpec, dict[str, str]]:
     """Pick the encoder spec and the final FFmpeg options for one output."""
     specs = AMF_ENCODER_SPECS if vendor is AcceleratorVendor.AMD else ENCODER_SPECS
+    software = os.environ.get("JASNA_CPU_ENCODER", "").strip() == "1"
+    if software:
+        # Platforms without hardware encoders (e.g. FFmpeg WoA builds without
+        # NVENC): fall back to software libx264/libx265/libsvtav1.
+        specs = {
+            "hevc": EncoderSpec(
+                "libx265", "p010le",
+                MappingProxyType({"preset": "medium", "crf": "24", "x265-params": "keyint=250:min-keyint=250"}),
+            ),
+            "h264": EncoderSpec(
+                "libx264", "nv12",
+                MappingProxyType({"preset": "medium", "crf": "23", "x264-params": "keyint=250:min-keyint=250"}),
+            ),
+            "av1": EncoderSpec(
+                "libsvtav1", "p010le", MappingProxyType({"crf": "34"}),
+            ),
+        }
     if codec not in specs:
         raise ValueError(f"Unsupported codec: {codec}")
     spec = specs[codec]
@@ -443,6 +461,14 @@ def resolve_encoder_options(
         encoder_options.update(
             AMF_SMART_FRAGMENT_OPTIONS if vendor is AcceleratorVendor.AMD else NVENC_SMART_FRAGMENT_OPTIONS
         )
+    if software:
+        # nvenc-only options are rejected by avcodec_open2 on libx encoders.
+        _nvenc_only = {
+            "cq", "delay", "p_reset", "temporal_aq", "spatial_aq", "spatial-aq",
+            "aq-strength", "tune", "multipass-mode", "profile-tier", "level",
+            "g", "rc", "preset_ll", "strict_gop", "b_ref_mode", "temporal_lr",
+        }
+        encoder_options = {k: v for k, v in encoder_options.items() if k not in _nvenc_only}
     return spec, encoder_options
 
 
@@ -537,6 +563,7 @@ class VideoEncoder:
             "rate": self.output_fps,
             "options": dict(self.encoder_options),
         }
+        self._software = self.encoder_name.startswith(("libx264", "libx265", "libsvtav1"))
         if self.vendor is AcceleratorVendor.AMD:
             stream_kwargs["hwaccel"] = HWAccel(
                 "amf",
@@ -544,6 +571,8 @@ class VideoEncoder:
                 allow_software_fallback=False,
                 is_hw_owned=False,
             )
+            pix_fmt = self.spec.frame_format
+        elif getattr(self, "_software", False):
             pix_fmt = self.spec.frame_format
         else:
             pix_fmt = "cuda"
@@ -590,7 +619,7 @@ class VideoEncoder:
         self._cuda_ctx = None
         self._host_yuv = None
         self.stream = new_stream(self.device)
-        if self.vendor is AcceleratorVendor.NVIDIA:
+        if self.vendor is AcceleratorVendor.NVIDIA and not self._software:
             from av.video.frame import CudaContext
 
             self._cuda_ctx = CudaContext(
@@ -1040,7 +1069,7 @@ class VideoEncoder:
             if self._lut_applier is not None:
                 frame = self._lut_applier.apply(frame)
             packed = self._to_yuv(frame, height)
-            if self.vendor is AcceleratorVendor.NVIDIA:
+            if self.vendor is AcceleratorVendor.NVIDIA and not getattr(self, "_software", False):
                 packed = _align_yuv_pitch(packed)
                 if self.spec.frame_format == "p010le":
                     planes = [
@@ -1056,10 +1085,11 @@ class VideoEncoder:
                     cuda_context=self._cuda_ctx,
                 )
 
-        if self.vendor is AcceleratorVendor.AMD:
-            # AMF reads host planes, and reading them while a non-blocking copy
-            # was still in flight corrupted frames (issue #252): finish the
-            # conversion, then blocking-copy into pinned memory.
+        if self.vendor is AcceleratorVendor.AMD or getattr(self, "_software", False):
+            # AMF/software encoders read host planes, and reading them while a
+            # non-blocking copy was still in flight corrupted frames (issue
+            # #252): finish the conversion, then blocking-copy into pinned
+            # memory.
             self.stream.synchronize()
             self._host_yuv.copy_(
                 packed.view(torch.uint16) if self.spec.ten_bit else packed,
