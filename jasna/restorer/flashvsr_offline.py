@@ -472,8 +472,8 @@ def _run_phase_reblend(cfg: dict[str, Any]) -> None:
     for f, tracks in frame_to_tracks.items():
         blend_buffer.register_frame(f, tracks)
 
-    decode_backend = VideoBackend(str(cfg.get("decode_backend", "native")))
-    encode_backend = VideoBackend(str(cfg.get("encode_backend", "native")))
+    video_decode_backend = VideoBackend(str(cfg.get("video_decode_backend", "native")))
+    video_encode_backend = VideoBackend(str(cfg.get("video_encode_backend", "native")))
 
     encoder = make_video_encoder(
         file=output_path,
@@ -482,7 +482,7 @@ def _run_phase_reblend(cfg: dict[str, Any]) -> None:
         codec=str(cfg["codec"]),
         encoder_settings=dict(cfg.get("encoder_settings", {})),
         lut_path=cfg.get("lut_path"),
-        backend=encode_backend,
+        backend=video_encode_backend,
     )
 
     frames_encoded = 0
@@ -492,7 +492,7 @@ def _run_phase_reblend(cfg: dict[str, Any]) -> None:
             batch_size=int(cfg.get("batch_size", 4)),
             device=device,
             metadata=metadata,
-            backend=decode_backend,
+            backend=video_decode_backend,
         ) as reader, encoder as enc:
             frame_idx = 0
             for batch, pts_list in reader.frames():
@@ -1109,8 +1109,8 @@ def _phase3_reblend(
         ),
         "lut_path": lut_arg or None,
         "batch_size": batch_size_from_args(args),
-        "decode_backend": _resolve(str(getattr(args, "decode_backend", "inherit"))),
-        "encode_backend": _resolve(str(getattr(args, "encode_backend", "inherit"))),
+        "video_decode_backend": _resolve(str(getattr(args, "video_decode_backend", "inherit"))),
+        "video_encode_backend": _resolve(str(getattr(args, "video_encode_backend", "inherit"))),
     }
     _run_checked(_jasna_phase_cmd("reblend", cfg, bundle_dir), "Phase 3 (reblend + encode)", display=display)
 

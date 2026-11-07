@@ -31,7 +31,7 @@ from jasna.media.container_utils import (
     output_creation_time,
     with_output_creation_time,
 )
-from jasna.media.encoder_options import resolve_encoder_options
+from jasna.media.encoder_options import frame_generation_multiplier, resolve_encoder_options
 from jasna.media.lut import CubeLut, GpuLutApplier
 from jasna.media.probe import VideoMetadata
 from jasna.media.rgb_to_yuv import RgbToYuvConverter
@@ -190,11 +190,11 @@ class VideoEncoder:
         smart_fragment: bool = False,
         fmp4: bool = False,
         settings: Mapping[str, object] | None = None,
-        frame_generation: bool = False,
+        frame_generation: bool | int = False,
     ):
         """``settings`` (from ``settings_tag.job_settings``) become the output's comment tag.
-        ``frame_generation`` doubles ``output_fps`` and takes PTS in half the source time base
-        (``jasna.frame_generation.FrameGenerationWriter``)."""
+        ``frame_generation`` (True for 2x, or the multiplier) scales ``output_fps`` and takes PTS in
+        the source time base divided by it (``jasna.frame_generation.FrameGenerationWriter``)."""
         self.device = torch.device(device)
         self.vendor = vendor_for_device(self.device)
         if self.vendor not in {AcceleratorVendor.NVIDIA, AcceleratorVendor.AMD}:
@@ -218,10 +218,11 @@ class VideoEncoder:
         self.smart_fragment = bool(smart_fragment)
         self.fmp4 = bool(fmp4)
         self.settings = settings
+        multiplier = frame_generation_multiplier(frame_generation)
         self.output_fps = Fraction(
             metadata.video_fps_exact if output_fps is None else output_fps
-        ) * (2 if frame_generation else 1)
-        self.time_base = metadata.time_base / 2 if frame_generation else metadata.time_base
+        ) * multiplier
+        self.time_base = metadata.time_base / multiplier
 
         self._lut_applier = None if lut is None else GpuLutApplier(lut, device)
 

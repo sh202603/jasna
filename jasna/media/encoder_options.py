@@ -177,14 +177,24 @@ NVENC_H264_SOURCE_BITRATE_CAP_FACTOR = 2.0
 SOURCE_BITRATE_CAP_BUFFER_RATIO = 2
 
 
+def frame_generation_multiplier(frame_generation: bool | int) -> int:
+    """``frame_generation`` as the output frame multiplier: ``True`` is upstream's 2x, an int
+    (+modi: 2 or 4) the multiplier itself, ``False`` or 1 no generation."""
+    if frame_generation is True:
+        return 2
+    if not frame_generation:
+        return 1
+    return max(1, int(frame_generation))
+
+
 def source_bitrate_cap_options(
     metadata: VideoMetadata,
     *,
     output_codec: str,
     vendor: AcceleratorVendor,
-    frame_generation: bool,
+    frame_generation: bool | int,
 ) -> dict[str, str]:
-    """With ``frame_generation`` the output has twice the frames, so the ceiling doubles to
+    """With ``frame_generation`` the output has ``frame_generation_multiplier`` times the frames, so the ceiling scales to
     keep each frame's share of it."""
     if metadata.video_bitrate <= 0:
         logger.warning(
@@ -198,7 +208,7 @@ def source_bitrate_cap_options(
         factor = SOURCE_BITRATE_CAP_FACTORS.get(
             metadata.codec_name.lower(), DEFAULT_SOURCE_BITRATE_CAP_FACTOR
         )
-    maxrate = int(metadata.video_bitrate * factor * (2 if frame_generation else 1))
+    maxrate = int(metadata.video_bitrate * factor * frame_generation_multiplier(frame_generation))
     return {
         "maxrate": str(maxrate),
         "bufsize": str(maxrate * SOURCE_BITRATE_CAP_BUFFER_RATIO),
@@ -290,7 +300,7 @@ def resolve_encoder_options(
     encoder_settings: dict[str, object],
     *,
     smart_fragment: bool,
-    frame_generation: bool = False,
+    frame_generation: bool | int = False,
 ) -> tuple[EncoderSpec, dict[str, str]]:
     """Pick the encoder spec and the final FFmpeg options for one output."""
     specs = AMF_ENCODER_SPECS if vendor is AcceleratorVendor.AMD else ENCODER_SPECS

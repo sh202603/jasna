@@ -7,6 +7,8 @@ import sys
 from importlib.util import find_spec
 from types import SimpleNamespace
 
+import logging
+
 import pytest
 
 # Standard TensorRT or the TensorRT-RTX flavor — either provides the raw TRT
@@ -435,3 +437,12 @@ def cpu_gpu_memory(monkeypatch):
     """A pipeline on the CPU, which has no GPU memory for the job to sample."""
     monkeypatch.setattr("jasna.pipeline.device_used_bytes", lambda _device: 0)
     monkeypatch.setattr("jasna.pipeline.device_free_bytes", lambda _device: 0)
+
+
+@pytest.fixture(autouse=True)
+def _modi_restore_root_log_level():
+    """+modi: the framegen / offline entry points set the root log level; later tests still capture warnings."""
+    root = logging.getLogger()
+    level = root.level
+    yield
+    root.setLevel(level)

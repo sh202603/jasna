@@ -92,6 +92,7 @@ class ProcessingSection:
         self._toggles_row = ctk.CTkFrame(inner, fg_color="transparent")
         fp16_frame = self._switch_card(self._toggles_row, "fp16_mode")
         compile_frame = self._switch_card(self._toggles_row, "compile_basicvsrpp")
+        fp8_frame = self._switch_card(self._toggles_row, "fp8_recon")  # +modi
 
         row_gap = dict(fill="x", pady=(0, Sizing.PADDING_SMALL))
         self._rows = [
@@ -103,7 +104,8 @@ class ProcessingSection:
         ]
         self._toggles = [
             Row(fp16_frame, dict(side="left", fill="x", expand=True, padx=(0, 4)), "expert"),
-            Row(compile_frame, dict(side="right", fill="x", expand=True, padx=(4, 0)), "expert", "standard"),
+            Row(compile_frame, dict(side="left", fill="x", expand=True, padx=(4, 4)), "expert", "standard"),
+            Row(fp8_frame, dict(side="left", fill="x", expand=True, padx=(4, 0)), "expert", "standard"),
         ]
 
     def _switch_card(self, master, key: str):
@@ -156,6 +158,7 @@ class ProcessingSection:
         self._set_decode_backend(preset.decode_backend)
         self._widgets["fp16_mode"].set(preset.fp16_mode)
         self._widgets["compile_basicvsrpp"].set(preset.compile_basicvsrpp)
+        self._widgets["fp8_recon"].set(bool(getattr(preset, "fp8_recon", False)))  # +modi
 
     def collect(self) -> dict:
         return {
@@ -165,4 +168,5 @@ class ProcessingSection:
             "decode_backend": self._widgets["decode_backend"].get_value(),
             "fp16_mode": self._widgets["fp16_mode"].get() == 1,
             "compile_basicvsrpp": self._widgets["compile_basicvsrpp"].get() == 1,
+            "fp8_recon": self._widgets["fp8_recon"].get() == 1,
         }
