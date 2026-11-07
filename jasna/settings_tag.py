@@ -128,6 +128,7 @@ def job_settings(
         "sharpen": config.sharpen_strength,
         "retarget_high_fps": config.retarget_high_fps,
         "frame_generation": config.frame_generation,
+        **({"frame_generation_backend": config.frame_generation_backend} if config.frame_generation != "none" else {}),
     }
     return settings
 

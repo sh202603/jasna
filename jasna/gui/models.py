@@ -193,12 +193,13 @@ class AppSettings:
     sharpen_strength: float = 0.0
     lut_path: str = ""
     retarget_high_fps: bool = False
-    frame_generation: str = "none"  # none, 2x
+    frame_generation: str = "none"  # none, 2x, 4x (+modi: 4x)
+    # +modi: the frame generation backend (rtx: RTX Video Frame Generation, Ada or newer; rife: RIFE
+    # in PyTorch, every GPU), the RTX quality mode and optional RIFE weights (empty = model_weights/rife.pth)
+    frame_generation_backend: str = "rtx"  # rtx, rife
+    frame_generation_rtx_mode: str = "medium"  # low, medium, high (rtx backend only)
+    frame_generation_model_path: str = ""
     fmp4: bool = False
-    frame_gen: str = "none"  # none, 2x, 4x (frame-rate up-conversion, file-output only)
-    frame_gen_backend: str = "rife"  # rife, rtx (RTX Video Frame Generation; Ada/RTX 40 or newer)
-    frame_gen_model_path: str = ""  # optional RIFE weights; empty = <model_weights>/rife.pth
-    frame_gen_rtx_mode: str = "medium"  # low, medium, high (rtx backend only)
     video_backend: str = "native"  # native, auto, torchcodec (experimental)
 
     # Post-export action
@@ -267,6 +268,23 @@ def _migrate_preset_dict(preset_dict: dict) -> dict:
         migrated["codec"] = _normalize_preset_codec(migrated["codec"])
     if preset_dict.get("ltx_less_overlap") is False and "ltx_overlap" not in migrated:
         migrated["ltx_overlap"] = _OLD_FULL_LTX_OVERLAP
+    # +modi: presets saved before the v0.12.2 base kept frame generation in modi's own keys
+    # (frame_gen Off/2x/4x, frame_gen_backend, frame_gen_rtx_mode, frame_gen_model_path) and the
+    # video backend as a display label.
+    old_frame_gen = preset_dict.get("frame_gen")
+    if old_frame_gen is not None and "frame_generation" not in migrated:
+        value = str(old_frame_gen).lower()
+        migrated["frame_generation"] = "none" if value in ("", "off", "none") else value
+    for old_key, new_key in (
+        ("frame_gen_backend", "frame_generation_backend"),
+        ("frame_gen_rtx_mode", "frame_generation_rtx_mode"),
+    ):
+        if old_key in preset_dict and new_key not in migrated:
+            migrated[new_key] = str(preset_dict[old_key]).lower()
+    if "frame_gen_model_path" in preset_dict and "frame_generation_model_path" not in migrated:
+        migrated["frame_generation_model_path"] = str(preset_dict["frame_gen_model_path"])
+    if "video_backend" in migrated:
+        migrated["video_backend"] = str(migrated["video_backend"]).lower()
     # Presets saved by modi before v0.11 kept the player's BasicVSR++ checkpoint stem
     # in "restoration_model", the name upstream now uses for the model choice.
     model = migrated.get("restoration_model")

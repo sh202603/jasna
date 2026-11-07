@@ -471,29 +471,6 @@ class Processor:
         if segment_job is not None and segment_job.reencodes_whole_video:
             self._progress(ProgressUpdate(job_id=job_id, status=JobStatus.PROCESSING, resumable=False))
 
-        from jasna.framegen import MULTIPLIER_CHOICES
-        frame_gen_multiplier = MULTIPLIER_CHOICES.get(str(settings.frame_gen).lower(), 1)
-        if frame_gen_multiplier > 1 and segments:
-            # Smart rendering splices copied spans at the source frame rate;
-            # frame generation would change the rendered spans' rate, so it is
-            # skipped for segment jobs (matches the CLI guard).
-            self._log("WARNING", "Frame generation is skipped for segment jobs (incompatible with smart rendering)")
-            frame_gen_multiplier = 1
-        if frame_gen_multiplier > 1 and config.restoration_model_name == "ltx":
-            # The LTX pass writes its frames straight to the encoder, past the frame-gen writer.
-            self._log("WARNING", "Frame generation is skipped for LTX jobs")
-            frame_gen_multiplier = 1
-        frame_generator = None
-        if frame_gen_multiplier > 1:
-            from jasna.framegen import build_frame_generator
-            fg_model_path = str(getattr(settings, "frame_gen_model_path", "") or "").strip() or None
-            frame_generator = build_frame_generator(
-                str(settings.frame_gen_backend).lower(),
-                device=s.device,
-                model_path=fg_model_path,
-                fp16=settings.fp16_mode,
-                rtx_mode=str(getattr(settings, "frame_gen_rtx_mode", "medium") or "medium").lower(),
-            )
         from jasna.media.backend import VideoBackend
         video_backend = VideoBackend(str(getattr(settings, "video_backend", "native") or "native").lower())
         pipeline = None
@@ -505,8 +482,6 @@ class Processor:
                 output_path,
                 segment_job,
                 progress_callback=progress_callback,
-                frame_gen_multiplier=frame_gen_multiplier,
-                frame_generator=frame_generator,
                 video_decode_backend=video_backend,
                 video_encode_backend=video_backend,
             )
@@ -518,8 +493,6 @@ class Processor:
                 raise ProcessingStopped("Processing stopped")
         finally:
             self._current_pipeline = None
-            if frame_generator is not None and hasattr(frame_generator, "close"):
-                frame_generator.close()
 
     def _prepare_job_detector(
         self,

@@ -17,8 +17,8 @@ from jasna.media.container_utils import MOV_SUFFIXES
 from jasna.media.encoder_settings import require_encodable_size
 from jasna.media.probe import UnsupportedVideoError, get_video_meta_data
 from jasna.media.video_encoder import VideoEncoder, resolve_encoder_options
-from jasna.media.video_encoder import VideoEncoder
 from jasna.media.backend import VideoBackend, make_video_encoder
+from jasna.frame_generation import multiplier_of
 from jasna.media.frame_rate import resolve_frame_rate_retarget
 from jasna.media.splice import (
     H264_SMART_MAX_B_FRAMES,
@@ -260,14 +260,25 @@ class Pipeline:
             raise error
 
     def _frame_writer(self, writer: _OfflineFrameWriter, metadata):
-        """``writer``, behind 2x frame generation when the job asks for it; the effect takes
-        its GPU memory from here until the writer closes."""
-        if self.config.frame_generation == "none":
+        """``writer``, behind frame generation when the job asks for it (+modi: 2x or 4x with the
+        RTX or the RIFE backend); the generator takes its GPU memory from here until the writer
+        closes."""
+        config = self.config
+        if config.frame_generation == "none":
             return writer
-        from jasna.frame_generation import FrameGenerationWriter, RtxFrameGeneration
+        from jasna.frame_generation import FrameGenerationWriter, build_generator
 
-        generate = RtxFrameGeneration(self.device, int(metadata.video_width), int(metadata.video_height))
-        return FrameGenerationWriter(writer, generate)
+        generate = build_generator(
+            config.frame_generation_backend,
+            device=self.device,
+            width=int(metadata.video_width),
+            height=int(metadata.video_height),
+            rtx_mode=config.frame_generation_rtx_mode,
+            model_path=config.frame_generation_model_path or None,
+            fp16=config.fp16,
+        )
+        log.info("Frame generation %s with the %s backend", config.frame_generation, config.frame_generation_backend)
+        return FrameGenerationWriter(writer, generate, multiplier_of(config.frame_generation))
 
     def _log_memory_at_end(self) -> None:
         free, total = torch.cuda.mem_get_info(self.device)
@@ -344,7 +355,7 @@ class Pipeline:
             output_fps=frame_rate.output_fps,
             fmp4=self.fmp4,
             settings=settings,
-            frame_generation=self.config.frame_generation != "none",
+            frame_generation=multiplier_of(self.config.frame_generation),
             backend=self.video_encode_backend,
             native_encoder=VideoEncoder,
         )

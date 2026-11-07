@@ -26,14 +26,14 @@ def _import_effect():
         raise RuntimeError(
             "RTX Video Frame Generation needs the nvidia-vfx package "
             f"(>= {MIN_NVVFX_VERSION}), which is not installed. Install it or use "
-            "'--frame-gen-backend rife'."
+            "'--frame-generation-backend rife'."
         ) from e
     cls = getattr(nvvfx, "VideoFrameGeneration", None)
     if cls is None:
         raise RuntimeError(
             "RTX Video Frame Generation is not available in the installed nvidia-vfx "
             f"{getattr(nvvfx, '__version__', '?')} (it ships with nvidia-vfx >= "
-            f"{MIN_NVVFX_VERSION}). Upgrade nvidia-vfx or use '--frame-gen-backend rife'."
+            f"{MIN_NVVFX_VERSION}). Upgrade nvidia-vfx or use '--frame-generation-backend rife'."
         )
     return cls
 
@@ -116,8 +116,12 @@ class RtxFrameGenerator(FrameGenerator):
             raise RuntimeError(
                 "RTX Video Frame Generation requires an NVIDIA Ada (RTX 40 series) or "
                 f"newer GPU (compute capability {MIN_COMPUTE_CAPABILITY[0]}.{MIN_COMPUTE_CAPABILITY[1]}+); "
-                f"this GPU is {major}.{minor}. Use '--frame-gen-backend rife' instead."
+                f"this GPU is {major}.{minor}. Use '--frame-generation-backend rife' instead."
             )
+
+    def load(self, height: int, width: int) -> None:
+        """Load the effect for ``height`` x ``width`` frames now (``interpolate`` does it lazily)."""
+        self._ensure_loaded(int(height), int(width))
 
     def _ensure_loaded(self, height: int, width: int) -> None:
         if self._size == (height, width):

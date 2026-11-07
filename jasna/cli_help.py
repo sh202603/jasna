@@ -22,11 +22,24 @@ CLI_HELP: dict[str, str] = {
         "LTX model is offered for download. (default: %(default)s)"
     ),
     "frame_generation": (
-        "2x: double the frame rate with NVIDIA RTX Video Frame Generation for smoother motion. "
-        "Needs an RTX 40-series or newer GPU. Audio and length stay the same. "
+        "2x doubles and 4x quadruples the frame rate with generated in-between frames for smoother motion "
+        "(--frame-generation-backend: NVIDIA RTX Video Frame Generation on an RTX 40-series or newer GPU, "
+        "or RIFE on any GPU). Audio and length stay the same. "
         "Restores the whole video, so it can't be combined with --segments, --ltx-auto-split or --stream. "
-        "With --retarget-high-fps, 60 FPS is halved first and then doubled back. "
+        "With --retarget-high-fps, 60 FPS is halved first and then multiplied back. "
         "(default: %(default)s)"
+    ),
+    "frame_generation_backend": (
+        "How the in-between frames are made: rtx (NVIDIA RTX Video Frame Generation through nvidia-vfx, "
+        "RTX 40-series or newer, no weights, about 10x faster) or rife (RIFE in PyTorch, every supported GPU, "
+        "needs rife.pth). (default: %(default)s)"
+    ),
+    "frame_generation_rtx_mode": (
+        "Quality mode of RTX Video Frame Generation (rtx backend only). high is about 6x slower than medium "
+        "for a marginal gain. (default: %(default)s)"
+    ),
+    "frame_generation_model_path": (
+        "RIFE weights for the rife backend; empty uses model_weights/rife.pth."
     ),
     "restoration_model_path": (
         "Restoration model file (basicvsrpp) or folder (ltx). Default: the model in model_weights/."

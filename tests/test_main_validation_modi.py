@@ -15,16 +15,22 @@ def _run_main_with_args(tmp_path, extra_args):
 
 
 class TestMainValidationModi:
-    def test_frame_gen_streaming_rejected(self, tmp_path):
-        # Frame generation is file-output only; combining it with --stream errors.
-        with pytest.raises(ValueError, match="[Ff]rame generation"):
-            _run_main_with_args(tmp_path, ["--frame-gen", "2x", "--stream"])
+    def test_frame_generation_4x_reaches_the_config(self, tmp_path):
+        from unittest.mock import patch
 
-    def test_frame_gen_segments_rejected(self, tmp_path):
-        # Frame generation changes the output frame rate, which smart rendering
-        # cannot splice against; the combination is rejected up front.
-        with pytest.raises(ValueError, match="[Ff]rame generation"):
-            _run_main_with_args(tmp_path, ["--frame-gen", "2x", "--segments", "1-2"])
+        with patch("jasna.accelerator.supports_frame_generation", return_value=False):
+            config = _run_main_with_args(
+                tmp_path, ["--frame-generation", "4x", "--frame-generation-backend", "rife"]
+            ).call_args.kwargs["config"]
+        assert (config.frame_generation, config.frame_generation_backend) == ("4x", "rife")
+
+    def test_frame_generation_rife_runs_on_any_gpu(self, tmp_path, capsys):
+        # The RTX 40-series gate is the rtx backend's; RIFE needs no such GPU.
+        from unittest.mock import patch
+
+        with patch("jasna.accelerator.supports_frame_generation", return_value=False):
+            _run_main_with_args(tmp_path, ["--frame-generation", "2x", "--frame-generation-backend", "rife"])
+        assert "RTX 40-series" not in capsys.readouterr().err
 
     def test_torchcodec_streaming_rejected(self, tmp_path):
         with pytest.raises(ValueError, match="streaming"):

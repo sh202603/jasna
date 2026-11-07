@@ -78,7 +78,7 @@ def _make_args(tmp_path, **overrides):
     args.video_decode_backend = "inherit"
     args.video_encode_backend = "inherit"
     args.stream = False
-    args.frame_gen = "none"
+    args.frame_generation = "none"
     args.retarget_high_fps = False
     args.segments = ""
     args.vr_mode = "off"
@@ -104,7 +104,7 @@ def _make_flashvsr_args(tmp_path, **overrides):
     args.input = str(inp)
     args.output = str(tmp_path / "out.mkv")
     args.stream = False
-    args.frame_gen = "none"
+    args.frame_generation = "none"
     args.retarget_high_fps = False
     args.segments = ""
     args.vr_mode = "off"
@@ -360,7 +360,7 @@ class TestValidation:
     @pytest.mark.parametrize("engine", ["flashvsr", "swiftvr"])
     @pytest.mark.parametrize("override, match", [
         ({"stream": True}, "file-output only"),
-        ({"frame_gen": "2x"}, "frame-gen"),
+        ({"frame_generation": "2x"}, "frame-generation"),
         ({"retarget_high_fps": True}, "retarget-high-fps"),
         ({"segments": "10-25"}, "segments"),
         ({"vr_mode": "sbs"}, "VR processing"),

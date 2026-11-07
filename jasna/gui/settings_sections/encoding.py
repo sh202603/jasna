@@ -144,14 +144,60 @@ class EncodingSection:
         add_setting_label(frame_generation_row, "frame_generation")
         self._widgets["frame_generation"] = ValueOptionMenu(
             frame_generation_row,
-            options={"none": t("frame_generation_off"), "2x": "2x"},
+            options={"none": t("frame_generation_off"), "2x": "2x", "4x": "4x"},
             command=lambda _value: self._on_modified(),
             fg_color=Colors.BG_CARD, button_color=Colors.BG_CARD,
             button_hover_color=Colors.BORDER_LIGHT, dropdown_fg_color=Colors.BG_CARD,
             text_color=Colors.TEXT_PRIMARY, width=120,
         )
         self._widgets["frame_generation"].pack(side="right")
-        self._frame_generation_supported = True
+        self._rtx_frame_generation_supported = True
+
+        # +modi: the frame generation backend (RTX needs an RTX 40-series or newer GPU, RIFE runs on
+        # every GPU), the RTX quality mode and optional RIFE weights.
+        menu_style = dict(
+            fg_color=Colors.BG_CARD, button_color=Colors.BG_CARD,
+            button_hover_color=Colors.BORDER_LIGHT, dropdown_fg_color=Colors.BG_CARD,
+            text_color=Colors.TEXT_PRIMARY, width=120,
+        )
+        frame_generation_backend_row = ctk.CTkFrame(inner, fg_color="transparent")
+        add_setting_label(frame_generation_backend_row, "frame_generation_backend")
+        self._widgets["frame_generation_backend"] = ValueOptionMenu(
+            frame_generation_backend_row, options={"rtx": "RTX", "rife": "RIFE"},
+            command=lambda _value: self._on_modified(), **menu_style,
+        )
+        self._widgets["frame_generation_backend"].pack(side="right")
+
+        frame_generation_rtx_mode_row = ctk.CTkFrame(inner, fg_color="transparent")
+        add_setting_label(frame_generation_rtx_mode_row, "frame_generation_rtx_mode")
+        self._widgets["frame_generation_rtx_mode"] = ValueOptionMenu(
+            frame_generation_rtx_mode_row, options={"low": "Low", "medium": "Medium", "high": "High"},
+            command=lambda _value: self._on_modified(), **menu_style,
+        )
+        self._widgets["frame_generation_rtx_mode"].pack(side="right")
+
+        frame_generation_model_row = ctk.CTkFrame(inner, fg_color="transparent")
+        add_setting_label(frame_generation_model_row, "frame_generation_model_path")
+        frame_generation_model_input_row = ctk.CTkFrame(inner, fg_color="transparent")
+        self._widgets["frame_generation_model_path"] = ctk.CTkEntry(
+            frame_generation_model_input_row, fg_color=Colors.BG_CARD, border_color=Colors.BORDER,
+            text_color=Colors.TEXT_PRIMARY, placeholder_text=t("frame_generation_model_path_placeholder"),
+        )
+        self._widgets["frame_generation_model_path"].pack(side="left", fill="x", expand=True, padx=(0, 4))
+        ctk.CTkButton(
+            frame_generation_model_input_row, text="", image=create_icon("folder", 16, Colors.TEXT_PRIMARY),
+            width=32, height=28, fg_color=Colors.BG_CARD, hover_color=Colors.BORDER_LIGHT,
+            text_color=Colors.TEXT_PRIMARY, command=self._browse_frame_generation_model,
+        ).pack(side="right")
+
+        # +modi: the torchcodec decode / encode backend (experimental).
+        video_backend_row = ctk.CTkFrame(inner, fg_color="transparent")
+        add_setting_label(video_backend_row, "video_backend")
+        self._widgets["video_backend"] = ValueOptionMenu(
+            video_backend_row, options={"native": "Native", "auto": "Auto", "torchcodec": "TorchCodec"},
+            command=lambda _value: self._on_modified(), **menu_style,
+        )
+        self._widgets["video_backend"].pack(side="right")
 
         # Fragmented MP4: output stays playable while it is written.
         fmp4_row = ctk.CTkFrame(inner, fg_color="transparent")
@@ -225,6 +271,10 @@ class EncodingSection:
             Row(sharpen_row, row_gap, "advanced"),
             Row(retarget_row, row_gap, "advanced"),
             Row(frame_generation_row, row_gap, "advanced"),
+            Row(frame_generation_backend_row, row_gap, "advanced"),
+            Row(frame_generation_rtx_mode_row, row_gap, "expert"),
+            Row(frame_generation_model_row, label_gap, "expert"),
+            Row(frame_generation_model_input_row, input_gap, "expert"),
             Row(fmp4_row, row_gap, "advanced"),
             Row(lut_row, label_gap, "advanced"),
             Row(lut_input_row, input_gap, "advanced"),
@@ -232,6 +282,7 @@ class EncodingSection:
             Row(self._widgets["encoder_custom_args"], input_gap, "expert"),
             Row(working_dir_row, label_gap, "expert"),
             Row(working_dir_input_row, input_gap, "expert"),
+            Row(video_backend_row, row_gap, "expert"),
         ]
 
     def layout(self, level: str, *, standard: bool, ltx: bool) -> bool:
@@ -239,12 +290,23 @@ class EncodingSection:
         return True
 
     def set_frame_generation_support(self, supported: bool) -> None:
-        """Frame generation needs an RTX 40-series or newer GPU; its tooltip says so."""
-        self._frame_generation_supported = supported
-        menu = self._widgets["frame_generation"]
+        """RTX Video Frame Generation needs an RTX 40-series or newer GPU; without one only the
+        RIFE backend is offered (+modi), frame generation itself stays available."""
+        self._rtx_frame_generation_supported = supported
+        menu = self._widgets["frame_generation_backend"]
+        menu.offer(("rtx", "rife") if supported else ("rife",))
         if not supported:
-            menu.set_value("none")
-        menu.configure(state="normal" if supported else "disabled")
+            menu.set_value("rife")
+
+    def _browse_frame_generation_model(self):
+        filepath = filedialog.askopenfilename(
+            title=t("dialog_select_frame_generation_model"),
+            filetypes=[("PyTorch checkpoint", "*.pth *.pt"), ("All files", "*.*")],
+        )
+        if filepath:
+            self._widgets["frame_generation_model_path"].delete(0, "end")
+            self._widgets["frame_generation_model_path"].insert(0, filepath)
+            self._on_modified()
 
     def _browse_working_directory(self):
         directory = filedialog.askdirectory(title=t("dialog_select_working_directory"))
@@ -322,9 +384,14 @@ class EncodingSection:
             self._widgets["retarget_high_fps"].select()
         else:
             self._widgets["retarget_high_fps"].deselect()
-        self._widgets["frame_generation"].set_value(
-            preset.frame_generation if self._frame_generation_supported else "none"
+        self._widgets["frame_generation"].set_value(preset.frame_generation)
+        self._widgets["frame_generation_backend"].set_value(
+            preset.frame_generation_backend if self._rtx_frame_generation_supported else "rife"
         )
+        self._widgets["frame_generation_rtx_mode"].set_value(preset.frame_generation_rtx_mode)
+        self._widgets["frame_generation_model_path"].delete(0, "end")
+        self._widgets["frame_generation_model_path"].insert(0, preset.frame_generation_model_path or "")
+        self._widgets["video_backend"].set_value(str(preset.video_backend).lower())
         if preset.fmp4:
             self._widgets["fmp4"].select()
         else:
@@ -341,6 +408,10 @@ class EncodingSection:
             "sharpen_strength": round(float(self._widgets["sharpen_strength"].get()), 2),
             "retarget_high_fps": self._widgets["retarget_high_fps"].get() == 1,
             "frame_generation": self._widgets["frame_generation"].get_value(),
+            "frame_generation_backend": self._widgets["frame_generation_backend"].get_value(),
+            "frame_generation_rtx_mode": self._widgets["frame_generation_rtx_mode"].get_value(),
+            "frame_generation_model_path": self._widgets["frame_generation_model_path"].get().strip(),
+            "video_backend": self._widgets["video_backend"].get_value(),
             "fmp4": self._widgets["fmp4"].get() == 1,
             "lut_path": self._widgets["lut_path"].get().strip(),
             "encoder_custom_args": self._widgets["encoder_custom_args"].get(),

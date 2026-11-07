@@ -167,7 +167,7 @@ LTX_NEEDED = "needs --restoration-model-name ltx-basic, ltx, ltx-4step, ltx-8ste
         (["--segments", "10-20", "--frame-generation", "2x"], (), "--frame-generation cannot be combined with --segments"),
         (["--restoration-model-name", "ltx", "--ltx-auto-split", "12", "--frame-generation", "2x"], (),
          "--frame-generation cannot be combined with --ltx-auto-split"),
-        (["--frame-generation", "4x"], (), "argument --frame-generation: invalid choice"),
+        (["--frame-generation", "3x"], (), "argument --frame-generation: invalid choice"),  # +modi: 4x is a choice
         (["--codec", "vp9"], (), "argument --codec: invalid choice: 'vp9'"),
         (["--codec", "av1", "--encoder-settings", "profile=main"], (), "for codec av1.*profile"),
         (["--batch-size", "0"], (), "Batch size must be > 0"),

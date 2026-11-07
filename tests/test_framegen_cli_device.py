@@ -109,7 +109,6 @@ def test_cli_threads_device_and_multiplier(tmp_path):
     assert captured["encoder_device"] == want
     assert captured["gen_device"] == want
     assert captured["gen_backend"] == "rife"
-    # The encoder must receive the source fps multiplied by the factor (4x)
-    # for correct NVENC fps/GOP.
-    assert captured["output_fps"] == Fraction(96, 1)
+    # The encoder scales its own fps and time base by the factor (4x) for correct NVENC fps/GOP.
+    assert captured["frame_generation"] == 4 and captured["output_fps"] is None
     assert len(captured.get("encoded", [])) == 1

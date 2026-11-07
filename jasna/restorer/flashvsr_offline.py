@@ -539,7 +539,7 @@ def _rewrite_argv_for_dump(argv: list[str], temp_output: str) -> list[str]:
 
     Swaps ``--secondary-restoration`` to ``none`` (so Phase 1 does not recurse
     into flashvsr), redirects ``--output`` to a throwaway temp, and disables
-    ``--frame-gen`` (frame generation belongs to the final Phase 3 encode). Every
+    ``--frame-generation`` (frame generation belongs to the final Phase 3 encode). Every
     other flag the user passed is preserved verbatim.
     """
     out: list[str] = []
@@ -571,13 +571,13 @@ def _rewrite_argv_for_dump(argv: list[str], temp_output: str) -> list[str]:
             out += [f"--output={temp_output}"]
             i += 1
             continue
-        if a == "--frame-gen":
-            out += ["--frame-gen", "none"]
+        if a == "--frame-generation":
+            out += ["--frame-generation", "none"]
             override_next = "value"
             i += 1
             continue
-        if a.startswith("--frame-gen="):
-            out += ["--frame-gen=none"]
+        if a.startswith("--frame-generation="):
+            out += ["--frame-generation=none"]
             i += 1
             continue
         out.append(a)
@@ -661,9 +661,9 @@ def _validate_offline_flags(args: "argparse.Namespace", mode: str) -> None:
         raise ValueError(f"{flag} is file-output only (not compatible with --stream)")
     if args.input is None or args.output is None:
         raise ValueError(f"{flag} requires --input and --output")
-    if str(getattr(args, "frame_gen", "none")).lower() != "none":
+    if str(getattr(args, "frame_generation", "none")).lower() != "none":
         raise ValueError(
-            f"{flag} does not support --frame-gen yet (run frame generation as a separate pass)"
+            f"{flag} does not support --frame-generation yet (run frame generation as a separate pass)"
         )
     if bool(getattr(args, "retarget_high_fps", False)):
         # Phase 1 would decode with the fps-retarget frame stride while Phase 3

@@ -57,18 +57,21 @@ def _run_main(argv):
 
 
 class TestBuildParserModi:
-    def test_frame_gen_defaults_and_rtx_mode(self):
+    def test_frame_generation_defaults_and_rtx_mode(self):
         args = build_parser().parse_args(["--input", "a.mp4", "--output", "b.mp4"])
-        assert args.frame_gen == "none"
-        assert args.frame_gen_backend == "rife"
-        assert args.frame_gen_rtx_mode == "medium"
+        assert args.frame_generation == "none"
+        assert args.frame_generation_backend == "rtx"
+        assert args.frame_generation_rtx_mode == "medium"
+        assert args.frame_generation_model_path == ""
         args = build_parser().parse_args([
             "--input", "a.mp4", "--output", "b.mp4",
-            "--frame-gen", "2x", "--frame-gen-backend", "rtx", "--frame-gen-rtx-mode", "high",
-            "--rtx-strength", "0.5", "--rtx-highbitrate",
+            "--frame-generation", "4x", "--frame-generation-backend", "rife", "--frame-generation-rtx-mode", "high",
+            "--frame-generation-model-path", "/w/rife.pth", "--rtx-strength", "0.5", "--rtx-highbitrate",
         ])
-        assert args.frame_gen_backend == "rtx"
-        assert args.frame_gen_rtx_mode == "high"
+        assert args.frame_generation == "4x"
+        assert args.frame_generation_backend == "rife"
+        assert args.frame_generation_rtx_mode == "high"
+        assert args.frame_generation_model_path == "/w/rife.pth"
         assert args.rtx_strength == 0.5
         assert args.rtx_highbitrate is True
 
@@ -394,10 +397,10 @@ class TestSeedvr2Main:
         argv = _seedvr2_argv(inp, out, rest, det, repo, lora, ["--seedvr2-overlap", "33"])
         self._run_expect_error(argv, "seedvr2-overlap")
 
-    def test_rejects_frame_gen(self, tmp_path):
+    def test_rejects_frame_generation(self, tmp_path):
         inp, out, rest, det = _make_model_files(tmp_path)
         repo, lora = _make_seedvr2_env(tmp_path)
-        argv = _seedvr2_argv(inp, out, rest, det, repo, lora, ["--frame-gen", "2x"])
+        argv = _seedvr2_argv(inp, out, rest, det, repo, lora, ["--frame-generation", "2x"])
         self._run_expect_error(argv, "frame-gen")
 
     def test_rejects_flashvsr_inline_combo(self, tmp_path):

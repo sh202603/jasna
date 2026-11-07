@@ -297,7 +297,7 @@ def test_frame_generation_doubles_the_frames_and_rate_before_the_encoder():
     with patch("jasna.frame_generation.RtxFrameGeneration", return_value=generator):
         _, encoder_cls, encoder = _run(_pipeline(frame_generation="2x"), frames=torch.zeros((2, 3, 8, 8), dtype=torch.uint8))
 
-    assert encoder_cls.call_args.kwargs["frame_generation"] is True
+    assert encoder_cls.call_args.kwargs["frame_generation"] == 2  # +modi: the multiplier
     assert [call.args[1] for call in encoder.encode.call_args_list] == [0, 1, 2, 3]
     assert generator.calls == 1 and generator.closed
 

@@ -124,17 +124,19 @@ def test_settings_round_trip_through_panel(panel_factory, settings) -> None:
 
 
 def test_frame_generation_is_off_and_locked_on_a_gpu_without_it(panel_factory) -> None:
+    # +modi: without an RTX 40-series GPU only the RIFE backend is offered; frame generation stays on.
     panel = panel_factory()
-    _apply(panel, replace(AppSettings(), frame_generation="2x"))
+    _apply(panel, replace(AppSettings(), frame_generation="2x", frame_generation_backend="rtx"))
 
     panel.set_gpu_support(vendor=AcceleratorVendor.NVIDIA, blackwell=False, frame_generation=False)
 
-    assert panel.get_settings().frame_generation == "none"
-    assert panel._widgets["frame_generation"].cget("state") == "disabled"
-    _apply(panel, replace(AppSettings(), frame_generation="2x"))
-    assert panel.get_settings().frame_generation == "none"
+    assert panel.get_settings().frame_generation == "2x"
+    assert panel.get_settings().frame_generation_backend == "rife"
+    assert panel._widgets["frame_generation_backend"].cget("values") == ["RIFE"]
+    _apply(panel, replace(AppSettings(), frame_generation="2x", frame_generation_backend="rtx"))
+    assert panel.get_settings().frame_generation_backend == "rife"
     panel.set_gpu_support(vendor=AcceleratorVendor.NVIDIA, blackwell=False, frame_generation=True)
-    assert panel._widgets["frame_generation"].cget("state") == "normal"
+    assert panel._widgets["frame_generation_backend"].cget("values") == ["RTX", "RIFE"]
 
 
 def test_sections_collect_every_setting_except_runtime_ones(panel_factory) -> None:

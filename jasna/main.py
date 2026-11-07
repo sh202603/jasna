@@ -153,6 +153,9 @@ def _session_config_from_args(
         sharpen_strength=float(args.sharpen),
         retarget_high_fps=bool(args.retarget_high_fps),
         frame_generation=args.frame_generation,
+        frame_generation_backend=str(args.frame_generation_backend).lower(),
+        frame_generation_rtx_mode=str(args.frame_generation_rtx_mode).lower(),
+        frame_generation_model_path=str(args.frame_generation_model_path).strip(),
         fmp4=bool(args.fmp4),
         disable_progress=bool(args.no_progress),
         working_dir=Path(args.working_directory) if args.working_directory else None,
@@ -844,8 +847,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--frame-generation",
         type=str,
         default="none",
-        choices=["none", "2x"],
+        choices=["none", "2x", "4x"],
         help=CLI_HELP["frame_generation"],
+    )
+    encoding.add_argument(
+        "--frame-generation-backend",
+        type=str,
+        default="rtx",
+        choices=["rife", "rtx"],
+        help=CLI_HELP["frame_generation_backend"],
+    )
+    encoding.add_argument(
+        "--frame-generation-rtx-mode",
+        type=str,
+        default="medium",
+        choices=["low", "medium", "high"],
+        help=CLI_HELP["frame_generation_rtx_mode"],
+    )
+    encoding.add_argument(
+        "--frame-generation-model-path",
+        type=str,
+        default="",
+        help=CLI_HELP["frame_generation_model_path"],
     )
     encoding.add_argument(
         "--fmp4",
@@ -865,37 +888,6 @@ def build_parser() -> argparse.ArgumentParser:
             "10-25,01:10-01:30. Output codec must match the H.264, HEVC, or AV1 input."
         ),
     )
-    encoding.add_argument(
-        "--frame-gen",
-        type=str,
-        default="none",
-        choices=["none", "2x", "4x"],
-        help='Frame-rate up-conversion: insert AI-interpolated frames to 2x/4x the output fps. File-output only (default: %(default)s)',
-    )
-    encoding.add_argument(
-        "--frame-gen-backend",
-        type=str,
-        default="rife",
-        choices=["rife", "rtx"],
-        help='Frame generation backend: "rife" (RIFE in PyTorch, any supported GPU, needs rife.pth) or '
-             '"rtx" (NVIDIA RTX Video Frame Generation via nvidia-vfx 0.2.0.0+, RTX 40 series or newer, '
-             'no weights, about 10x faster than RIFE) (default: %(default)s)',
-    )
-    encoding.add_argument(
-        "--frame-gen-model-path",
-        type=str,
-        default="",
-        help='Optional path to RIFE weights. If not set, uses "<model_weights>/rife.pth". RIFE backend only.',
-    )
-    encoding.add_argument(
-        "--frame-gen-rtx-mode",
-        type=str,
-        default="medium",
-        choices=["low", "medium", "high"],
-        help='Quality mode of RTX Video Frame Generation ("rtx" backend only). "high" is about 6x slower than '
-             '"medium" for a marginal gain (default: %(default)s)',
-    )
-
     post_export = parser.add_argument_group("Post-export action")
     post_export.add_argument(
         "--post-export-action",
@@ -1310,7 +1302,7 @@ def _check_ltx_crop_vsr_options(
         (is_streaming, "--stream"),
         (bool(args.retarget_high_fps), "--retarget-high-fps"),
         (bool(args.fmp4), "--fmp4"),
-        (str(args.frame_gen).lower() != str(parser.get_default("frame_gen")).lower(), "--frame-gen"),
+        (str(args.frame_generation).lower() != "none", "--frame-generation"),
         (str(args.vr_mode).lower() in ("sbs", "sbs-fisheye"), f"--vr-mode {args.vr_mode}"),
         (input_is_image, "an image input"),
         (input_is_dir, "a folder input"),
@@ -1497,7 +1489,7 @@ def _main() -> None:
 
     _check_system(args)
     _configure_runtime(args)
-    if args.frame_generation != "none" and not input_is_image:
+    if args.frame_generation != "none" and args.frame_generation_backend == "rtx" and not input_is_image:
         from jasna.accelerator import supports_frame_generation
         from jasna.session_factory import FRAME_GENERATION_NEEDS_RTX_40
 
@@ -1522,17 +1514,6 @@ def _main() -> None:
         return
 
     folder_images: list[Path] = []
-    from jasna.framegen import MULTIPLIER_CHOICES
-    frame_gen_name = str(args.frame_gen).lower()
-    frame_gen_multiplier = MULTIPLIER_CHOICES[frame_gen_name]
-    frame_gen_backend = str(args.frame_gen_backend).lower()
-    if frame_gen_multiplier > 1 and is_streaming:
-        raise ValueError("Frame generation (--frame-gen) is file-output only and not supported in streaming mode")
-    if frame_gen_multiplier > 1 and segments_spec:
-        raise ValueError("Frame generation (--frame-gen) cannot be combined with --segments smart rendering")
-    if frame_gen_multiplier > 1 and restoration_backend == "ltx" and not input_is_image:
-        # The LTX pass writes its frames straight to the encoder, past the frame-gen writer.
-        parser.error(f"--frame-gen does not support --restoration-model-name {args.restoration_model_name}")
 
     from jasna.media.backend import VideoBackend
     video_backend = VideoBackend(str(args.video_backend).lower())
@@ -1635,9 +1616,9 @@ def _main() -> None:
             raise ValueError("--seedvr2-window must be 4n+1 (e.g. 33)")
         if not 0 <= int(args.seedvr2_overlap) < int(args.seedvr2_window):
             raise ValueError("--seedvr2-overlap must be >= 0 and smaller than --seedvr2-window")
-        if frame_gen_multiplier > 1:
+        if args.frame_generation != "none":
             raise ValueError(
-                "--restoration-model-name seedvr2 does not support --frame-gen "
+                "--restoration-model-name seedvr2 does not support --frame-generation "
                 "(no VRAM budget next to the resident worker; run frame generation as a separate pass)"
             )
         if secondary_name in ("flashvsr-inline", "swiftvr-inline"):
@@ -1693,9 +1674,9 @@ def _main() -> None:
     if secondary_name in ("flashvsr-inline", "swiftvr-inline"):
         # No clip cap (both are flat in VRAM vs clip length); frame-gen is a
         # separate pass.
-        if frame_gen_multiplier > 1:
+        if args.frame_generation != "none":
             raise ValueError(
-                f"--secondary-restoration {secondary_name} does not support --frame-gen "
+                f"--secondary-restoration {secondary_name} does not support --frame-generation "
                 "(run frame generation as a separate pass)"
             )
 
@@ -1751,18 +1732,6 @@ def _main() -> None:
     with device_context(config.device):
         session = build_restoration_session(config, log_callback=None)
 
-        frame_generator = None
-        if frame_gen_multiplier > 1:
-            from jasna.framegen import build_frame_generator
-            fg_model_path = str(args.frame_gen_model_path).strip() or None
-            frame_generator = build_frame_generator(
-                frame_gen_backend,
-                device=session.device,
-                model_path=fg_model_path,
-                fp16=bool(args.fp16),
-                rtx_mode=str(args.frame_gen_rtx_mode).lower(),
-            )
-
         def make_pipeline(vid_input: Path, out_path: Path):
             job = segment_job or ltx_auto_split(config, session, vid_input, out_path, progress_callback=None)
             return build_job_pipeline(
@@ -1772,8 +1741,6 @@ def _main() -> None:
                 out_path,
                 job,
                 progress_callback=None,
-                frame_gen_multiplier=frame_gen_multiplier,
-                frame_generator=frame_generator,
                 video_decode_backend=video_decode_backend,
                 video_encode_backend=video_encode_backend,
             )
@@ -1804,8 +1771,6 @@ def _main() -> None:
             sys.exit(1)
         finally:
             session.close()
-            if frame_generator is not None and hasattr(frame_generator, "close"):
-                frame_generator.close()
 
 
 if __name__ == "__main__":
