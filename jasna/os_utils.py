@@ -313,7 +313,7 @@ def check_required_executables(disable_ffmpeg_check: bool = False) -> None:
             except ValueError:
                 wrong_version.append(f"{exe} (could not detect major version)")
                 continue
-            if major != 8:
+            if major < 8:
                 wrong_version.append(f"{exe} (detected major={major})")
 
     if missing:
