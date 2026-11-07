@@ -462,7 +462,9 @@ class Pipeline:
         source_video = Path(self.ltx_crop_vsr_source)
         source_metadata = get_video_meta_data(str(source_video))
         frame_rate = self._resolve_frame_rate(metadata)
-        writer = _OfflineFrameWriter(self._video_encoder(metadata, frame_rate), [time.monotonic()])
+        # No restoration model runs here: the tag records the detection, the output and the refine itself.
+        settings = {**self._job_settings(frozenset(), ltx_large_canvas=None), "ltx_crop_vsr": self.ltx_crop_vsr}
+        writer = _OfflineFrameWriter(self._video_encoder(metadata, frame_rate, settings), [time.monotonic()])
         config, session = self._config, self._session
 
         def release_detector() -> None:
@@ -491,6 +493,7 @@ class Pipeline:
                 progress_callback=self.progress_callback,
                 cancel=self._cancel_event,
             )
+            writer.finish()
         except Cancelled:
             log.info("LTX refine cancelled")
         finally:

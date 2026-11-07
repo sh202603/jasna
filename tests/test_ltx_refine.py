@@ -244,7 +244,7 @@ def test_composite_matches_the_plumbing_free_reference():
             canvas=sharpened[i], crop=refine.doubled(window.crops[i]), weight=1.0, track=plan.track_id,
             polygons=plan.polygons[i], presence=plan.presence[i],
         )
-        expected = composite_frame(ltx[i], [candidate], feather=feather)
+        expected = composite_frame(ltx[i], [candidate], feather=feather, projector=None)
         assert torch.equal(frame, expected)
         assert not torch.equal(frame, ltx[i])  # the x2 round trip does change the mosaic area
         # Beyond the feather of the mask the LTX frame is untouched.

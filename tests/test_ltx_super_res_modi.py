@@ -59,18 +59,18 @@ def _compose_one_window(monkeypatch, crop: CropFrame, canvas: int, super_res: _F
     def decode(decoder, latent, seed, canvas_side, budget, device):
         return torch.full((5, 3, canvas, canvas), 100, dtype=torch.uint8)
 
-    def composite(source, candidates, *, feather):
+    def composite(source, candidates, *, feather, projector=None):
         candidates_seen.append([(tuple(c.canvas.shape), c.crop) for c in candidates])
         return source
 
-    windows = (Window(0, canvas, 0, 5, (crop,) * 5),)
+    windows = (Window(0, canvas, 0, 5, (crop,) * 5, 0),)
     plan = restore.TrackPlan(0, 0, ((),) * 5, (1.0,) * 5, windows, 3)
     monkeypatch.setattr(restore, "_decode_window", decode)
     monkeypatch.setattr(restore, "composite_frame", composite)
     decodes = ThreadPoolExecutor(max_workers=1)
     composer = restore._SegmentComposer(
         [plan], None, SimpleNamespace(get=lambda index: index), seed=0, feather=1, budget=lambda side: 0,
-        device=torch.device("cpu"), bar=_Bar(), decodes=decodes, stream=None, super_res=super_res,
+        device=torch.device("cpu"), bar=_Bar(), decodes=decodes, stream=None, super_res=super_res, projector=None,
     )
     try:
         for _ in range(5):
@@ -162,7 +162,8 @@ def test_restore_video_hands_super_res_to_the_compose_pass(fakes, tmp_path):
     )
     super_res = _FakeSuperRes()
     restore.restore_video(
-        _source(_video(12, range(2, 10))), _Writer(), detector=_Detector(), files=FILES, frame_h=64, frame_w=64,
+        _source(_video(12, range(2, 10))), lambda: _Writer(), detector=_Detector(), files=FILES, frame_h=64, frame_w=64,
+        stereo=None, vr_projector=None,
         batch_size=4, large_canvas=False, window_hop=restore.WINDOW_HOP, seed=5, device=torch.device("cpu"),
         work_dir=tmp_path, speed_profile=tmp_path / "speed.json", progress=restore.Progress(12, disable=True, report=None),
         resume_dir=tmp_path / "saved", cancel=threading.Event(), max_gap=MAX_GAP, min_duration=0, super_res=super_res,
@@ -172,7 +173,7 @@ def test_restore_video_hands_super_res_to_the_compose_pass(fakes, tmp_path):
 
 
 def test_ltx_super_res_loads_one_upscaler_per_size_with_the_rtx_options_and_releases_them():
-    windows = [Window(0, 512, 0, 1, (CropFrame((0, 0, 400, 400), (512, 512), (0, 0, 0, 0)),))]
+    windows = [Window(0, 512, 0, 1, (CropFrame((0, 0, 400, 400), (512, 512), (0, 0, 0, 0)),), 0)]
     with (
         patch("jasna.restorer.rtx_superres_secondary_restorer.RtxSuperresSecondaryRestorer") as rtx_cls,
         patch("torch.cuda.default_stream"),
@@ -204,11 +205,11 @@ def test_an_upscaled_canvas_maps_back_to_the_same_crop():
     the doubling."""
     frame = _frame()
     crop = letterbox((0, 0, 200, 100), 200)  # letterboxed: pads above and below
-    canvas = crop_to_canvas(frame, crop)
+    canvas = crop_to_canvas(frame, crop, None)
     twice = canvas.repeat_interleave(2, dim=1).repeat_interleave(2, dim=2)
     assert upscaled_crop(crop).pad == tuple(2 * p for p in crop.pad) and upscaled_crop(crop).canvas == 400
-    assert torch.equal(canvas_to_source(twice, upscaled_crop(crop)), canvas_to_source(canvas, crop))
-    assert torch.equal(canvas_to_source(twice, upscaled_crop(crop)).to(torch.uint8), frame[:, 0:100, 0:200])
+    assert torch.equal(canvas_to_source(twice, upscaled_crop(crop), frame, None), canvas_to_source(canvas, crop, frame, None))
+    assert torch.equal(canvas_to_source(twice, upscaled_crop(crop), frame, None).to(torch.uint8), frame[:, 0:100, 0:200])
 
 
 def test_an_upscaled_canvas_composites_only_the_feathered_mask():
@@ -216,7 +217,7 @@ def test_an_upscaled_canvas_composites_only_the_feathered_mask():
     crop = letterbox((200, 100, 456, 356), 256)
     restored = torch.full((3, 512, 512), 128, dtype=torch.uint8)
     polygon = [[300.0, 200.0], [360.0, 200.0], [360.0, 260.0], [300.0, 260.0]]
-    out = composite_frame(source, [Candidate(restored, upscaled_crop(crop), 1.0, 0, [polygon], 1.0)], feather=8)
+    out = composite_frame(source, [Candidate(restored, upscaled_crop(crop), 1.0, 0, [polygon], 1.0)], feather=8, projector=None)
     changed = (out != source).any(dim=0)
     ys, xs = torch.nonzero(changed, as_tuple=True)
     assert changed[230, 330] and int(out[0, 230, 330]) == 128
