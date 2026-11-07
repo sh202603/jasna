@@ -147,6 +147,7 @@ def job_settings(
         "retarget_high_fps": config.retarget_high_fps,
         "frame_generation": config.frame_generation,
         "upscale": _upscale_settings(config),
+        **({"frame_generation_backend": config.frame_generation_backend} if config.frame_generation != "none" else {}),
     }
     return settings
 

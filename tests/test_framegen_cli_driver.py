@@ -1,9 +1,9 @@
 """Unit tests for the standalone frame-gen CLI driver loop (run_framegen).
 
-GPU-free: run_framegen does no tensor ops itself (FrameGenWriter holds frames as
-opaque values), so frames are plain sentinels and the reader/encoder/generator are
-fakes. This exercises the decode -> FrameGenWriter -> encoder adapter wiring and
-the (N-1)*M+1 frame-count / interpolated-PTS contract.
+GPU-free: run_framegen does no tensor ops itself (the writer holds frames as opaque
+values), so frames are plain sentinels and the reader/encoder/generator are fakes. This
+exercises the decode -> FrameGenerationWriter -> encoder adapter wiring and the N*M
+frame-count / scaled-PTS contract (PTS in the source time base divided by M).
 """
 from __future__ import annotations
 
@@ -66,12 +66,12 @@ def test_2x_count_pts_and_lifecycle():
 
     assert source_frames == 3
     pts = [p for _, p in enc.encoded]
-    # (N-1)*M + 1 = (3-1)*2 + 1 = 5 emitted, strictly increasing.
-    assert pts == [0, 50, 100, 150, 200]
+    # N*M = 6 emitted, strictly increasing, in the source time base divided by 2.
+    assert pts == [0, 100, 200, 300, 400, 500]
     assert pts == sorted(pts) and len(set(pts)) == len(pts)
     # Encoder entered/exited exactly once (lazy enter on first frame, mux on close).
     assert enc.entered == 1 and enc.exited == 1
-    # Generator is borrowed: run_framegen / FrameGenWriter must not close it.
+    # Generator is borrowed: run_framegen / the writer must not close it.
     assert not gen.closed
 
 
@@ -82,7 +82,7 @@ def test_4x_count_and_pts():
     source_frames = cli.run_framegen(reader, enc, gen, 4)
 
     assert source_frames == 2
-    assert [p for _, p in enc.encoded] == [0, 25, 50, 75, 100]
+    assert [p for _, p in enc.encoded] == [0, 100, 200, 300, 400, 500, 600, 700]
     assert enc.entered == 1 and enc.exited == 1
 
 
@@ -107,7 +107,7 @@ def test_empty_trailing_batch_is_tolerated():
     source_frames = cli.run_framegen(reader, enc, gen, 2)
 
     assert source_frames == 2
-    assert [p for _, p in enc.encoded] == [0, 50, 100]
+    assert [p for _, p in enc.encoded] == [0, 100, 200, 300]
 
 
 def test_single_frame_no_interpolation():
@@ -117,7 +117,7 @@ def test_single_frame_no_interpolation():
     source_frames = cli.run_framegen(reader, enc, gen, 2)
 
     assert source_frames == 1
-    assert enc.encoded == [("only", 42)]
+    assert enc.encoded == [("only", 84)]
     assert gen.calls == []
     assert enc.entered == 1 and enc.exited == 1
 
@@ -135,5 +135,5 @@ def test_progress_counts_source_frames_only():
 
     cli.run_framegen(reader, enc, gen, 2, progress=prog)
 
-    # One update per SOURCE frame (3), not per emitted frame (5).
+    # One update per SOURCE frame (3), not per emitted frame (6).
     assert prog.n == 3

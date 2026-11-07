@@ -38,7 +38,8 @@ DEFAULT_CODEC: CodecName = "hevc"
 LtxVaeName = Literal["auto", "full", "half", "max"]
 """An LTX video encoder or decoder size; "auto" is the model's own default."""
 DecodeBackendName = Literal["auto", "vali", "pyav-hw", "pyav-sw"]
-FrameGenerationName = Literal["none", "2x"]
+FrameGenerationName = Literal["none", "2x", "4x"]
+FrameGenerationBackendName = Literal["rife", "rtx"]
 UpscaleModelName = Literal["none", "rtx-super-res", "span", "realplksr", "dlss5"]
 """Whole-frame upscaling before the encoder: NVIDIA RTX Super Res, the fast SPAN network, the
 slower, more detailed RealPLKSR network, or DLSS 5 (a user-supplied runtime, Windows only)."""
@@ -149,6 +150,12 @@ class SessionConfig:
     # RTX pass and the HIGHBITRATE_* (clean-source) upscale model family.
     rtx_strength: float = 1.0
     rtx_highbitrate: bool = False
+    # +modi: frame generation beyond upstream's 2x RTX: the backend (rtx = RTX Video Frame
+    # Generation, Ada and newer; rife = RIFE in PyTorch, every GPU), the RTX quality mode and
+    # the optional RIFE weights (empty = model_weights/rife.pth).
+    frame_generation_backend: FrameGenerationBackendName = "rtx"
+    frame_generation_rtx_mode: str = "medium"
+    frame_generation_model_path: str = ""
     flashvsr_repo: str = ""
     flashvsr_python: str = ""
     flashvsr_model_dir: str = ""

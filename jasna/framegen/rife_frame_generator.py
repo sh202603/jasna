@@ -112,7 +112,7 @@ class RifeFrameGenerator(FrameGenerator):
         if not path.exists():
             raise FileNotFoundError(
                 f"RIFE weights not found: {path}. Provide a RIFE checkpoint via "
-                "--frame-gen-model-path (TorchScript recommended; see RifeFrameGenerator docs) "
+                "--frame-generation-model-path (TorchScript recommended; see RifeFrameGenerator docs) "
                 "or place 'rife.pth' in model_weights/."
             )
 

@@ -275,19 +275,19 @@ class TestArgvRewrite:
     def test_swaps_secondary_output_framegen(self):
         argv = ["--input", "in.mp4", "--output", "out.mkv",
                 "--secondary-restoration", "flashvsr", "--flashvsr-repo", "/r",
-                "--frame-gen", "2x"]
+                "--frame-generation", "2x"]
         r = fo._rewrite_argv_for_dump(argv, "/tmp/tw.mkv")
         assert r[r.index("--secondary-restoration") + 1] == "none"
         assert r[r.index("--output") + 1] == "/tmp/tw.mkv"
-        assert r[r.index("--frame-gen") + 1] == "none"
+        assert r[r.index("--frame-generation") + 1] == "none"
         assert "--flashvsr-repo" in r and r[r.index("--flashvsr-repo") + 1] == "/r"
 
     def test_equals_form(self):
-        argv = ["--secondary-restoration=flashvsr", "--output=out.mkv", "--frame-gen=4x"]
+        argv = ["--secondary-restoration=flashvsr", "--output=out.mkv", "--frame-generation=4x"]
         r = fo._rewrite_argv_for_dump(argv, "/tmp/t.mkv")
         assert "--secondary-restoration=none" in r
         assert "--output=/tmp/t.mkv" in r
-        assert "--frame-gen=none" in r
+        assert "--frame-generation=none" in r
 
     def test_cap_max_clip_size(self):
         assert fo._cap_max_clip_size(["--max-clip-size", "90"], 32) == ["--max-clip-size", "32"]
@@ -319,7 +319,7 @@ class TestValidation:
         ns.input = str(inp)
         ns.output = str(tmp_path / "out.mkv")
         ns.stream = False
-        ns.frame_gen = "none"
+        ns.frame_generation = "none"
         ns.cq = None
         ns.codec = "hevc"
         ns.encoder_settings = ""
@@ -351,8 +351,8 @@ class TestValidation:
         with pytest.raises(ValueError, match="file-output only"):
             fo._validate_flashvsr_args(ns)
 
-    def test_frame_gen_rejected(self, tmp_path):
-        ns = self._args(tmp_path, frame_gen="2x")
+    def test_frame_generation_rejected(self, tmp_path):
+        ns = self._args(tmp_path, frame_generation="2x")
         with pytest.raises(ValueError, match="frame-gen"):
             fo._validate_flashvsr_args(ns)
 
@@ -588,7 +588,7 @@ class TestOrchestrator:
         args.video_decode_backend = "inherit"
         args.video_encode_backend = "inherit"
         args.stream = False
-        args.frame_gen = "none"
+        args.frame_generation = "none"
         args.retarget_high_fps = False
         args.segments = ""
         args.vr_mode = "off"
