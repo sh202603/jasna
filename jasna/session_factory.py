@@ -129,7 +129,10 @@ def nvvfx_installed() -> bool:
     """Whether the RTX Video Effects runtime (the ``nvidia-vfx`` package) is importable."""
     from importlib.util import find_spec
 
-    return find_spec("nvvfx") is not None
+    try:
+        return find_spec("nvvfx") is not None
+    except ValueError:  # a module object without a spec (the test suite's fake) is installed
+        return True
 
 
 def _build_secondary_restorer(config: SessionConfig, device: "torch.device", *, size_from_frames: bool = False):
@@ -727,8 +730,8 @@ def build_pipeline(
     splice_plan: "SplicePlan | None" = None,
     frame_gen_multiplier: int = 1,
     frame_generator=None,
-    decode_backend=None,
-    encode_backend=None,
+    video_decode_backend=None,
+    video_encode_backend=None,
 ) -> "Pipeline":
     """A per-video ``Pipeline``; the session first loads any model the segments ask for."""
     from jasna.media.backend import VideoBackend
@@ -740,10 +743,10 @@ def build_pipeline(
             config, session, job_models(config.restoration_model_name, segments), log_callback=None
         )
 
-    if decode_backend is None:
-        decode_backend = VideoBackend.NATIVE
-    if encode_backend is None:
-        encode_backend = VideoBackend.NATIVE
+    if video_decode_backend is None:
+        video_decode_backend = VideoBackend.NATIVE
+    if video_encode_backend is None:
+        video_encode_backend = VideoBackend.NATIVE
 
     return Pipeline(
         config=config,
@@ -755,8 +758,8 @@ def build_pipeline(
         splice_plan=splice_plan,
         frame_gen_multiplier=frame_gen_multiplier,
         frame_generator=frame_generator,
-        decode_backend=decode_backend,
-        encode_backend=encode_backend,
+        video_decode_backend=video_decode_backend,
+        video_encode_backend=video_encode_backend,
     )
 
 
@@ -770,8 +773,8 @@ def build_job_pipeline(
     progress_callback: Callable | None,
     frame_gen_multiplier: int = 1,
     frame_generator=None,
-    decode_backend=None,
-    encode_backend=None,
+    video_decode_backend=None,
+    video_encode_backend=None,
 ) -> "Pipeline":
     """The pipeline of a job: ``segment_job`` when it restores ranges, else the whole video."""
     if segment_job is None:
@@ -783,8 +786,8 @@ def build_job_pipeline(
             progress_callback=progress_callback,
             frame_gen_multiplier=frame_gen_multiplier,
             frame_generator=frame_generator,
-            decode_backend=decode_backend,
-            encode_backend=encode_backend,
+            video_decode_backend=video_decode_backend,
+            video_encode_backend=video_encode_backend,
         )
     return build_pipeline(
         segment_job.config,
@@ -796,6 +799,6 @@ def build_job_pipeline(
         splice_plan=segment_job.splice_plan,
         frame_gen_multiplier=frame_gen_multiplier,
         frame_generator=frame_generator,
-        decode_backend=decode_backend,
-        encode_backend=encode_backend,
+        video_decode_backend=video_decode_backend,
+        video_encode_backend=video_encode_backend,
     )

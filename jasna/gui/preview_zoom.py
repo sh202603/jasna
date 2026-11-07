@@ -104,12 +104,14 @@ def apply_mask_overlay(
     image: Image.Image,
     mask_np,
     *,
-    left_eye: bool = False,
+    stereo: str = "off",
 ) -> Image.Image:
     """Blend a low-res detection mask over ``image`` in red, matching the
     segment editor's scan overlay."""
-    if left_eye:
+    if stereo == "sbs":
         mask_np = mask_np[:, : mask_np.shape[1] // 2]
+    elif stereo == "tb":
+        mask_np = mask_np[: mask_np.shape[0] // 2, :]
     if not mask_np.any():
         return image
     alpha = Image.fromarray(

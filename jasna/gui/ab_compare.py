@@ -259,12 +259,12 @@ class ABCompareWindow(ctk.CTkToplevel):
 
         from jasna.vr180 import resolve_vr_mode
 
-        self._left_eye = resolve_vr_mode(
+        self._stereo = resolve_vr_mode(
             get_settings().vr_mode,
             metadata,
             self._path,
             projection=projection,
-        ).is_sbs
+        ).resolved
 
         from jasna.restorer.checkpoint_info import discover_restoration_checkpoints, discover_seedvr2
 
@@ -518,7 +518,7 @@ class ABCompareWindow(ctk.CTkToplevel):
             return
         if (
             self._view_needs_restoration()
-            and self._left_eye
+            and self._stereo != "off"
             and any(
                 pane.restoration_model_name == "seedvr2"
                 for pane in self._panes.values()
@@ -867,7 +867,7 @@ class ABCompareWindow(ctk.CTkToplevel):
             if pane.detection is None:
                 return None
             _, original, mask, _ = pane.detection
-            return apply_mask_overlay(original, mask.numpy(), left_eye=self._left_eye)
+            return apply_mask_overlay(original, mask.numpy(), stereo=self._stereo)
         if not pane.clip_frames:
             return None
         if self._clip_position is None:

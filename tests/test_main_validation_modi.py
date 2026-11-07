@@ -37,7 +37,7 @@ class TestMainValidationModi:
         with pytest.raises(ValueError, match="torchcodec encode"):
             _run_main_with_args(
                 tmp_path,
-                ["--encode-backend", "torchcodec", "--segments", "1-2"],
+                ["--video-encode-backend", "torchcodec", "--segments", "1-2"],
             )
 
     def test_torchcodec_decode_retarget_rejected(self, tmp_path):
@@ -45,7 +45,7 @@ class TestMainValidationModi:
         with pytest.raises(ValueError, match="retarget"):
             _run_main_with_args(
                 tmp_path,
-                ["--decode-backend", "torchcodec", "--retarget-high-fps"],
+                ["--video-decode-backend", "torchcodec", "--retarget-high-fps"],
             )
 
     def test_torchcodec_av1_allowed(self, tmp_path):

@@ -263,9 +263,8 @@ class SecondarySection:
         rtx_strength_tip = ctk.CTkLabel(rtx_strength_row, text="ⓘ", text_color=Colors.TEXT_PRIMARY, font=(Fonts.FAMILY, Fonts.SIZE_TINY), cursor="hand2")
         rtx_strength_tip.pack(side="left", padx=4)
         Tooltip(rtx_strength_tip, get_tooltip("rtx_strength"))
-        self._widgets["rtx_strength_val"] = create_slider_value_label(
-            rtx_strength_row, "1.00", 4, Colors.BG_CARD
-        )
+        self._widgets["rtx_strength_val"] = create_slider_value_label(rtx_strength_row, Colors.BG_CARD)
+        self._widgets["rtx_strength_val"].configure(text="1.00")
         self._widgets["rtx_strength_val"].pack(side="right")
         self._widgets["rtx_strength"] = ctk.CTkSlider(
             rtx_strength_row, from_=0.0, to=1.0, number_of_steps=20,

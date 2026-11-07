@@ -7,6 +7,8 @@ import sys
 from importlib.util import find_spec
 from types import SimpleNamespace
 
+import logging
+
 import pytest
 
 # Standard TensorRT or the TensorRT-RTX flavor — either provides the raw TRT
@@ -294,3 +296,12 @@ def sparse_ltx_downloads(monkeypatch):
 
     zeros = hashlib.sha256(bytes(1 << 20)).hexdigest()
     monkeypatch.setattr(model_files, "LTX_DOWNLOAD_HEADS", dict.fromkeys(model_files.LTX_DOWNLOAD_HEADS, zeros))
+
+
+@pytest.fixture(autouse=True)
+def _modi_restore_root_log_level():
+    """+modi: the framegen / offline entry points set the root log level; later tests still capture warnings."""
+    root = logging.getLogger()
+    level = root.level
+    yield
+    root.setLevel(level)

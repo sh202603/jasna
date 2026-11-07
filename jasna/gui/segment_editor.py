@@ -12,7 +12,7 @@ import customtkinter as ctk
 from PIL import Image
 from tkinter import messagebox
 
-from jasna.gui import preview_zoom, scaling
+from jasna.gui import scaling
 from jasna.gui.locales import t
 from jasna.gui.models import AppSettings, JobItem
 from jasna.gui.components import AutoHidingScrollableFrame, Tooltip, grab_modal

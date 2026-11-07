@@ -91,7 +91,7 @@ def test_apply_mask_overlay_crops_left_eye_before_resizing() -> None:
     mask = np.zeros((90, 160), dtype=np.uint8)
     mask[:, :80] = 1
 
-    overlaid = apply_mask_overlay(image, mask, left_eye=True)
+    overlaid = apply_mask_overlay(image, mask, stereo="sbs")
 
     assert overlaid.getpixel((0, 45))[0] > 0
     assert overlaid.getpixel((79, 45))[0] > 0

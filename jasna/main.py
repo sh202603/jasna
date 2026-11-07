@@ -40,7 +40,6 @@ from jasna.session_config import (
     LTX_DEFAULT_OVERLAP,
     LTX_DEFAULT_SEED,
     LTX_OVERLAP_CHOICES,
-    RTX_DEFAULT_DEBLUR,
     RTX_DEFAULT_DENOISE,
     RTX_DEFAULT_QUALITY,
     RTX_DEFAULT_SCALE,
@@ -804,18 +803,18 @@ def build_parser() -> argparse.ArgumentParser:
              'the request, e.g. 10-bit source / streaming).',
     )
     encoding.add_argument(
-        "--decode-backend",
+        "--video-decode-backend",
         type=str,
         default="inherit",
         choices=["inherit", "native", "auto", "torchcodec"],
-        help='Override the decode backend only (default "inherit" = --video-backend).',
+        help='Override the video decode backend (native / torchcodec) only (default "inherit" = --video-backend).',
     )
     encoding.add_argument(
-        "--encode-backend",
+        "--video-encode-backend",
         type=str,
         default="inherit",
         choices=["inherit", "native", "auto", "torchcodec"],
-        help='Override the encode backend only (default "inherit" = --video-backend). '
+        help='Override the video encode backend (native / torchcodec) only (default "inherit" = --video-backend). '
              "torchcodec encode runs only when forced and outputs 8-bit HEVC/AV1.",
     )
     encoding.add_argument(
@@ -1541,19 +1540,19 @@ def _main() -> None:
     def _resolve_backend(override: str) -> VideoBackend:
         return video_backend if override == "inherit" else VideoBackend(override.lower())
 
-    decode_backend = _resolve_backend(str(args.decode_backend).lower())
-    encode_backend = _resolve_backend(str(args.encode_backend).lower())
+    video_decode_backend = _resolve_backend(str(args.video_decode_backend).lower())
+    video_encode_backend = _resolve_backend(str(args.video_encode_backend).lower())
 
-    if VideoBackend.TORCHCODEC in (decode_backend, encode_backend) and is_streaming:
+    if VideoBackend.TORCHCODEC in (video_decode_backend, video_encode_backend) and is_streaming:
         raise ValueError(
             "torchcodec backend is not supported in streaming mode (use native or auto)"
         )
-    if encode_backend is VideoBackend.TORCHCODEC and segments_spec:
+    if video_encode_backend is VideoBackend.TORCHCODEC and segments_spec:
         raise ValueError(
             "torchcodec encode is not supported with --segments smart rendering "
             "(fragments require the native encoder)"
         )
-    if decode_backend is VideoBackend.TORCHCODEC and bool(args.retarget_high_fps):
+    if video_decode_backend is VideoBackend.TORCHCODEC and bool(args.retarget_high_fps):
         raise ValueError(
             "torchcodec decode does not support --retarget-high-fps (frame stride); "
             "use the native decode backend"
@@ -1775,8 +1774,8 @@ def _main() -> None:
                 progress_callback=None,
                 frame_gen_multiplier=frame_gen_multiplier,
                 frame_generator=frame_generator,
-                decode_backend=decode_backend,
-                encode_backend=encode_backend,
+                video_decode_backend=video_decode_backend,
+                video_encode_backend=video_encode_backend,
             )
 
         def output_path_for(vid: Path) -> Path:

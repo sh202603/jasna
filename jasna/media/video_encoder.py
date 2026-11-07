@@ -257,15 +257,25 @@ NVENC_H264_SOURCE_BITRATE_CAP_FACTOR = 2.0
 SOURCE_BITRATE_CAP_BUFFER_RATIO = 2
 
 
+def frame_generation_multiplier(frame_generation: bool | int) -> int:
+    """``frame_generation`` as the output frame multiplier: ``True`` is upstream's 2x, an int
+    (+modi: 2 or 4) the multiplier itself, ``False`` or 1 no generation."""
+    if frame_generation is True:
+        return 2
+    if not frame_generation:
+        return 1
+    return max(1, int(frame_generation))
+
+
 def source_bitrate_cap_options(
     metadata: VideoMetadata,
     *,
     output_codec: str,
     vendor: AcceleratorVendor,
-    frame_generation: bool = False,
+    frame_generation: bool | int = False,
 ) -> dict[str, str]:
-    """With ``frame_generation`` the output has twice the frames, so the ceiling doubles to
-    keep each frame's share of it."""
+    """With ``frame_generation`` the output has ``frame_generation_multiplier`` times the frames,
+    so the ceiling scales to keep each frame's share of it."""
     if metadata.video_bitrate <= 0:
         logger.warning(
             "No source bitrate for %s; encoding without a source-tied bitrate ceiling",
@@ -278,7 +288,7 @@ def source_bitrate_cap_options(
         factor = SOURCE_BITRATE_CAP_FACTORS.get(
             metadata.codec_name.lower(), DEFAULT_SOURCE_BITRATE_CAP_FACTOR
         )
-    maxrate = int(metadata.video_bitrate * factor * (2 if frame_generation else 1))
+    maxrate = int(metadata.video_bitrate * factor * frame_generation_multiplier(frame_generation))
     return {
         "maxrate": str(maxrate),
         "bufsize": str(maxrate * SOURCE_BITRATE_CAP_BUFFER_RATIO),
@@ -387,7 +397,7 @@ def resolve_encoder_options(
     encoder_settings: dict[str, object],
     *,
     smart_fragment: bool,
-    frame_generation: bool = False,
+    frame_generation: bool | int = False,
 ) -> tuple[EncoderSpec, dict[str, str]]:
     """Pick the encoder spec and the final FFmpeg options for one output."""
     specs = AMF_ENCODER_SPECS if vendor is AcceleratorVendor.AMD else ENCODER_SPECS
@@ -454,11 +464,11 @@ class VideoEncoder:
         smart_fragment: bool = False,
         fmp4: bool = False,
         settings: Mapping[str, object] | None = None,
-        frame_generation: bool = False,
+        frame_generation: bool | int = False,
     ):
         """``settings`` (from ``settings_tag.job_settings``) become the output's comment tag.
-        ``frame_generation`` doubles ``output_fps`` and takes PTS in half the source time base
-        (``jasna.frame_generation.FrameGenerationWriter``)."""
+        ``frame_generation`` (True for 2x, or the multiplier) scales ``output_fps`` and takes PTS in
+        the source time base divided by it (``jasna.frame_generation.FrameGenerationWriter``)."""
         self.device = torch.device(device)
         self.vendor = vendor_for_device(self.device)
         if self.vendor not in {AcceleratorVendor.NVIDIA, AcceleratorVendor.AMD}:
@@ -482,10 +492,11 @@ class VideoEncoder:
         self.smart_fragment = bool(smart_fragment)
         self.fmp4 = bool(fmp4)
         self.settings = settings
+        multiplier = frame_generation_multiplier(frame_generation)
         self.output_fps = Fraction(
             metadata.video_fps_exact if output_fps is None else output_fps
-        ) * (2 if frame_generation else 1)
-        self.time_base = metadata.time_base / 2 if frame_generation else metadata.time_base
+        ) * multiplier
+        self.time_base = metadata.time_base / multiplier
 
         self._lut_applier: GpuLutApplier | None = None
         if lut_path:

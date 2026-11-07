@@ -57,13 +57,8 @@ def _resolve_quality(name: str, *, highbitrate: bool = False):
     """
     from nvvfx import VideoSuperRes
     q = VideoSuperRes.QualityLevel
-    standard, clean = {
-        "low": (q.LOW, q.HIGHBITRATE_LOW),
-        "medium": (q.MEDIUM, q.HIGHBITRATE_MEDIUM),
-        "high": (q.HIGH, q.HIGHBITRATE_HIGH),
-        "ultra": (q.ULTRA, q.HIGHBITRATE_ULTRA),
-    }[name.lower()]
-    return clean if highbitrate else standard
+    level = {"low": "LOW", "medium": "MEDIUM", "high": "HIGH", "ultra": "ULTRA"}[name.lower()]
+    return getattr(q, f"HIGHBITRATE_{level}" if highbitrate else level)
 
 
 def _resolve_denoise(name: str):

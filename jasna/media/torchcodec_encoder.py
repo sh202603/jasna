@@ -65,9 +65,10 @@ class TorchcodecEncodeUnsupported(ValueError):
 
 
 def _remux_with_audio_and_metadata(
-    video_input: Path, output_path: Path, metadata: VideoMetadata, video_codec: str
+    video_input: Path, output_path: Path, metadata: VideoMetadata, video_codec: str, *, comment: str | None = None
 ) -> None:
-    """Copy-remux the torchcodec video with source audio and color tags.
+    """Copy-remux the torchcodec video with source audio and color tags; ``comment`` (the
+    settings tag) replaces the source's comment, which it keeps as ``source_comment``.
 
     Uses the same ITU-T H.273 code points as the native encoder
     (``video_encoder._COLOR_TAGS`` refined by the probed primaries/transfer), so
@@ -111,6 +112,7 @@ def _remux_with_audio_and_metadata(
     with av.open(BytesIO(), "w", format=output_format) as probe:
         supported_codecs = probe.supported_codecs
     with av.open(str(metadata.video_file), metadata_errors="replace") as container:
+        source_metadata = dict(container.metadata)
         for output_index, stream in enumerate(container.streams.audio):
             name = stream.codec_context.name
             if needs_audio_reencode(name, output_path.suffix, supported_codecs):
@@ -123,6 +125,10 @@ def _remux_with_audio_and_metadata(
         "-colorspace", str(matrix),
         "-color_range", "pc" if full_range_flag else "tv",
     ]
+    if comment is not None:
+        from jasna.settings_tag import with_source_comment
+
+        cmd += ["-metadata", "comment=" + with_source_comment(comment, source_metadata)]
     if output_path.suffix.lower() in {".mp4", ".mov"}:
         cmd += ["-movflags", "+faststart"]
     cmd.append(str(output_path))
@@ -154,8 +160,14 @@ class TorchcodecVideoEncoder:
         lut_path: str | Path | None = None,
         output_fps=None,
         mux_audio: bool = True,
+        settings=None,
+        frame_generation: bool | int = False,
     ):
+        """``settings`` become the output's comment tag (as the native encoder's do) and
+        ``frame_generation`` (True for 2x, or the multiplier) scales the constant frame rate;
+        the PTS the writer hands in are ignored either way."""
         from jasna.media.backend import torchcodec_encoder_eligibility
+        from jasna.media.video_encoder import frame_generation_multiplier
 
         eligible, reason = torchcodec_encoder_eligibility(
             codec=codec,
@@ -173,6 +185,9 @@ class TorchcodecVideoEncoder:
         self.codec = codec.lower()
         self._nvenc_codec = "av1_nvenc" if self.codec == "av1" else "hevc_nvenc"
         self._frame_rate = float(output_fps if output_fps is not None else metadata.video_fps_exact)
+        self._frame_rate *= frame_generation_multiplier(frame_generation)
+        self.settings = settings
+        self._aborted = False
         self._preset, self._extra_options = self._build_encode_params(dict(encoder_settings))
 
         self._lut_applier: GpuLutApplier | None = None
@@ -311,17 +326,35 @@ class TorchcodecVideoEncoder:
         torch.cuda.current_stream(self.device).record_event(ready_event)
         self._queue.put((frame, ready_event))
 
+    def abort(self) -> None:
+        """Stop the worker and keep no output: a stopped job must not look complete."""
+        self._aborted = True
+        self.__exit__(None, None, None)
+
+    def _settings_comment(self) -> str | None:
+        if self.settings is None:
+            return None
+        from jasna.settings_tag import settings_comment
+
+        return settings_comment(
+            self.settings, encoder=self._nvenc_codec, options={"preset": self._preset, **self._extra_options}
+        )
+
     def __exit__(self, exc_type, exc_value, traceback):
         if self._worker is not None:
             self._queue.put(self._stop_sentinel)
             self._worker.join()
             self._worker = None
+        if self._aborted:
+            if self._temp_path.exists():
+                self._temp_path.unlink()
+            return
         if self._worker_error is not None and exc_type is None:
             raise self._worker_error
         try:
             if exc_type is None and self._worker_error is None:
                 _remux_with_audio_and_metadata(
-                    self._temp_path, self.output_path, self.metadata, self.codec
+                    self._temp_path, self.output_path, self.metadata, self.codec, comment=self._settings_comment()
                 )
         finally:
             if self._temp_path.exists():

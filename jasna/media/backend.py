@@ -300,7 +300,7 @@ def make_video_reader(
         # The fps-retarget stride is only implemented by the native reader.
         if b is VideoBackend.TORCHCODEC:
             raise ValueError(
-                "--decode-backend torchcodec does not support --retarget-high-fps "
+                "--video-decode-backend torchcodec does not support --retarget-high-fps "
                 "(frame stride); use the native decode backend"
             )
         return _native()
@@ -335,10 +335,15 @@ def make_video_encoder(
     match_input_bit_depth: bool = False,
     smart_fragment: bool = False,
     fmp4: bool = False,
+    settings=None,
+    frame_generation: "bool | int" = False,
     backend: "VideoBackend | str | None" = VideoBackend.NATIVE,
     native_encoder=None,
 ):
     """Construct a video encoder for ``backend``.
+
+    ``settings`` (the job's ``settings_tag.job_settings``) become the output's comment tag and
+    ``frame_generation`` (upstream's bool or the multiplier) the frame-rate factor, on both backends.
 
     Returns an object with the ``VideoEncoder`` contract (context manager +
     ``encode(frame, pts)``). Parameters mirror ``VideoEncoder``; torchcodec
@@ -378,6 +383,8 @@ def make_video_encoder(
             lut_path=lut_path,
             output_fps=output_fps,
             mux_audio=mux_audio,
+            settings=settings,
+            frame_generation=frame_generation,
         )
 
     from jasna.media.video_encoder import VideoEncoder
@@ -394,4 +401,6 @@ def make_video_encoder(
         pts_origin=pts_origin,
         smart_fragment=smart_fragment,
         fmp4=fmp4,
+        settings=settings,
+        frame_generation=frame_generation,
     )

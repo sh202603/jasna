@@ -462,6 +462,7 @@ class Pipeline:
         try:
             run_refine(
                 ltx_video=self.input_video,
+                decode_backend=self.decode_backend,
                 ltx_metadata=metadata,
                 source_video=source_video,
                 source_metadata=source_metadata,

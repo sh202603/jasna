@@ -627,7 +627,7 @@ class ABCompareWorker:
 
         from jasna.gui.mosaic_scan import SCAN_MASK_HW
         from jasna.media.video_decoder import VideoReader
-        from jasna.vr180 import SbsDetectionAdapter, resolve_vr_mode
+        from jasna.vr180 import resolve_vr_mode, stereo_detector
 
         metadata = self.metadata
         device = torch.device("cuda:0")
@@ -638,11 +638,7 @@ class ABCompareWorker:
             self.path,
             projection=request.projection,
         )
-        detector = (
-            SbsDetectionAdapter(slot.detector)
-            if vr_resolution.is_sbs
-            else slot.detector
-        )
+        detector = stereo_detector(slot.detector, vr_resolution.layout(metadata))
         reader = VideoReader(str(self.path), batch_size, device, metadata)
         with reader:
             batch_and_pts = next(
@@ -662,7 +658,7 @@ class ABCompareWorker:
             original = frame_image(
                 batch[0],
                 AB_PREVIEW_MAX_SIZE,
-                left_eye_only=vr_resolution.is_sbs,
+                stereo=vr_resolution.resolved,
             )
             mask = masks[0].to(torch.uint8).cpu()
             score = float(scores[0].cpu())

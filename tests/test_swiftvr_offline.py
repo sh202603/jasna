@@ -75,8 +75,8 @@ def _make_args(tmp_path, **overrides):
     args.lut = ""
     args.batch_size = 4
     args.video_backend = "native"
-    args.decode_backend = "inherit"
-    args.encode_backend = "inherit"
+    args.video_decode_backend = "inherit"
+    args.video_encode_backend = "inherit"
     args.stream = False
     args.frame_gen = "none"
     args.retarget_high_fps = False
@@ -512,8 +512,9 @@ def _jitter_fixture(monkeypatch, t=8):
     """The jittering-track clip of test_restoration_pipeline (its bbox moves,
     so the smoothed view differs from the own grid)."""
     import test_restoration_pipeline as trp
+    from test_restoration_pipeline_modi import _make_jitter_clip_and_frames
 
-    clip, frames, raw_crops = trp._make_jitter_clip_and_frames(monkeypatch, t=t)
+    clip, frames, raw_crops = _make_jitter_clip_and_frames(monkeypatch, t=t)
     return trp, clip, frames, raw_crops
 
 

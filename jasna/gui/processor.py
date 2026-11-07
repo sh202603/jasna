@@ -507,8 +507,8 @@ class Processor:
                 progress_callback=progress_callback,
                 frame_gen_multiplier=frame_gen_multiplier,
                 frame_generator=frame_generator,
-                decode_backend=video_backend,
-                encode_backend=video_backend,
+                video_decode_backend=video_backend,
+                video_encode_backend=video_backend,
             )
             self._current_pipeline = pipeline
             if self._stop_event.is_set():

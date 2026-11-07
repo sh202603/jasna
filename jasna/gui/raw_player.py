@@ -10,7 +10,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -280,6 +280,7 @@ class RawPlayerWorker:
         self._generation = 0
         self._active_cancel: threading.Event | None = None
         self._active_writer: RawFrameWriter | None = None
+        self._tensorrt_disabled = False
         self._cancel_lock = threading.Lock()
         self._on_stopped = on_stopped
         self._thread = threading.Thread(
@@ -349,7 +350,26 @@ class RawPlayerWorker:
 
         def load_session(command: _Play):
             self.events.put(PlayerStatus("loading_models", command.generation))
-            return build_video_session(command.settings, log=logger.info)
+            settings = command.settings
+            if settings.restoration_model == "basicvsrpp" and getattr(settings, "restoration_checkpoint", ""):
+                # +modi: the player's checkpoint choice (the default checkpoint is upstream's own). A checkpoint without EMA weights would
+                # silently load with random weights, so refuse it here (this loads the checkpoint:
+                # worker thread only, never Tk); one without sub-engines runs on PyTorch instead
+                # of compiling.
+                from jasna.engine_paths import all_basicvsrpp_sub_engines_exist
+                from jasna.restorer.checkpoint_info import checkpoint_has_ema_weights, resolve_restoration_checkpoint
+
+                checkpoint = resolve_restoration_checkpoint(getattr(settings, "restoration_checkpoint", ""))
+                if not checkpoint_has_ema_weights(checkpoint):
+                    from jasna.gui.locales import t
+
+                    raise RuntimeError(t("ab_checkpoint_missing_ema", name=checkpoint.name))
+                self._tensorrt_disabled = not all_basicvsrpp_sub_engines_exist(str(checkpoint), bool(settings.fp16_mode))
+                if self._tensorrt_disabled:
+                    settings = replace(settings, compile_basicvsrpp=False)
+            else:
+                self._tensorrt_disabled = False
+            return build_video_session(settings, log=logger.info)
 
         sessions = SessionCache(on_close=drop_pipeline)
         try:
@@ -370,7 +390,9 @@ class RawPlayerWorker:
                             raise
                     if not self._commands.empty() or self._closed.is_set():
                         continue
-                    self.events.put(PlayerStatus("restoring", command.generation))
+                    self.events.put(PlayerStatus(
+                        "restoring_no_tensorrt" if self._tensorrt_disabled else "restoring", command.generation
+                    ))
                     completed = self._run_pass(command, pipeline, session)
                     superseded = not self._commands.empty() or self._closed.is_set()
                     if completed and not superseded:
