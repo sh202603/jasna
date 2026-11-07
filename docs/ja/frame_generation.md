@@ -1,11 +1,13 @@
 # フレーム生成（フレームレート倍化）の使い方
 
-`--frame-gen {none,2x,4x}` で出力動画のフレームレートを2倍/4倍にする（ファイル出力のみ、`--stream`非対応）。
-中間フレームをAI補間で生成し、元のPTS間に新しいPTSを挿入する。音声は元のタイムコードを保持するため尺と同期は不変。
+`--frame-generation {none,2x,4x}` で出力動画のフレームレートを2倍/4倍にする（ファイル出力のみ。`--stream`、`--segments`、`--ltx-auto-split` とは併用不可）。
+元フレームの間に生成フレームを挟む。writer とエンコーダは同じ time base（元の time base を倍率で割ったもの）を使うので、生成フレームの PTS は必ず整数に収まり、音声は元のタイムコードを保持するため尺と同期は不変。BasicVSR++ と LTX のどちらのジョブでも使える。
 
-バックエンドは `--frame-gen-backend {rife,rtx}`：
-- `rife`（既定）: PyTorch 上の RIFE ニューラル補間。対応 GPU 全般で動く。重みを別途用意する（後述）。
-- `rtx`: `nvidia-vfx` 0.2.0.0 以降の NVIDIA RTX Video Frame Generation。重み不要、RIFE の約 10 倍速で補間精度もわずかに高いが、**RTX 40 シリーズ（Ada）以降限定**。[RTX Video Frame Generation バックエンド](#rtx-video-frame-generation-バックエンドrtx)を参照。
+upstream 0.12.2 にはこの機能が RTX バックエンドと 2x で入っている（`--frame-generation 2x`、Output タブ）。本フォークはその配管の上に 4x、RIFE バックエンド、RTX の品質モードを足している。以前の modi ビルドではフラグ名が `--frame-gen` だった。
+
+バックエンドは `--frame-generation-backend {rtx,rife}`：
+- `rtx`（既定。upstream と同じ）: `nvidia-vfx` 0.2.0.0 以降の NVIDIA RTX Video Frame Generation。重み不要、RIFE の約 10 倍速で補間精度もわずかに高いが、**RTX 40 シリーズ（Ada）以降限定**。[RTX Video Frame Generation バックエンド](#rtx-video-frame-generation-バックエンドrtx)を参照。
+- `rife`: PyTorch 上の RIFE ニューラル補間。対応 GPU 全般で動く（Turing / Ampere はこちら）。重みを別途用意する（後述）。
 
 RIFEバックエンドは2つのチェックポイント形式を自動判別する。**TorchScript形式を推奨**（アーキテクチャと重みを内包し、確実に動作する）。`flownet.pkl`のstate_dictを直接置く方法もあるが、同梱IFNetとのキー一致に依存するため確実ではない。
 
@@ -42,13 +44,13 @@ Google Drive / 百度网盘で手動ダウンロードし、展開した `*.py`�
 - **fp16 が既定**（CUDA 時。`--no-fp16` で fp32 トレース、CPU は常に fp32）。バックエンドの既定 fp16 と揃えるためで、fp16 トレース品は dtype 昇格により **fp32 パイプラインでもそのまま動く**。逆に fp32 トレース品は float32 の warp グリッドがグラフに焼き込まれるため、fp16 パイプラインではバックエンドの自動 fp32 フォールバックが発火する（動作はするが fp16 の恩恵を受けない）。fp16 トレースが失敗または非有限値を出した場合はスクリプトが自動で fp32 に切り替える。
 - `--validate` を付けると、保存後に**トレース時と異なる解像度**で再ロードして形状、値域、中点ブレンドを検証する（汎化の確認）。
 - `--size`（既定256）はトレース解像度。RIFEはスケール相対の補間と実行時生成のwarpグリッドで構成されるため、他解像度にも概ね汎化する。
-- 出力は既定で `model_weights\rife.pth`。バックエンドが探す既定パスなのでそのまま使える。別の場所に置く場合は実行時に `--frame-gen-model-path <パス>` を指定する。
+- 出力は既定で `model_weights\rife.pth`。バックエンドが探す既定パスなのでそのまま使える。別の場所に置く場合は実行時に `--frame-generation-model-path <パス>` を指定する。
 
 ### 3. 実行
 
 ```powershell
-.\.venv\Scripts\python.exe -m jasna --input in.mp4 --output out2x.mkv --frame-gen 2x
-.\.venv\Scripts\python.exe -m jasna --input in.mp4 --output out4x.mkv --frame-gen 4x
+.\.venv\Scripts\python.exe -m jasna --input in.mp4 --output out2x.mkv --frame-generation 2x
+.\.venv\Scripts\python.exe -m jasna --input in.mp4 --output out4x.mkv --frame-generation 4x
 ```
 
 ### 4. 確認
@@ -65,7 +67,7 @@ ffprobe out2x.mkv
 
 ## RTX Video Frame Generation バックエンド（`rtx`）
 
-`--frame-gen-backend rtx` は RTX Video Effects SDK の Video Frame Generation effect を使う（`nvidia-vfx` 0.2.0.0 = VFX SDK 1.3.0。`pyproject.toml` で固定している版）。モデルは SDK に内蔵されているので、ダウンロードも変換も要らない。
+`--frame-generation-backend rtx` は RTX Video Effects SDK の Video Frame Generation effect を使う（`nvidia-vfx` 0.2.0.0 = VFX SDK 1.3.0。`pyproject.toml` で固定している版）。モデルは SDK に内蔵されているので、ダウンロードも変換も要らない。
 
 **要件**
 
@@ -76,12 +78,12 @@ ffprobe out2x.mkv
 **使い方**
 
 ```bash
-jasna --input in.mp4 --output out2x.mkv --frame-gen 2x --frame-gen-backend rtx
-jasna --input in.mp4 --output out4x.mkv --frame-gen 4x --frame-gen-backend rtx --frame-gen-rtx-mode high
+jasna --input in.mp4 --output out2x.mkv --frame-generation 2x --frame-generation-backend rtx
+jasna --input in.mp4 --output out4x.mkv --frame-generation 4x --frame-generation-backend rtx --frame-generation-rtx-mode high
 jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x --backend rtx
 ```
 
-`--frame-gen-rtx-mode {low,medium,high}`（`jasna-framegen` では `--rtx-mode`）で SDK の品質モードを選ぶ。既定の `medium` が最もバランスがよく、`high` は最大でも 0.2 dB の差に対して約 6 倍遅い。`--frame-gen-model-path` と `--fp16` は RIFE 専用で、`rtx` では無視される。SDK の自動シーン切替検出は有効のままなので、カット点をまたいだ補間は起きない。
+`--frame-generation-rtx-mode {low,medium,high}`（`jasna-framegen` では `--rtx-mode`）で SDK の品質モードを選ぶ。既定の `medium` が最もバランスがよく、`high` は最大でも 0.2 dB の差に対して約 6 倍遅い。`--frame-generation-model-path` と `--fp16` は RIFE 専用で、`rtx` では無視される。SDK の自動シーン切替検出は有効のままなので、カット点をまたいだ補間は起きない。
 
 **実測（RTX 5080、nvidia-vfx 0.2.0.0、2026-10-03）**
 
@@ -117,11 +119,11 @@ effect ロード後の追加 VRAM: 1080p `medium` +0.55 GB（`high` +1.24 GB、R
 
 `jasna-framegen` は、**復元済み動画にフレーム生成だけ**を適用する独立コマンド（モザイク検出も BasicVSR++ 復元も走らせない）。次の用途に使う：
 
-- **1パス目**で復元した動画（公式 jasna バイナリ、または `--frame-gen` なしの `jasna`）に対し、重い復元を再実行せず後から 2x/4x を足したいとき。
+- **1パス目**で復元した動画（公式 jasna バイナリ、または `--frame-generation` なしの `jasna`）に対し、重い復元を再実行せず後から 2x/4x を足したいとき。
 - factor やコーデックだけ変えて素早く再エンコードしたいとき。
 - バッチ処理のためフレーム生成を本パイプラインから分離したいとき。
 
-統合版 `--frame-gen` と同じ NVDEC/NVENC + mkvmerge 経路を再利用するので、音声と色メタは引き継がれ、タイミングは上記同様 PTS 駆動。`model_weights/rife.pth`（手順1〜2）が同じく必要で、protection / サポーターコードには一切触れない。
+統合版 `--frame-generation` と同じ NVDEC/NVENC + mkvmerge 経路を再利用するので、音声と色メタは引き継がれ、タイミングは上記同様 PTS 駆動。`model_weights/rife.pth`（手順1〜2）が同じく必要で、protection / サポーターコードには一切触れない。
 
 ```bash
 # パス1: 復元のみ（frame-gen なし）。2回目のエンコードで世代劣化を重ねないよう、
@@ -155,9 +157,9 @@ jasna-framegen --input in_dir --output out_dir --factor 2x --output-pattern "{or
 ## トラブルシュート
 
 - **`RTX Video Frame Generation is not available in the installed nvidia-vfx 0.1.0.1 ...`**: venv が 0.2.0.0 固定より前のもの。`uv pip install nvidia-vfx==0.2.0.0` で更新するか、`rife` を使う。
-- **`RTX Video Frame Generation requires an NVIDIA Ada (RTX 40 series) or newer GPU ...`**: SDK の effect は Turing/Ampere で動かない。`--frame-gen-backend rife` を使う。
+- **`RTX Video Frame Generation requires an NVIDIA Ada (RTX 40 series) or newer GPU ...`**: SDK の effect は Turing/Ampere で動かない。`--frame-generation-backend rife` を使う。
 - **Linux のドライバ 580.0〜580.81 で `rtx` が SDK 内部で失敗する**: effect には 580.82 以降（または 570.190 以降 / 590.44 以降）が必要。ドライバを更新する。
-- **`RIFE weights not found: ...`**: `model_weights\rife.pth` が無い。手順1〜2で作成するか `--frame-gen-model-path` を指定。
+- **`RIFE weights not found: ...`**: `model_weights\rife.pth` が無い。手順1〜2で作成するか `--frame-generation-model-path` を指定。
 - **`RIFE state_dict loaded non-strictly (missing=.., unexpected=..)`**: `flownet.pkl` を直接置いた場合に出る警告で、同梱IFNetとキーが合っていない。補間結果が壊れるので **TorchScript方式に切り替える**。
 - **変換スクリプトの import エラー**: `--rife-repo` が Practical-RIFE のチェックアウト（`train_log/` を含む）を指しているか確認。別バージョンで `flownet.forward` の戻り値が異なる場合は、`scripts/make_rife_torchscript.py` の `RifeTorchScriptWrapper.forward` を調整する。
 
@@ -168,6 +170,6 @@ jasna-framegen --input in_dir --output out_dir --factor 2x --output-pattern "{or
 ## 補足（実装メモ）
 
 - RIFEは**デフォルトでfp16**で動く（パイプラインの `--fp16` に追従。`--fp16` 無効時はfp32）。同梱IFNetのwarpはサンプリンググリッドをflowと同じdtypeで生成するため、`grid_sample` のdtype一致要求をfp16でも満たす。外部のTorchScriptチェックポイントがfloat32グリッドを内部に焼き込んでいる場合は、初期化時のプローブ推論で検出して**自動的にfp32へフォールバック**する（警告ログが出る。動作は継続）。出力はどちらでもuint8経由で往復するため画質経路は不変。
-- 実測の高速化（RTX 5060 Ti、1080p、`--frame-gen 2x`、lada-yolo-v4、エンドツーエンド）: fp32チェックポイントで16.5fps → **fp16で31.4fps（約1.9倍）**。fp16/fp32出力間のPSNRは平均約50dBで見た目は同一であり、画質を理由にfp32を選ぶ必要はない。
+- 実測の高速化（RTX 5060 Ti、1080p、`--frame-generation 2x`、lada-yolo-v4、エンドツーエンド）: fp32チェックポイントで16.5fps → **fp16で31.4fps（約1.9倍）**。fp16/fp32出力間のPSNRは平均約50dBで見た目は同一であり、画質を理由にfp32を選ぶ必要はない。
 - 補間はblend-encodeスレッド上で全解像度実行される（v1）。TRT化と専用スレッド化は将来拡張。
 - `rtx` バックエンド（`jasna/framegen/rtx_frame_generator.py`）は、`rtx-super-res` が `VideoSuperRes` を包むのと同じ作法で nvvfx の `VideoFrameGeneration` を包む: CHW uint8 → contiguous な float32 [0,1] → `run_at_timestep(prev, cur, t, stream_ptr=<現在の torch ストリーム>)` → clone（SDK は出力バッファを 1 つ使い回す）→ uint8。effect は入力サイズに束縛されるため、最初のフレーム対から遅延ロードし、サイズが変わると再ロードする。

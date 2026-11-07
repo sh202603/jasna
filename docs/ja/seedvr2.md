@@ -184,7 +184,7 @@ Linux の 3 素材の出力を目視で比べたところ、off との差は見�
 | 組み合わせ | 挙動 |
 |---|---|
 | `--vr-mode sbs` / `sbs-fisheye` / `auto` で VR 検出 | 起動時エラー(jasna の VR クロップは射影条件付きで LoRA 未検証) |
-| `--frame-gen` | 起動時エラー(常駐 worker と VRAM 共居不能。別パスで実行) |
+| `--frame-generation` | 起動時エラー(常駐 worker と VRAM 共居不能。別パスで実行) |
 | `--secondary-restoration flashvsr-inline` | 起動時エラー(worker 2 つで 16 GB 超過) |
 | `--secondary-restoration flashvsr`(オフライン) | **可**。Phase 分離により VRAM が両立し、SeedVR2 復元 + FlashVSR 4x の最高品質構成になる |
 | `--secondary-restoration tvai` | 警告のみ(生成一次への鮮鋭化二次はエンハンス過剰リスク) |

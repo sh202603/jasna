@@ -114,7 +114,7 @@ What the encoding options do here:
 
 `--restoration-model-name` other than basicvsrpp, `--secondary-restoration`, `--denoise`,
 `--segments`, `--ltx-auto-split`, `--stream`, `--retarget-high-fps`, `--fmp4`,
-`--frame-gen`, VR (`--vr-mode` resolving to anything but off), image and folder input,
+`--frame-generation`, VR (`--vr-mode` resolving to anything but off), image and folder input,
 `--lut`, `--sharpen`, `--swiftvr-scale 4`, `--rtx-scale 4` with the `rtx-super-res`
 backend, a non-default `--swiftvr-view-window` or `--swiftvr-distill-view-window`, and
 `--ltx-large-canvas` together with `--swiftvr-distill-stabilize`. The GUI does not offer the mode (CLI only, one video at a

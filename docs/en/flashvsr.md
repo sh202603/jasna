@@ -502,7 +502,7 @@ bundle so you can point `--flashvsr-bundle-dir` at a bigger disk and resume).
 ## Limitations
 
 - **File output only.** Not compatible with `--stream`, folder/image input, or
-  `--frame-gen` (run frame generation as a separate pass on the output).
+  `--frame-generation` (run frame generation as a separate pass on the output).
 - **No fps retargeting, smart rendering, or VR.** `--retarget-high-fps` (the
   Phase 1 frame stride would misalign the Phase 3 reblend indices), `--segments`,
   and VR processing (`--vr-mode sbs`/`sbs-fisheye`, or `auto` when it detects VR
