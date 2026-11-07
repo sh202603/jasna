@@ -170,8 +170,24 @@ NVIDIA_DEFAULT_LAUNCH = NvidiaLaunch(
 """Other GPUs: per kernel the config with the least worst-case slowdown on those three (at most 1.15x)."""
 
 
+NVIDIA_SPARK_LAUNCH = NvidiaLaunch(
+    swiglu={w: cfg for w, cfg in NVIDIA_DEFAULT_LAUNCH.swiglu.items()},
+    proj_residual=NVIDIA_DEFAULT_LAUNCH.proj_residual,
+    context_add=NVIDIA_DEFAULT_LAUNCH.context_add,
+    # 99 KB of shared memory per block (vs the 164 KB the default was tuned on):
+    # halve the Q/K/V rows so the slab plus the projection tile fits.
+    qkv={256: (16, 4), 512: (32, 4)})
+
+
 def nvidia_launch(device: torch.device) -> NvidiaLaunch:
-    return NVIDIA_LAUNCH.get(torch.cuda.get_device_capability(device), NVIDIA_DEFAULT_LAUNCH)
+    cap = torch.cuda.get_device_capability(device)
+    # The GB10/RTX Spark SoC shares the RTX 50-series capability but its kernels
+    # need more shared memory than the discrete tuning demands fit; run it on the
+    # conservative default config.
+    name = torch.cuda.get_device_name(device)
+    if cap in ((12, 0), (12, 1)) and ("Spark" in name or "GB10" in name):
+        return NVIDIA_SPARK_LAUNCH
+    return NVIDIA_LAUNCH.get(cap, NVIDIA_DEFAULT_LAUNCH)
 
 
 def proj_residual_(
