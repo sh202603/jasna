@@ -1,14 +1,20 @@
 # Frame generation (frame-rate up-conversion)
 
-`--frame-gen {none,2x,4x}` raises the output frame rate by 2x/4x (file output only; not for `--stream`).
-It inserts AI-interpolated frames between the source frames with new PTS placed between the originals.
-Audio keeps the original timecodes, so duration and sync are preserved.
+`--frame-generation {none,2x,4x}` raises the output frame rate by 2x/4x (file output only; not for `--stream`,
+`--segments` or `--ltx-auto-split`). It generates frames between the source frames; the writer and the encoder
+share one time base (the source's divided by the factor), so every generated PTS is whole and audio keeps its
+timecodes: duration and sync are preserved. It works on BasicVSR++ and LTX jobs.
 
-Backend: `--frame-gen-backend {rife,rtx}`
-- `rife` (default): RIFE neural interpolation in PyTorch. Runs on every supported GPU; supply weights separately (below).
-- `rtx`: NVIDIA RTX Video Frame Generation through `nvidia-vfx` 0.2.0.0+. No weights to supply, about 10x faster
-  than RIFE and slightly higher interpolation accuracy, but **RTX 40 series (Ada) or newer only**. See
-  [RTX Video Frame Generation backend](#rtx-video-frame-generation-backend-rtx).
+Upstream 0.12.2 has this feature with the RTX backend and 2x (`--frame-generation 2x`, the Output tab). This
+fork adds 4x, the RIFE backend and the RTX quality mode on top of upstream's plumbing; earlier modi builds
+called the flag `--frame-gen`.
+
+Backend: `--frame-generation-backend {rtx,rife}`
+- `rtx` (default, as upstream): NVIDIA RTX Video Frame Generation through `nvidia-vfx` 0.2.0.0+. No weights to
+  supply, about 10x faster than RIFE and slightly higher interpolation accuracy, but **RTX 40 series (Ada) or
+  newer only**. See [RTX Video Frame Generation backend](#rtx-video-frame-generation-backend-rtx).
+- `rife`: RIFE neural interpolation in PyTorch. Runs on every supported GPU (the choice for Turing and Ampere
+  cards); supply weights separately (below).
 
 The RIFE backend auto-detects two checkpoint formats. **TorchScript is recommended** (it bundles the
 architecture + weights and is guaranteed to run). You can also drop a raw `flownet.pkl` state_dict in,
@@ -56,13 +62,13 @@ The script lives at `scripts/make_rife_torchscript.py` in the repo.
 - `--size` (default 256) is the trace resolution; RIFE uses scale-relative interpolation and
   runtime-built warp grids, so it generalizes to other sizes.
 - Default output `model_weights\rife.pth` is exactly where the backend looks. To put it elsewhere,
-  pass `--frame-gen-model-path <path>` to jasna.
+  pass `--frame-generation-model-path <path>` to jasna.
 
 ### 3. Run
 
 ```powershell
-.\.venv\Scripts\python.exe -m jasna --input in.mp4 --output out2x.mkv --frame-gen 2x
-.\.venv\Scripts\python.exe -m jasna --input in.mp4 --output out4x.mkv --frame-gen 4x
+.\.venv\Scripts\python.exe -m jasna --input in.mp4 --output out2x.mkv --frame-generation 2x
+.\.venv\Scripts\python.exe -m jasna --input in.mp4 --output out4x.mkv --frame-generation 4x
 ```
 
 ### 4. Verify
@@ -79,7 +85,7 @@ ffprobe out2x.mkv
 
 ## RTX Video Frame Generation backend (`rtx`)
 
-`--frame-gen-backend rtx` runs NVIDIA's Video Frame Generation effect from the RTX Video Effects SDK
+`--frame-generation-backend rtx` runs NVIDIA's Video Frame Generation effect from the RTX Video Effects SDK
 (`nvidia-vfx` 0.2.0.0 = VFX SDK 1.3.0; the pinned version in `pyproject.toml`). The model is bundled in the
 SDK, so there is nothing to download or convert.
 
@@ -97,13 +103,13 @@ SDK, so there is nothing to download or convert.
 **Usage**
 
 ```bash
-jasna --input in.mp4 --output out2x.mkv --frame-gen 2x --frame-gen-backend rtx
-jasna --input in.mp4 --output out4x.mkv --frame-gen 4x --frame-gen-backend rtx --frame-gen-rtx-mode high
+jasna --input in.mp4 --output out2x.mkv --frame-generation 2x --frame-generation-backend rtx
+jasna --input in.mp4 --output out4x.mkv --frame-generation 4x --frame-generation-backend rtx --frame-generation-rtx-mode high
 jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x --backend rtx
 ```
 
-`--frame-gen-rtx-mode {low,medium,high}` (`--rtx-mode` on `jasna-framegen`) selects the SDK quality mode.
-`medium` (default) is the sweet spot; `high` is about 6x slower for at most 0.2 dB. `--frame-gen-model-path`
+`--frame-generation-rtx-mode {low,medium,high}` (`--rtx-mode` on `jasna-framegen`) selects the SDK quality mode.
+`medium` (default) is the sweet spot; `high` is about 6x slower for at most 0.2 dB. `--frame-generation-model-path`
 and `--fp16` are RIFE-only and ignored here. The SDK's automatic shot-change detection stays on, so a hard cut
 is not blended across.
 
@@ -156,12 +162,12 @@ showed no cuDNN contention.
 already-restored video, with no mosaic detection and no BasicVSR++ restoration. Use it when:
 
 - You restored a video in a **first pass** (the official jasna binary, or `jasna`
-  without `--frame-gen`) and want to add 2x/4x afterwards without re-running the
+  without `--frame-generation`) and want to add 2x/4x afterwards without re-running the
   expensive restore pass.
 - You want to tweak the frame-gen factor / codec and re-encode quickly.
 - You want frame generation decoupled from the main pipeline for batch processing.
 
-It reuses the same NVDEC/NVENC + mkvmerge path as the integrated `--frame-gen`, so
+It reuses the same NVDEC/NVENC + mkvmerge path as the integrated `--frame-generation`, so
 audio and color metadata are carried over and timing stays PTS-driven exactly as
 above. It needs the same `model_weights/rife.pth` (steps 1-2) and never touches the
 protection / supporter code.
@@ -211,10 +217,10 @@ output (or onto an input) is rejected up front.
 - **`RTX Video Frame Generation is not available in the installed nvidia-vfx 0.1.0.1 ...`**: the venv predates
   the 0.2.0.0 pin. `uv pip install nvidia-vfx==0.2.0.0`, or use `rife`.
 - **`RTX Video Frame Generation requires an NVIDIA Ada (RTX 40 series) or newer GPU ...`**: the SDK effect
-  does not run on Turing/Ampere. Use `--frame-gen-backend rife`.
+  does not run on Turing/Ampere. Use `--frame-generation-backend rife`.
 - **`rtx` fails inside the SDK on a driver between 580.0 and 580.81 (Linux)**: the effect needs 580.82+
   (or 570.190+ / 590.44+). Update the driver.
-- **`RIFE weights not found: ...`**: no `model_weights\rife.pth`; create one (steps 1-2) or pass `--frame-gen-model-path`.
+- **`RIFE weights not found: ...`**: no `model_weights\rife.pth`; create one (steps 1-2) or pass `--frame-generation-model-path`.
 - **`RIFE state_dict loaded non-strictly (...)`**: you dropped a raw `flownet.pkl` whose keys do not match
   the vendored IFNet; results will be wrong - switch to the TorchScript method.
 - **Converter import error**: check `--rife-repo` points at a Practical-RIFE checkout (with `train_log/`).
@@ -234,7 +240,7 @@ check the upstream license before redistributing. https://github.com/hzwer/Pract
   requirement holds under fp16. External TorchScript checkpoints that bake a float32 grid into their warp
   are detected by a probe inference at init and **fall back to fp32 automatically** (a warning is logged;
   processing continues). Frames round-trip through uint8 either way, so the output path is unchanged.
-- Measured speedup (RTX 5060 Ti, 1080p, `--frame-gen 2x`, lada-yolo-v4, end-to-end pipeline):
+- Measured speedup (RTX 5060 Ti, 1080p, `--frame-generation 2x`, lada-yolo-v4, end-to-end pipeline):
   16.5 fps with an fp32 checkpoint → **31.4 fps with fp16 (~1.9x)**. The fp16 and fp32 outputs average
   ~50 dB PSNR against each other (visually identical), so there is no quality reason to prefer fp32.
 - Interpolation runs at full resolution on the blend-encode thread (v1). TensorRT and a dedicated stage

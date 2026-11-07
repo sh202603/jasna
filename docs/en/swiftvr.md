@@ -379,7 +379,7 @@ spills, worker out-of-memory warnings).
 ### Offline behavior and constraints
 
 - Rejected at startup, as in FlashVSR's offline mode: `--stream`,
-  `--frame-gen`, `--retarget-high-fps`, `--segments`, VR modes (including
+  `--frame-generation`, `--retarget-high-fps`, `--segments`, VR modes (including
   `--vr-mode auto` detecting VR content), folder input, image input.
 - `--max-clip-size` passes through as given (default 90); there is no
   counterpart of FlashVSR offline's `--flashvsr-max-clip-frames`.
@@ -537,7 +537,7 @@ file, jasna stops before engine compilation and names the download.
 - The five-frame window repeats the clip's edge frames; frames outside the
   kept range are not returned but still serve as temporal context.
 - Unlike `swiftvr-inline`, nothing is forced or rejected at startup: fp8-recon
-  is not auto-enabled, `--frame-gen` is not turned off and the SeedVR2 primary
+  is not auto-enabled, `--frame-generation` is not turned off and the SeedVR2 primary
   is not excluded (nothing else is resident). There is no color correction
   either: the model adds detail to a bilinear upscale of the primary output,
   so the colours stay the primary's.

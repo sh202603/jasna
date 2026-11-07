@@ -333,7 +333,7 @@ scale 2 は inline を試して VRAM 逼迫(offloader の退避や worker の OO
 
 ### オフラインの挙動と制約
 
-- 起動時の拒否は FlashVSR のオフラインと同じ: `--stream`、`--frame-gen`、
+- 起動時の拒否は FlashVSR のオフラインと同じ: `--stream`、`--frame-generation`、
   `--retarget-high-fps`、`--segments`、VR モード(`--vr-mode auto` が VR を検出した場合を
   含む)、フォルダ入力、画像入力。
 - `--max-clip-size` は利用者の指定(既定 90)のまま通る(FlashVSR オフラインの
@@ -471,7 +471,7 @@ jasna --input in.mp4 --output out.mkv --secondary-restoration swiftvr-distill
 - 5 フレーム窓は clip の端のフレームを繰り返して作る。keep 範囲の外のフレームは
   返さないが、時間方向の文脈としては使う。
 - `swiftvr-inline` と違い、起動時に強制も拒否もしない。fp8-recon は自動有効化
-  されず、`--frame-gen` も切られず、SeedVR2 一次とも排他にならない(他に常駐する
+  されず、`--frame-generation` も切られず、SeedVR2 一次とも排他にならない(他に常駐する
   ものが無い)。色補正も無い。モデルは一次出力の双線形拡大に細部を足すだけなので、
   色は一次のままである。
 - 作者のアプリは合成後のフレームを macOS の VideoToolbox の時間方向ノイズ
