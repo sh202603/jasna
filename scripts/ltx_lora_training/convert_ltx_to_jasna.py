@@ -43,6 +43,7 @@ import torch
 from safetensors import safe_open
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from safetensors_io import io_safe_open  # noqa: E402
 from st_writer import StreamingSafetensorsWriter  # noqa: E402
 
 from jasna.ltx import trial_shapes as S  # noqa: E402
@@ -145,7 +146,7 @@ def main() -> None:
 
     lora = load_lora(args.lora, args.lora_multiplier) if args.lora else {}
     fused = 0
-    src = safe_open(str(args.source), framework="pt", device="cpu")
+    src = io_safe_open(str(args.source))  # mmap reader SIGSEGVs on >2**35 files on Windows ARM64
     src_meta = src.metadata() or {}
     # ---- plan -------------------------------------------------------------------------
     top: dict[str, str] = {}          # jasna name -> source name
