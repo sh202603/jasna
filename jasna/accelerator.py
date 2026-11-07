@@ -291,12 +291,28 @@ def _nvml_total_disagrees_with_cuda(nvml_total: int, cuda_total: int) -> bool:
     return nvml_total * 20 < cuda_total * 19
 
 
+def _forced_free_bytes() -> int | None:
+    """JASNA_FORCE_FREE_BYTES=<GiB>: replaces the host's available-RAM figure in the SoC
+    mismatch branch, for boxes where that figure under-counts what the GPU can use."""
+    raw = os.environ.get("JASNA_FORCE_FREE_BYTES", "").strip()
+    if not raw:
+        return None
+    try:
+        return int(float(raw) * (1 << 30))
+    except ValueError:
+        log.warning("JASNA_FORCE_FREE_BYTES=%r is not a number; ignoring it", raw)
+        return None
+
+
 def _nvml_free_bytes(device: torch.device) -> int:
     props = torch.cuda.get_device_properties(device)
     nvml, handle = _nvml_device(str(props.uuid))
     memory = _NvmlMemory()
     _nvml_check(nvml, nvml.nvmlDeviceGetMemoryInfo(handle, ctypes.byref(memory)))
     if _nvml_total_disagrees_with_cuda(memory.total, props.total_memory):
+        forced = _forced_free_bytes()
+        if forced is not None:
+            return forced
         # CUDA's own free figure is pinned at ~99.5% of its total on these boxes, so
         # it cannot cap the budget either; the host's available RAM is the honest
         # bound on a unified-memory box, and the caller's min() caps the process

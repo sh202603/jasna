@@ -80,6 +80,45 @@ def test_nvml_total_within_wddm_reserve_keeps_nvml_figure(monkeypatch):
     assert accelerator._nvml_free_bytes(torch.device("cuda:0")) == 40 * GIB
 
 
+def test_forced_free_bytes_replaces_the_available_figure_in_the_mismatch_branch(monkeypatch):
+    # JASNA_FORCE_FREE_BYTES=<GiB> is read only inside the mismatch branch, where it
+    # replaces the host's available RAM; psutil is not consulted. Same measured GB10
+    # row as above, forced to 28 GiB.
+    props = SimpleNamespace(uuid="abc", total_memory=93_066_629_120)
+    monkeypatch.setattr(torch.cuda, "get_device_properties", lambda device: props)
+    monkeypatch.setattr(accelerator, "_nvml_device", lambda uuid: (_fake_nvml(67_108_864_000, 475_320_320), None))
+    monkeypatch.setattr(accelerator.psutil, "virtual_memory", lambda: pytest.fail("psutil read while forced"))
+    monkeypatch.setenv("JASNA_FORCE_FREE_BYTES", "28")
+    assert accelerator._nvml_free_bytes(torch.device("cuda:0")) == 28 * GIB
+
+
+def test_forced_free_bytes_accepts_a_fractional_gib_in_the_mismatch_branch(monkeypatch):
+    props = SimpleNamespace(uuid="abc", total_memory=93_066_629_120)
+    monkeypatch.setattr(torch.cuda, "get_device_properties", lambda device: props)
+    monkeypatch.setattr(accelerator, "_nvml_device", lambda uuid: (_fake_nvml(67_108_864_000, 475_320_320), None))
+    monkeypatch.setenv("JASNA_FORCE_FREE_BYTES", "13.81")
+    assert accelerator._nvml_free_bytes(torch.device("cuda:0")) == int(13.81 * GIB)
+
+
+def test_forced_free_bytes_non_numeric_falls_back_to_available(monkeypatch):
+    props = SimpleNamespace(uuid="abc", total_memory=93_066_629_120)
+    monkeypatch.setattr(torch.cuda, "get_device_properties", lambda device: props)
+    monkeypatch.setattr(accelerator, "_nvml_device", lambda uuid: (_fake_nvml(67_108_864_000, 475_320_320), None))
+    monkeypatch.setattr(accelerator.psutil, "virtual_memory", lambda: SimpleNamespace(available=14_832_648_192))
+    monkeypatch.setenv("JASNA_FORCE_FREE_BYTES", "lots")
+    assert accelerator._nvml_free_bytes(torch.device("cuda:0")) == 14_832_648_192
+
+
+def test_forced_free_bytes_has_no_effect_without_the_mismatch(monkeypatch):
+    # A real dGPU: the variable is read only inside the mismatch branch, so the
+    # device-wide NVML free figure still stands.
+    props = SimpleNamespace(uuid="abc", total_memory=110 * GIB)
+    monkeypatch.setattr(torch.cuda, "get_device_properties", lambda device: props)
+    monkeypatch.setattr(accelerator, "_nvml_device", lambda uuid: (_fake_nvml(105 * GIB, 40 * GIB), None))
+    monkeypatch.setenv("JASNA_FORCE_FREE_BYTES", "28")
+    assert accelerator._nvml_free_bytes(torch.device("cuda:0")) == 40 * GIB
+
+
 _HOLD_VRAM = """
 import sys
 import torch
