@@ -121,6 +121,10 @@ def kernel_backend(device: torch.device | str) -> KernelBackend:
     resolved = torch.device(device)
     if resolved.type != "cuda":
         return KernelBackend.CPU
+    if os.environ.get("JASNA_LTX_KERNELS", "").lower() == "torch":
+        # Escape hatch: run the pure-torch reference kernels on GPUs where the fused
+        # Triton kernels do not fit (e.g. shared memory limits on some SoC parts).
+        return KernelBackend.CPU
     if is_amd_device(resolved):
         # A release ships Triton only for UNet 4x; LTX runs on prebuilt kernels without importing it.
         return KernelBackend.AMD_PREBUILT if is_frozen() or not has_triton() else KernelBackend.AMD_TRITON
