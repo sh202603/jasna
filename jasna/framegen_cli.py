@@ -154,12 +154,12 @@ def build_parser() -> argparse.ArgumentParser:
              'always encodes natively (CFR output is required), so torchcodec here only affects decoding.',
     )
     parser.add_argument(
-        "--decode-backend", type=str, default="inherit",
+        "--video-decode-backend", type=str, default="inherit",
         choices=["inherit", "native", "auto", "torchcodec"],
         help='Override the decode backend only (default "inherit" = --video-backend).',
     )
     parser.add_argument(
-        "--encode-backend", type=str, default="inherit",
+        "--video-encode-backend", type=str, default="inherit",
         choices=["inherit", "native", "auto", "torchcodec"],
         help='Override the encode backend only (default "inherit" = --video-backend).',
     )
@@ -312,8 +312,8 @@ def _process_video(
     device,
     batch_size: int,
     show_progress: bool,
-    decode_backend="native",
-    encode_backend="native",
+    video_decode_backend="native",
+    video_encode_backend="native",
 ) -> int:
     """Frame-generate a single video; return its source-frame count.
 
@@ -332,7 +332,7 @@ def _process_video(
     # is always native here. Downgrade a forced ``torchcodec`` encode backend to
     # ``auto`` so it falls back to native instead of erroring; decode still uses the
     # requested backend.
-    enc_backend = VideoBackend.AUTO if coerce_backend(encode_backend) is VideoBackend.TORCHCODEC else encode_backend
+    enc_backend = VideoBackend.AUTO if coerce_backend(video_encode_backend) is VideoBackend.TORCHCODEC else video_encode_backend
 
     metadata = get_video_meta_data(str(input_path))
     encoder_ctx = make_video_encoder(
@@ -354,7 +354,7 @@ def _process_video(
         with (
             make_video_reader(
                 file=str(input_path), batch_size=batch_size, device=device, metadata=metadata,
-                backend=decode_backend,
+                backend=video_decode_backend,
             ) as reader,
             torch.inference_mode(),
         ):
@@ -430,8 +430,8 @@ def main() -> None:
     def _resolve_backend(override: str) -> VideoBackend:
         return video_backend if override == "inherit" else VideoBackend(override.lower())
 
-    decode_backend = _resolve_backend(str(args.decode_backend).lower())
-    encode_backend = _resolve_backend(str(args.encode_backend).lower())
+    video_decode_backend = _resolve_backend(str(args.video_decode_backend).lower())
+    video_encode_backend = _resolve_backend(str(args.video_encode_backend).lower())
     device = torch.device(str(args.device))
     fp16 = bool(args.fp16)
     fg_model_path = str(args.model_path).strip() or None
@@ -482,7 +482,7 @@ def main() -> None:
                         generator=generator, multiplier=multiplier, codec=codec,
                         encoder_settings=encoder_settings, device=device,
                         batch_size=batch_size, show_progress=not args.no_progress,
-                        decode_backend=decode_backend, encode_backend=encode_backend,
+                        video_decode_backend=video_decode_backend, video_encode_backend=video_encode_backend,
                     )
                 except UnsupportedVideoError as e:
                     # Parity with jasna/main.py: in a folder batch, skip the bad

@@ -39,7 +39,7 @@ def _window(*, view: str = "restored", checkpoint: Path | None = Path("model.pth
     window._refresh_badge = MagicMock()
     window._refresh_pane_images = MagicMock()
     window._stop_clip_playback = MagicMock()
-    window._left_eye = False
+    window._stereo = "off"
     window._clip_position = None
     window._fps = 30.0
     window._duration = 60.0

@@ -36,6 +36,7 @@ from jasna.ltx.plan import TrackPlan, Window, crossfade_weights, feather_pixels
 from jasna.ltx.restore import WHOLE_VIDEO_PTS, Cancelled, FrameSource, FrameWriter, LtxSegment, scan_span, video_frames
 from jasna.media.probe import UnsupportedVideoError
 from jasna.progressbar import ProgressCallback, Progressbar
+from jasna.session_config import DecodeBackendName
 
 logger = logging.getLogger(__name__)
 
@@ -303,7 +304,7 @@ class WindowRefiner:
             frame = held.frame.to(self._device, copy=True)
             self._pinned.give(held.frame)
             candidates = self._candidates(held)
-            composited = composite_frame(frame, candidates, feather=self._feather) if candidates else frame
+            composited = composite_frame(frame, candidates, feather=self._feather, projector=None) if candidates else frame
             out.append((composited, held.pts, bool(candidates)))
             for index in held.windows:
                 if self._windows[index].stop - 1 == held.index:
@@ -347,13 +348,14 @@ def scan_source(
     min_duration: int,
     disable_progress: bool,
     cancel: threading.Event,
+    decode_backend: DecodeBackendName = "auto",
 ) -> list[TrackPlan]:
     """LTX's own scan of the source video as one segment. ``large_canvas`` and
     ``window_hop`` are taken as given: whether LTX rendered at 768 px, and how far its
     windows advanced, were decided on the machine that ran it (the windows only set the
     x2 batches and the crossfade here; the crop boxes come from the per-track camera)."""
     frames = video_frames(
-        source, metadata, batch_size=batch_size, device=device, frame_stride=1, seek_ts=None, end_pts=None
+        source, metadata, batch_size=batch_size, device=device, frame_stride=1, decode_backend=decode_backend, seek_ts=None, end_pts=None
     )
     with tqdm(total=int(metadata.num_frames), desc="LTX refine scan", unit="frame", disable=disable_progress) as bar:
         plans = scan_span(
@@ -363,6 +365,7 @@ def scan_source(
             batch_size=batch_size,
             frame_h=int(metadata.video_height),
             frame_w=int(metadata.video_width),
+            stereo=None,
             large_canvas=large_canvas,
             window_hop=window_hop,
             bar=bar,
@@ -422,6 +425,7 @@ def run_refine(
     progress_callback: ProgressCallback | None,
     cancel: threading.Event,
     skip_threshold: float = SKIP_MEAN_LUMA_DIFF,
+    decode_backend: DecodeBackendName = "auto",
 ) -> RefineSummary:
     """Write the sharpened LTX output to ``writer`` (left open for the caller to close).
     The alignment check comes first and needs no model; the detector is released after
@@ -446,6 +450,7 @@ def run_refine(
         min_duration=min_duration,
         disable_progress=disable_progress,
         cancel=cancel,
+        decode_backend=decode_backend,
     )
     release_detector()
     scan_seconds = time.monotonic() - started
@@ -480,10 +485,10 @@ def run_refine(
 
     try:
         ltx_frames = video_frames(
-            ltx_video, ltx_metadata, batch_size=batch_size, device=device, frame_stride=1, seek_ts=None, end_pts=None
+            ltx_video, ltx_metadata, batch_size=batch_size, device=device, frame_stride=1, decode_backend=decode_backend, seek_ts=None, end_pts=None
         )
         source_frames = video_frames(
-            source_video, source_metadata, batch_size=batch_size, device=device, frame_stride=1, seek_ts=None, end_pts=None
+            source_video, source_metadata, batch_size=batch_size, device=device, frame_stride=1, decode_backend=decode_backend, seek_ts=None, end_pts=None
         )
         for ltx_batch, source_batch, pts in lockstep_frames(ltx_frames, source_frames):
             if cancel.is_set():

@@ -585,8 +585,8 @@ class TestOrchestrator:
         args.lut = ""
         args.batch_size = 4
         args.video_backend = "native"
-        args.decode_backend = "inherit"
-        args.encode_backend = "inherit"
+        args.video_decode_backend = "inherit"
+        args.video_encode_backend = "inherit"
         args.stream = False
         args.frame_gen = "none"
         args.retarget_high_fps = False

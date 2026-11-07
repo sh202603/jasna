@@ -95,7 +95,7 @@ def test_doubled_crop_keeps_the_box_and_doubles_the_canvas():
 def test_crop_to_canvas_area_matches_crop_to_canvas_at_unit_scale_and_pads_alike():
     frame = torch.randint(0, 256, (3, 120, 160), dtype=torch.uint8, generator=torch.Generator().manual_seed(1))
     crop = camera.letterbox((20, 10, 84, 110), 100)  # 64x100 content letterboxed into 100: no resize, side pads
-    assert torch.equal(refine.crop_to_canvas_area(frame, crop), crop_to_canvas(frame, crop))
+    assert torch.equal(refine.crop_to_canvas_area(frame, crop), crop_to_canvas(frame, crop, None))
     shrunk = refine.crop_to_canvas_area(frame, camera.letterbox((0, 0, 160, 120), 64))
     assert shrunk.shape == (3, 64, 64)
     enlarged = refine.crop_to_canvas_area(frame, camera.letterbox((0, 0, 40, 30), 64))
@@ -135,7 +135,7 @@ def _square(x1, y1, x2, y2) -> Region:
 def _plans(frames: int, mosaics: list[tuple[Region, range]], *, cuts=(), size=(64, 64)):
     regions = [[region for region, span in mosaics if i in span] for i in range(frames)]
     return plan_video(
-        regions, set(cuts), frame_w=size[1], frame_h=size[0], large_canvas=False, window_hop=WINDOW_HOP,
+        regions, set(cuts), frame_w=size[1], frame_h=size[0], stereo=None, large_canvas=False, window_hop=WINDOW_HOP,
         max_gap=MAX_GAP, min_duration=0,
     )
 
