@@ -1,9 +1,9 @@
-# Changes vs upstream: `modi` (`0.12.2+modi`)
+# Changes vs upstream: `modi` (`0.12.3+modi`)
 
 What this branch adds on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna), organized by what differs **today**, not by when it was added.
 
 - Branch: `modi` (fork `https://github.com/sh202603/jasna.git`)
-- Version: `0.12.2+modi`, rebased onto upstream `12510264` (the `v0.12.2` tag)
+- Version: `0.12.3+modi`, rebased onto upstream `f652800a` (the `v0.12.3` tag)
 - Rebase policy: **upstream wins on overlapping features.** Anything upstream has since implemented itself is removed from the branch and listed in [Appendix A](#appendix-a-absorbed-by-upstream-or-dropped), not in the body.
 
 How to read this document:
@@ -312,6 +312,14 @@ Former modi changes that are no longer a delta of this branch. They were removed
 ## Appendix B: Rebase history
 
 Upstream highlights and this fork's reconciliation notes for each rebase base, newest first.
+
+### The `v0.12.3` base (merged 2026-11-15)
+
+Upstream shipped v0.12.3 (146 commits since `12510264`). Highlights: **whole-video upscaling** (`--upscale span|realplksr|rtx-super-res|dlss5`, `--upscale-height 1080|1440|2160`; every finished frame is upscaled right before the encoder, so the output resolution grows; the Upscale tab now has a "restored areas" and a "whole video" part), faster LTX (compose on fused GPU kernels, fp16 VAE encoder / decoder, the LTX worker starts with the job), the GUI restores its queue and announces new releases, `{log}` in the post-export command, a whole-card peak memory log, the NVML mismatch fix for SoC GPUs (#722), AC-3 in fragmented MP4, 8-bit HEVC for `profile=main`, resume matching the input by content. The rest is AMD (MIOpen tuning).
+
+**Whole-video upscaling and secondary restoration.** They are different stages and do not overlap. Secondary restoration (`--secondary-restoration`: `rtx-super-res`, `swiftvr-*`, `flashvsr-inline`, ...) sharpens the mosaic crops after the primary restorer and before blending, and leaves the output resolution alone. Whole-video upscaling enlarges the blended frame. They combine; `rtx-super-res` appears in both, as separate instances with separate options (`--rtx-*` for the secondary step, `--upscale-rtx-*` for the whole video). This fork's `--rtx-strength` / `--rtx-highbitrate` apply to the secondary step and the LTX sharpening only, not to whole-video upscaling (its `--upscale-strength` mixes in a plain resize).
+
+Fork-side: 159 modi commits replayed onto `f652800a` in one pass (no commit skipped or emptied); 11 stops, mostly both sides adding lines at the same place. Two new commits besides these docs. **Follow-ups**: frame generation follows upstream's order (upscale, then generate), so modi's generators (RTX / RIFE, 2x / 4x) are built at the upscaled size. The encoder factory receives the upscaled size and bitrate (the torchcodec encoder too). `--upscale` cannot be combined with `--ltx-crop-vsr` (its writer bypasses the frame writer), with the offline `flashvsr` / `swiftvr` passes (every phase re-runs the same arguments) or, untested next to a resident worker, with `seedvr2` / `flashvsr-inline` / `swiftvr-inline`; each stops with an error. The `--ltx-crop-vsr` scan passes the `frame_numbers` upstream made required. The new-release check compares the release part of `0.12.3+modi`. The Windows DLL search adds `torchcodec` and `tensorrt_rtx_libs` to upstream's list (`FROZEN_PACKAGE_DLL_DIRECTORIES`). Upstream removed the About dialog, so its rendering fix is gone. **Environment**: no pin change, no engine recompilation, no VALI rebuild (`fc39271`). The `span` and `realplksr` weights ship in upstream's release packages; a source run needs them placed in `model_weights/`. Verification (Linux, RTX 5080, 2026-11-15): Tk tests hang at random on this machine's display, so the GUI tests (`tests/test_gui_*.py`, `tests/test_segment_editor*.py` and every test that uses a Tk window fixture) were left out on both sides. modi: 3 failed / 3944 passed / 46 errors; pristine v0.12.3: 3 / 3252 / 46; the failure sets are identical (3 protection-dependent tests and the 46 LTX native block builds under gcc-15). One decoder test (`test_batch_written_after_queued_work_of_a_non_default_consumer_stream[pyav-sw]`) hangs at random on pristine upstream too and was left out there (it passed on modi). The CLI e2e matrix passed: the v0.12.2 matrix (BasicVSR++ with and without FP8, torchcodec, fMP4, RTX Super Res, SwiftVR distill / offline, SeedVR2, frame generation, `--segments` with and without a LUT, the mid-GOP cut through VALI and PyAV, both `--ltx-crop-vsr` backends, the `--ltx-trial` variants, LTX pause and resume, `jasna-framegen`) plus `--upscale rtx-super-res` (1080p to 2560x1440) alone, with the `rtx-super-res` secondary step, with RTX and RIFE frame generation (60 fps, same duration), with the torchcodec encoder, with LTX, and the two refused combinations. `--ltx-crop-vsr` keeps all 1391 audio packets of a clip with audio. 36 LTX GPU tests passed. LTX with trial weights only. `span` / `realplksr` / `dlss5` are untested (no weights or runtime here). The GUI and Windows are not verified on this base.
 
 ### The `v0.12.2` base (merged 2026-11-07)
 
