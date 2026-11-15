@@ -665,6 +665,9 @@ def _validate_offline_flags(args: "argparse.Namespace", mode: str) -> None:
         raise ValueError(
             f"{flag} does not support --frame-generation yet (run frame generation as a separate pass)"
         )
+    if str(getattr(args, "upscale", "none")).lower() != "none":
+        # Every phase re-runs jasna with the same argv, so phase 1 would upscale its intermediate.
+        raise ValueError(f"{flag} does not support --upscale")
     if bool(getattr(args, "retarget_high_fps", False)):
         # Phase 1 would decode with the fps-retarget frame stride while Phase 3
         # re-reads every source frame, so the bundle's start_frame indices would

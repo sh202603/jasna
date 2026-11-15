@@ -320,6 +320,7 @@ class TestValidation:
         ns.output = str(tmp_path / "out.mkv")
         ns.stream = False
         ns.frame_generation = "none"
+        ns.upscale = "none"
         ns.cq = None
         ns.codec = "hevc"
         ns.encoder_settings = ""
@@ -354,6 +355,11 @@ class TestValidation:
     def test_frame_generation_rejected(self, tmp_path):
         ns = self._args(tmp_path, frame_generation="2x")
         with pytest.raises(ValueError, match="frame-gen"):
+            fo._validate_flashvsr_args(ns)
+
+    def test_upscale_rejected(self, tmp_path):
+        ns = self._args(tmp_path, upscale="span")
+        with pytest.raises(ValueError, match="--upscale"):
             fo._validate_flashvsr_args(ns)
 
     def test_folder_input_rejected(self, tmp_path):
@@ -589,6 +595,7 @@ class TestOrchestrator:
         args.video_encode_backend = "inherit"
         args.stream = False
         args.frame_generation = "none"
+        args.upscale = "none"
         args.retarget_high_fps = False
         args.segments = ""
         args.vr_mode = "off"
