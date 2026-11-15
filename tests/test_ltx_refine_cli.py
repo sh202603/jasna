@@ -96,6 +96,7 @@ class TestCli:
             (["--retarget-high-fps"], "--retarget-high-fps"),
             (["--fmp4"], "--fmp4"),
             (["--frame-generation", "2x"], "--frame-generation"),
+            (["--upscale", "rtx-super-res"], "--upscale"),
             (["--vr-mode", "sbs"], "--vr-mode sbs"),
             (["--lut", __file__], "--lut"),
             (["--sharpen", "0.5"], "--sharpen"),

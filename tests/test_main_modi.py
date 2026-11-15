@@ -403,6 +403,12 @@ class TestSeedvr2Main:
         argv = _seedvr2_argv(inp, out, rest, det, repo, lora, ["--frame-generation", "2x"])
         self._run_expect_error(argv, "frame-gen")
 
+    def test_rejects_upscale(self, tmp_path):
+        inp, out, rest, det = _make_model_files(tmp_path)
+        repo, lora = _make_seedvr2_env(tmp_path)
+        argv = _seedvr2_argv(inp, out, rest, det, repo, lora, ["--upscale", "rtx-super-res"])
+        self._run_expect_error(argv, "--upscale")
+
     def test_rejects_flashvsr_inline_combo(self, tmp_path):
         inp, out, rest, det = _make_model_files(tmp_path)
         repo, lora = _make_seedvr2_env(tmp_path)

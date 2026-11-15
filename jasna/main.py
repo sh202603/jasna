@@ -1426,6 +1426,7 @@ def _check_ltx_crop_vsr_options(
         (bool(args.retarget_high_fps), "--retarget-high-fps"),
         (bool(args.fmp4), "--fmp4"),
         (str(args.frame_generation).lower() != "none", "--frame-generation"),
+        (str(args.upscale).lower() != "none", "--upscale (upscale in the LTX run instead)"),
         (str(args.vr_mode).lower() in ("sbs", "sbs-fisheye"), f"--vr-mode {args.vr_mode}"),
         (input_is_image, "an image input"),
         (input_is_dir, "a folder input"),
@@ -1781,6 +1782,9 @@ def _main() -> None:
                 "--restoration-model-name seedvr2 does not support --frame-generation "
                 "(no VRAM budget next to the resident worker; run frame generation as a separate pass)"
             )
+        if args.upscale != "none":
+            # +modi: untested next to the resident worker (same VRAM budget concern as frame generation).
+            raise ValueError("--restoration-model-name seedvr2 does not support --upscale")
         if secondary_name in ("flashvsr-inline", "swiftvr-inline"):
             raise ValueError(
                 "--restoration-model-name seedvr2 cannot be combined with --secondary-restoration "
@@ -1839,6 +1843,9 @@ def _main() -> None:
                 f"--secondary-restoration {secondary_name} does not support --frame-generation "
                 "(run frame generation as a separate pass)"
             )
+        if args.upscale != "none":
+            # +modi: untested next to the resident worker (same VRAM budget concern as frame generation).
+            raise ValueError(f"--secondary-restoration {secondary_name} does not support --upscale")
 
     if args.ltx_crop_vsr == "rtx-super-res":
         # Checked here as well as in the session factory, which runs after engine compilation.

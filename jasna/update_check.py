@@ -24,7 +24,11 @@ def check_due(checked_at, now: float) -> bool:
 
 
 def is_newer(version: str, current: str) -> bool:
-    return tuple(map(int, version.split("."))) > tuple(map(int, current.split(".")))
+    # +modi: the fork's version carries a local suffix ("0.12.3+modi"); compare the release parts.
+    def release(text: str) -> tuple[int, ...]:
+        return tuple(map(int, text.split("+")[0].split(".")))
+
+    return release(version) > release(current)
 
 
 def release_page_url(version: str) -> str:

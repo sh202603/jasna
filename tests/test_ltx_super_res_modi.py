@@ -25,7 +25,9 @@ from jasna.ltx.compose import Candidate, canvas_to_source, composite_frame, crop
 from jasna.ltx.plan import Window
 from jasna.ltx.super_res import LtxSuperRes, enlarged_windows, upscaled_crop
 from test_ltx_compose import _frame
-from test_ltx_restore import FILES, MAX_GAP, _Bar, _Detector, _render, _source, _video, _Writer, fakes  # noqa: F401
+from test_ltx_restore import (  # noqa: F401
+    FILES, MAX_GAP, TEN_PTS_PER_FRAME, _Bar, _Detector, _render, _runtime, _source, _video, _Writer, fakes,
+)
 
 
 class _FakeSuperRes:
@@ -70,7 +72,8 @@ def _compose_one_window(monkeypatch, crop: CropFrame, canvas: int, super_res: _F
     decodes = ThreadPoolExecutor(max_workers=1)
     composer = restore._SegmentComposer(
         [plan], None, SimpleNamespace(get=lambda index: index), seed=0, feather=1, budget=lambda side: 0,
-        device=torch.device("cpu"), bar=_Bar(), decodes=decodes, stream=None, super_res=super_res, projector=None,
+        device=torch.device("cpu"), bar=_Bar(), decodes=decodes, latent_reads=decodes, stream=None,
+        super_res=super_res, projector=None,
     )
     try:
         for _ in range(5):
@@ -110,7 +113,7 @@ def _render_with_super_res(tmp_path, super_res):
 def _restore_spans(tmp_path, spans, render):
     restore.restore_spans(
         spans, render, work_dir=tmp_path, resume_dir=tmp_path / "saved",
-        progress=restore.Progress(0, disable=True, report=None), cancel=threading.Event(),
+        progress=restore.Progress(0, disable=True, report=None), cancel=threading.Event(), runtime=_runtime(),
     )
 
 
@@ -167,6 +170,7 @@ def test_restore_video_hands_super_res_to_the_compose_pass(fakes, tmp_path):
         batch_size=4, large_canvas=False, window_hop=restore.WINDOW_HOP, seed=5, device=torch.device("cpu"),
         work_dir=tmp_path, speed_profile=tmp_path / "speed.json", progress=restore.Progress(12, disable=True, report=None),
         resume_dir=tmp_path / "saved", cancel=threading.Event(), max_gap=MAX_GAP, min_duration=0, super_res=super_res,
+        frame_numbers=TEN_PTS_PER_FRAME, runtime=_runtime(),
     )
     assert super_res.prepared == [[restore.PLAN_CANVAS]] and super_res.released == 1
     assert super_res.upscaled
