@@ -1,9 +1,9 @@
-# 変更点サマリ: `modi`（`0.12.2+modi`）vs upstream
+# 変更点サマリ: `modi`（`0.12.3+modi`）vs upstream
 
 このブランチが upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) に対して加えている変更を、「いつ追加したか」ではなく「**今、何が違うか**」で整理したものです。
 
 - ブランチ: `modi`（fork `https://github.com/sh202603/jasna.git`）
-- バージョン: `0.12.2+modi`。upstream `12510264`（`v0.12.2` タグ）にリベース済み
+- バージョン: `0.12.3+modi`。upstream `f652800a`（`v0.12.3` タグ）にリベース済み
 - リベース方針: **重複する機能は upstream 優先。** upstream が自前で実装した項目はブランチから外し、本文ではなく[付録 A](#付録-a-upstream-に吸収されたまたは-drop-した変更)に記載します。
 
 本書の読み方:
@@ -312,6 +312,14 @@ BasicVSR++ の **upsample** サブエンジンを cuDNN graph API の FP8 畳み
 ## 付録 B: リベース履歴
 
 各ベースへのリベースで取り込んだ upstream の主変更と本フォークの対応の記録（新しい順）。
+
+### `v0.12.3` ベース（2026-11-15 取り込み）
+
+upstream は v0.12.3 をリリースした（`12510264` から 146 コミット）。主要点: **動画全体のアップスケール**（`--upscale span|realplksr|rtx-super-res|dlss5`、`--upscale-height 1080|1440|2160`。完成フレームをエンコーダの直前で拡大するので出力解像度が上がる。Upscale タブは「修復した部分」と「動画全体」に分かれた）、LTX の高速化（compose の GPU カーネル化、VAE encoder / decoder の fp16、ジョブ開始と同時の LTX ワーカー起動）、GUI のキュー復元と新版通知、`{log}` 付きの完了後コマンド、GPU 全体のピークメモリのログ、SoC GPU の NVML 不一致対策（#722）、fragmented MP4 の AC-3、`profile=main` の 8-bit HEVC、再開時の入力照合を内容ベースに。ほかは AMD（MIOpen のチューニング）。
+
+**全体アップスケールと二次復元の関係。** 両者は別の段で、重複しない。二次復元（`--secondary-restoration`。`rtx-super-res`、`swiftvr-*`、`flashvsr-inline` など）はモザイク領域のクロップを一次復元の後・合成の前に鮮明にするもので、出力解像度は変えない。全体アップスケールは合成後のフレーム全体を拡大する。併用でき、`rtx-super-res` は両方に現れるが別インスタンスで、引数も別（二次復元は `--rtx-*`、全体は `--upscale-rtx-*`）。本フォークの `--rtx-strength` / `--rtx-highbitrate` は二次復元と LTX の鮮明化だけに効き、全体アップスケールには効かない（全体側の `--upscale-strength` は plain な拡大との混合）。
+
+fork 側: modi の 159 コミットを `f652800a` に一度の rebase で再生（skip も空も無し）。停止は 11 回で、大半は両者が同じ位置に行を足したもの。新コミットは本 docs のほかに 2 本。**追従**: フレーム生成は upstream の順序（拡大してから生成）に合わせ、modi の生成器（RTX / RIFE、2x / 4x）を拡大後のサイズで作る。エンコーダ工場は拡大後の寸法とビットレートを受け取る（torchcodec エンコーダも同じ）。`--upscale` は、フレーム writer を通らない `--ltx-crop-vsr`、同じ引数で各 phase を再実行する offline の `flashvsr` / `swiftvr`、常駐ワーカーの横で未検証の `seedvr2` / `flashvsr-inline` / `swiftvr-inline` とは併用できない（エラーで止める）。`--ltx-crop-vsr` の scan は upstream が必須にした `frame_numbers` を渡す。新版通知の版数比較は `0.12.3+modi` の release 部分で比べる。Windows の DLL 探索は upstream の一覧（`FROZEN_PACKAGE_DLL_DIRECTORIES`）に `torchcodec` と `tensorrt_rtx_libs` を足す形に。About ダイアログは upstream が削除したので、その描画修正は落とした。**環境**: ピンの変更なし、エンジンの再コンパイルなし、VALI の再ビルドなし（`fc39271`）。`span` と `realplksr` の重みは upstream のリリースパッケージに同梱されるもので、ソース実行では別途 `model_weights/` に置く。検証（Linux、RTX 5080、2026-11-15）: この機械の表示環境では Tk のテストが不定期に固まるため、GUI のテスト（`tests/test_gui_*.py`、`tests/test_segment_editor*.py`、Tk ウィンドウの fixture を使うテスト）を両側で外して比較した。modi は 3 failed / 3944 passed / 46 errors、素の v0.12.3 は 3 / 3252 / 46 で、失敗集合は完全一致（protection に依存する 3 件と、gcc-15 での LTX native block ビルド 46 件）。デコーダのテスト 1 本（`test_batch_written_after_queued_work_of_a_non_default_consumer_stream[pyav-sw]`）は素の upstream でも不定期に固まり、素の側では外した（modi 側では合格）。CLI e2e は合格: v0.12.2 ベースの行列（BasicVSR++ の FP8 有無、torchcodec、fMP4、RTX Super Res、SwiftVR distill / offline、SeedVR2、フレーム生成、`--segments` の LUT 有無、GOP 途中カットの VALI と PyAV、`--ltx-crop-vsr` の両バックエンド、`--ltx-trial` 各種、LTX の中断と再開、`jasna-framegen`）に加えて、`--upscale rtx-super-res`（1080p を 2560x1440 へ）の単体、二次復元 `rtx-super-res` 併用、RTX と RIFE のフレーム生成併用（60 fps、尺は同じ）、torchcodec エンコード、LTX、および併用拒否 2 件。`--ltx-crop-vsr` は音声付き素材で音声 1391 パケットが全部残る。LTX の GPU テスト 36 件合格。LTX は trial 重みのみ。`span` / `realplksr` / `dlss5` は未検証（重みとランタイムが手元に無い）。GUI と Windows はこのベースでは未検証。
 
 ### `v0.12.2` ベース（2026-11-07 取り込み）
 
