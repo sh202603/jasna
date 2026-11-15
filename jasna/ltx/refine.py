@@ -33,7 +33,9 @@ from tqdm import tqdm
 from jasna.ltx.camera import CropFrame
 from jasna.ltx.compose import Candidate, _area_weights, _reflect101_index, composite_frame, polygon_mask
 from jasna.ltx.plan import TrackPlan, Window, crossfade_weights, feather_pixels
-from jasna.ltx.restore import WHOLE_VIDEO_PTS, Cancelled, FrameSource, FrameWriter, LtxSegment, scan_span, video_frames
+from jasna.ltx.restore import (
+    WHOLE_VIDEO_PTS, Cancelled, FrameNumbers, FrameSource, FrameWriter, LtxSegment, scan_span, video_frames,
+)
 from jasna.media.probe import UnsupportedVideoError
 from jasna.progressbar import ProgressCallback, Progressbar
 from jasna.session_config import DecodeBackendName
@@ -372,6 +374,7 @@ def scan_source(
             cancel=cancel,
             max_gap=max_gap,
             min_duration=min_duration,
+            frame_numbers=FrameNumbers.of_video(metadata),
         )[0]
     canvases = Counter(window.canvas for plan in plans for window in plan.windows)
     logger.info(
