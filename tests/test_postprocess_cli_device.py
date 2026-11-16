@@ -1,4 +1,4 @@
-"""CLI-level test: --device and --factor are threaded into decode/encode/generator.
+"""CLI-level test: --device and --frame-generation are threaded into decode/encode/generator.
 
 GPU-free and native-lib-free: the decoder/encoder submodules (which import the
 native vali/PyNvVideoCodec extensions) are replaced with stub modules in
@@ -78,11 +78,11 @@ def test_cli_threads_device_and_multiplier(tmp_path):
     meta.video_fps_exact = Fraction(24, 1)
 
     with (
-        patch("jasna.framegen_cli.check_ascii_install_path", return_value=(True, "/fake")),
-        patch("jasna.framegen_cli.check_supported_gpu", return_value=(True, "Fake GPU")),
-        patch("jasna.framegen_cli.check_gpu_driver_version", return_value=(True, "590.18")),
-        patch("jasna.framegen_cli.check_required_executables"),
-        patch("jasna.framegen_cli.check_windows_nvidia_sysmem_fallback_policy", return_value=(True, "OK")),
+        patch("jasna.postprocess_cli.check_ascii_install_path", return_value=(True, "/fake")),
+        patch("jasna.postprocess_cli.check_supported_gpu", return_value=(True, "Fake GPU")),
+        patch("jasna.postprocess_cli.check_gpu_driver_version", return_value=(True, "590.18")),
+        patch("jasna.postprocess_cli.check_required_executables"),
+        patch("jasna.postprocess_cli.check_windows_nvidia_sysmem_fallback_policy", return_value=(True, "OK")),
         patch("jasna.media.probe.get_video_meta_data", return_value=meta),
         patch("jasna.framegen.build_frame_generator", side_effect=fake_build_generator),
         patch.dict(sys.modules, {
@@ -91,15 +91,15 @@ def test_cli_threads_device_and_multiplier(tmp_path):
         }),
         patch("torch.cuda.device", side_effect=record_device),
         patch.object(sys, "argv", [
-            "jasna-framegen",
+            "jasna-postprocess",
             "--input", str(input_path),
             "--output", str(output_path),
             "--device", "cuda:1",
-            "--factor", "4x",
+            "--frame-generation", "4x",
             "--no-progress",
         ]),
     ):
-        from jasna.framegen_cli import main
+        from jasna.postprocess_cli import main
 
         main()
 

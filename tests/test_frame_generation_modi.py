@@ -1,5 +1,5 @@
 """modi-only frame generation tests: the writer generalised to a multiplier and a generator with
-``interpolate``, the borrowed-generator mode of ``jasna-framegen``, and the backend routing.
+``interpolate``, the borrowed-generator mode of ``jasna-postprocess``, and the backend routing.
 
 modi 独自。上流の tests/test_frame_generation.py には追記しない。GPU 不要（フレームは番兵）。
 """

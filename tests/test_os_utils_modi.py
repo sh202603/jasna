@@ -1,4 +1,4 @@
-"""modi-only os_utils tests (``--disable-ffmpeg-check`` of jasna-framegen).
+"""modi-only os_utils tests (``--disable-ffmpeg-check`` of jasna-postprocess).
 
 modi 独自。上流の tests/test_os_utils.py には追記しない。
 """
@@ -15,5 +15,5 @@ def test_check_required_executables_skips_checks_when_disabled(monkeypatch) -> N
     monkeypatch.setattr(os_utils.subprocess, "run", fail_run)
     monkeypatch.setattr(os_utils, "find_executable", fail_find)
 
-    # Returns without raising or exiting; backs jasna-framegen --disable-ffmpeg-check.
+    # Returns without raising or exiting; backs jasna-postprocess --disable-ffmpeg-check.
     os_utils.check_required_executables(disable_ffmpeg_check=True)

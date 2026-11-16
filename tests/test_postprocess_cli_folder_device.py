@@ -71,11 +71,11 @@ def test_folder_batch_reuses_one_generator(tmp_path):
     meta.num_frames = 1
 
     with (
-        patch("jasna.framegen_cli.check_ascii_install_path", return_value=(True, "/fake")),
-        patch("jasna.framegen_cli.check_supported_gpu", return_value=(True, "Fake GPU")),
-        patch("jasna.framegen_cli.check_gpu_driver_version", return_value=(True, "590.18")),
-        patch("jasna.framegen_cli.check_required_executables"),
-        patch("jasna.framegen_cli.check_windows_nvidia_sysmem_fallback_policy", return_value=(True, "OK")),
+        patch("jasna.postprocess_cli.check_ascii_install_path", return_value=(True, "/fake")),
+        patch("jasna.postprocess_cli.check_supported_gpu", return_value=(True, "Fake GPU")),
+        patch("jasna.postprocess_cli.check_gpu_driver_version", return_value=(True, "590.18")),
+        patch("jasna.postprocess_cli.check_required_executables"),
+        patch("jasna.postprocess_cli.check_windows_nvidia_sysmem_fallback_policy", return_value=(True, "OK")),
         patch("jasna.media.probe.get_video_meta_data", return_value=meta),
         patch("jasna.framegen.build_frame_generator", side_effect=fake_build_generator),
         patch.dict(sys.modules, {
@@ -84,14 +84,14 @@ def test_folder_batch_reuses_one_generator(tmp_path):
         }),
         patch("torch.cuda.device", side_effect=lambda d: _NoOpDeviceContext()),
         patch.object(sys, "argv", [
-            "jasna-framegen",
+            "jasna-postprocess",
             "--input", str(in_dir),
             "--output", str(out_dir),
-            "--factor", "2x",
+            "--frame-generation", "2x",
             "--no-progress",
         ]),
     ):
-        from jasna.framegen_cli import main
+        from jasna.postprocess_cli import main
 
         main()
 

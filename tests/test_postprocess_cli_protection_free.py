@@ -13,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import jasna.framegen_cli as cli
+import jasna.postprocess_cli as cli
 
 
 def test_source_has_no_protection_import():
@@ -29,13 +29,37 @@ def test_import_pulls_no_protection_or_pipeline():
     # pipeline (restorer/detection/tracking). Run in a clean subprocess so the
     # check is unaffected by modules other tests already imported.
     code = (
-        "import jasna.framegen_cli, sys; "
+        "import jasna.postprocess_cli, sys; "
         "bad = [m for m in ('jasna.protection', 'jasna.pipeline') if m in sys.modules]; "
         "assert not bad, bad; "
         "print('ok')"
     )
     # Drop JASNA_MAIN_PID so the multiprocessing fork-guard at the CLI module top
     # (inherited from this pytest process) does not sys.exit(0) the subprocess.
+    env = {k: v for k, v in os.environ.items() if k != "JASNA_MAIN_PID"}
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        cwd=str(Path(cli.__file__).resolve().parents[2]),
+        env=env,
+    )
+    assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    assert "ok" in result.stdout
+
+
+def test_upscale_path_pulls_no_protection_or_pipeline():
+    # What --upscale imports on top of the CLI module: session_factory's upscale functions, the
+    # engine compiler they call, the writers and the SwiftVR adapter.
+    code = (
+        "import sys, jasna.postprocess_cli; "
+        "from jasna.session_factory import build_frame_upscaler, ensure_frame_upscale_engines, frame_upscale_size; "
+        "import jasna.engine_compiler, jasna.upscale.network, jasna.upscale.rtx; "
+        "import jasna.upscale.clip_writer, jasna.upscale.swiftvr, jasna.restorer.swiftvr_common; "
+        "bad = [m for m in ('jasna.protection', 'jasna.pipeline') if m in sys.modules]; "
+        "assert not bad, bad; "
+        "print('ok')"
+    )
     env = {k: v for k, v in os.environ.items() if k != "JASNA_MAIN_PID"}
     result = subprocess.run(
         [sys.executable, "-c", code],

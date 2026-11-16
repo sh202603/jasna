@@ -1,13 +1,13 @@
-"""Unit tests for the standalone frame-gen CLI driver loop (run_framegen).
+"""Unit tests for the standalone frame-gen CLI driver loop (run_postprocess).
 
-GPU-free: run_framegen does no tensor ops itself (the writer holds frames as opaque
+GPU-free: run_postprocess does no tensor ops itself (the writer holds frames as opaque
 values), so frames are plain sentinels and the reader/encoder/generator are fakes. This
 exercises the decode -> FrameGenerationWriter -> encoder adapter wiring and the N*M
 frame-count / scaled-PTS contract (PTS in the source time base divided by M).
 """
 from __future__ import annotations
 
-import jasna.framegen_cli as cli
+import jasna.postprocess_cli as cli
 
 
 class FakeReader:
@@ -62,7 +62,7 @@ def test_2x_count_pts_and_lifecycle():
     reader = FakeReader([(["f0", "f1"], [0, 100]), (["f2"], [200])])
     enc, gen = FakeEncoderCtx(), FakeGenerator()
 
-    source_frames = cli.run_framegen(reader, enc, gen, 2)
+    source_frames = cli.run_postprocess(reader, enc, generator=gen, multiplier=2)
 
     assert source_frames == 3
     pts = [p for _, p in enc.encoded]
@@ -71,7 +71,7 @@ def test_2x_count_pts_and_lifecycle():
     assert pts == sorted(pts) and len(set(pts)) == len(pts)
     # Encoder entered/exited exactly once (lazy enter on first frame, mux on close).
     assert enc.entered == 1 and enc.exited == 1
-    # Generator is borrowed: run_framegen / the writer must not close it.
+    # Generator is borrowed: run_postprocess / the writer must not close it.
     assert not gen.closed
 
 
@@ -79,7 +79,7 @@ def test_4x_count_and_pts():
     reader = FakeReader([(["f0", "f1"], [0, 100])])
     enc, gen = FakeEncoderCtx(), FakeGenerator()
 
-    source_frames = cli.run_framegen(reader, enc, gen, 4)
+    source_frames = cli.run_postprocess(reader, enc, generator=gen, multiplier=4)
 
     assert source_frames == 2
     assert [p for _, p in enc.encoded] == [0, 100, 200, 300, 400, 500, 600, 700]
@@ -92,7 +92,7 @@ def test_empty_input_never_enters_encoder():
     reader = FakeReader([])
     enc, gen = FakeEncoderCtx(), FakeGenerator()
 
-    source_frames = cli.run_framegen(reader, enc, gen, 2)
+    source_frames = cli.run_postprocess(reader, enc, generator=gen, multiplier=2)
 
     assert source_frames == 0
     assert enc.entered == 0 and enc.exited == 0
@@ -104,7 +104,7 @@ def test_empty_trailing_batch_is_tolerated():
     reader = FakeReader([(["f0", "f1"], [0, 100]), (["unused"], [])])
     enc, gen = FakeEncoderCtx(), FakeGenerator()
 
-    source_frames = cli.run_framegen(reader, enc, gen, 2)
+    source_frames = cli.run_postprocess(reader, enc, generator=gen, multiplier=2)
 
     assert source_frames == 2
     assert [p for _, p in enc.encoded] == [0, 100, 200, 300]
@@ -114,7 +114,7 @@ def test_single_frame_no_interpolation():
     reader = FakeReader([(["only"], [42])])
     enc, gen = FakeEncoderCtx(), FakeGenerator()
 
-    source_frames = cli.run_framegen(reader, enc, gen, 2)
+    source_frames = cli.run_postprocess(reader, enc, generator=gen, multiplier=2)
 
     assert source_frames == 1
     assert enc.encoded == [("only", 84)]
@@ -133,7 +133,7 @@ def test_progress_counts_source_frames_only():
     reader = FakeReader([(["f0", "f1"], [0, 100]), (["f2"], [200])])
     enc, gen, prog = FakeEncoderCtx(), FakeGenerator(), P()
 
-    cli.run_framegen(reader, enc, gen, 2, progress=prog)
+    cli.run_postprocess(reader, enc, generator=gen, multiplier=2, progress=prog)
 
     # One update per SOURCE frame (3), not per emitted frame (6).
     assert prog.n == 3
