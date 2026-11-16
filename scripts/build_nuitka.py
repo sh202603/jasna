@@ -9,9 +9,9 @@ next to the binary) and avoids compiling the GPU stack.
 
 A single console-subsystem `jasna.exe` is produced: with arguments it runs the
 CLI, without arguments it detaches the console (FreeConsole) and starts the
-GUI (see jasna/__main__.py argv0/arg dispatch). A `jasna-framegen.exe` copy is
+GUI (see jasna/__main__.py argv0/arg dispatch). A `jasna-postprocess.exe` copy is
 placed next to it; the same argv0 dispatch routes it to the standalone
-frame-generation CLI (jasna/framegen_cli.py).
+post-processing CLI (jasna/postprocess_cli.py).
 
 Run from the project root with the venv interpreter:
 
@@ -317,8 +317,8 @@ def place_dist() -> None:
         log("WARNING: python3.dll not found next to the base interpreter; "
             "stable-ABI extensions (psutil, ...) will fail to load")
     # argv0-stem dispatch in jasna/__main__.py routes a binary named
-    # jasna-framegen to the standalone frame-generation CLI.
-    shutil.copy2(DIST / "jasna.exe", DIST / "jasna-framegen.exe")
+    # jasna-postprocess to the standalone post-processing CLI.
+    shutil.copy2(DIST / "jasna.exe", DIST / "jasna-postprocess.exe")
     log(f"dist placed at {DIST}")
 
 
@@ -382,12 +382,12 @@ def copy_frozen_runtime_files() -> None:
     # FlashVSR / SwiftVR / SeedVR2 pass these as real script files to their
     # external venv's Python; when frozen they are resolved under
     # <dist>/jasna/restorer/ (see _resolve_worker_script / the phase-2 driver
-    # lookup). The SwiftVR Phase 2 driver loads the SwiftVR worker by path, so
+    # lookup). The SwiftVR Phase 2 driver and frame worker load the SwiftVR worker by path, so
     # all of them must land side by side.
     restorer_out = DIST / "jasna" / "restorer"
     restorer_out.mkdir(parents=True, exist_ok=True)
     for script in ["flashvsr_inline_worker.py", "flashvsr_phase2_driver.py", "seedvr2_lora_worker.py",
-                   "swiftvr_inline_worker.py", "swiftvr_phase2_driver.py"]:
+                   "swiftvr_inline_worker.py", "swiftvr_phase2_driver.py", "swiftvr_frame_worker.py"]:
         shutil.copy2(ROOT / "jasna" / "restorer" / script, restorer_out / script)
 
 

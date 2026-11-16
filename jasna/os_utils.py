@@ -285,7 +285,7 @@ def check_required_executables(disable_ffmpeg_check: bool = False) -> None:
     """Check that required external tools are available in PATH and callable.
 
     When ``disable_ffmpeg_check`` is True the check is skipped entirely; this
-    backs the ``jasna-framegen --disable-ffmpeg-check`` flag.
+    backs the ``jasna-postprocess --disable-ffmpeg-check`` flag.
     """
     if disable_ffmpeg_check:
         return

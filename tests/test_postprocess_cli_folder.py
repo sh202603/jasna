@@ -1,4 +1,4 @@
-"""Unit tests for jasna-framegen folder-batch planning (_plan_folder_jobs).
+"""Unit tests for jasna-postprocess folder-batch planning (_plan_folder_jobs).
 
 GPU-free: only filesystem classification + naming. Verifies videos-only
 selection, the {original} output-pattern, and collision/empty-folder errors,
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from jasna.framegen_cli import _plan_folder_jobs
+from jasna.postprocess_cli import _plan_folder_jobs
 
 
 def _touch(*paths: Path) -> None:

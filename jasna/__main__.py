@@ -110,10 +110,10 @@ if __name__ == "__main__":
         multiprocessing.freeze_support()
 
 if multiprocessing.parent_process() is None:
-    if _argv0_stem(sys.argv) == "jasna-framegen":
-        from jasna.framegen_cli import main as framegen_main
+    if _argv0_stem(sys.argv) == "jasna-postprocess":
+        from jasna.postprocess_cli import main as postprocess_main
 
-        framegen_main()
+        postprocess_main()
     elif _wants_cli(sys.argv):
         if len(sys.argv) == 1:
             from jasna.main import build_parser
