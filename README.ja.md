@@ -19,7 +19,8 @@ Jasna は動画と画像のモザイクを復元します。無料で、シン�
 > - **LTX 出力の鮮明化**（`--ltx-crop-vsr`）: 公式リリースが LTX で復元した動画とその元動画を受け取り、LTX の公開部分であるモザイクスキャンを再実行し、モザイク領域を SwiftVR、SwiftVR distill または RTX Super Res で 2 倍に拡大して LTX 自身の合成処理で戻します。特に低解像度の入力で LTX の復元 crop がぼやけるケースの鮮明化を狙ったものです。このビルドで LTX の結果を扱える唯一の経路です。[docs/ja/ltx_crop_vsr.md](docs/ja/ltx_crop_vsr.md) をご覧ください。
 > - **LTX 実行中の window の鮮明化**（LTX モデル + `--secondary-restoration rtx-super-res`）: 同じ RTX Super Res の deblur を、LTX の compose 段で合成前の各 window canvas に掛けます。upstream 0.12.1 にも同じオプションがありますが、拡大される window だけで既定は deblur なしです。このフォークは全 window・deblur `low` を保ちます。このビルドで読み込める LTX の重み（平文 safetensors。暗号化されたリリース版の重みは不可）でだけ使えます。[docs/ja/changes_vs_upstream.md §3.7](docs/ja/changes_vs_upstream.md#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res) をご覧ください。
 > - **自前 LTX モデルの学習**（`scripts/ltx_lora_training/`）: 公開の LTX-2.3 チェックポイント（例: Sulphur-2-base）を jasna の LTX ファイル形式に変換し、Musubi Tuner の LTX-2 fork でモザイク/原画の window ペアから IC-LoRA を学習して、このビルドで読み込める LTX モデルを作ります。モザイクは復元できますが、リリース版モデルより柔らかい仕上がりです。[docs/ja/ltx_lora_training.md](docs/ja/ltx_lora_training.md) をご覧ください。
-> - **フレーム生成**（`--frame-generation` 2x/4x、RIFE または RTX Video Frame Generation）と、復元済み動画向けのスタンドアロン `jasna-framegen`。
+> - **フレーム生成**（`--frame-generation` 2x/4x、RIFE または RTX Video Frame Generation）と、復元済み動画向けのスタンドアロン `jasna-postprocess`。
+> - **復元を通さない後処理**（`jasna-postprocess`、旧 `jasna-framegen`）: 完成済みの動画に全画面アップスケール（`--upscale`。jasna の upscaler か、SwiftVR の全画面適用）とフレーム生成を掛けます。[docs/ja/postprocess.md](docs/ja/postprocess.md) を参照。
 > - **バックエンド**: 実験的な **torchcodec 動画バックエンド**、実験的な **cuDNN FP8 復元バックエンド**、エンジンを数秒でビルドする **TensorRT-RTX** フレーバー。
 > - **GUI**: 区間エディターの **A/B モデル比較**と、動画プレーヤーの**復元チェックポイント**選択。
 >
@@ -268,7 +269,9 @@ jasna --input input_folder --output output_folder
 - [自前 LTX モデルの学習](docs/ja/ltx_lora_training.md): 公開の LTX-2.3
   チェックポイントの変換と、jasna の LTX 経路向け IC-LoRA の学習（Linux 検証済み）。
 - [フレーム生成](docs/ja/frame_generation.md): `--frame-generation`、RIFE と RTX の
-  バックエンド、`jasna-framegen`。
+  バックエンド、`jasna-postprocess`。
+- [後処理 CLI](docs/ja/postprocess.md): `jasna-postprocess`、復元済み動画への全画面
+  アップスケールとフレーム生成、SwiftVR の全画面適用。
 - [torchcodec バックエンド](docs/ja/torchcodec_backend.md)、
   [FP8 復元バックエンド](docs/ja/fp8_recon.md)、
   [TensorRT-RTX フレーバー](docs/ja/tensorrt_rtx.md): 実験的なバックエンド。

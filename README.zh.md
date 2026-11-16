@@ -19,7 +19,8 @@ Jasna 修复视频和图片中的马赛克。Jasna 免费，提供简单的应�
 > - **LTX 输出锐化**（`--ltx-crop-vsr`）：输入官方发布版用 LTX 修复过的视频及其原视频，重新运行 LTX 公开的马赛克扫描，用 SwiftVR、SwiftVR distill 或 RTX Super Res 把马赛克区域放大 2 倍，再用 LTX 自己的合成方式放回。主要针对低分辨率输入：LTX 修复出的裁切区域在这类素材上偏模糊。这是本构建中处理 LTX 结果的唯一途径。见 [docs/en/ltx_crop_vsr.md](docs/en/ltx_crop_vsr.md)。
 > - **LTX 运行中的窗口锐化**（LTX 模型 + `--secondary-restoration rtx-super-res`）：在 LTX 的合成阶段、合成之前，对每个窗口画布施加同样的 RTX Super Res 去模糊。上游 0.12.1 也有此选项，但只处理被放大的窗口、默认不去模糊；本分支保持全部窗口、去模糊 `low`。仅适用于本构建能加载的 LTX 权重（明文 safetensors，不含加密的官方发布版权重）。见 [docs/en/changes_vs_upstream.md §3.7](docs/en/changes_vs_upstream.md#37-sharpening-ltx-windows-in-the-run---secondary-restoration-rtx-super-res)。
 > - **训练自己的 LTX 模型**（`scripts/ltx_lora_training/`）：把公开的 LTX-2.3 检查点（例如 Sulphur-2-base）转换成 jasna 的 LTX 文件格式，并用 Musubi Tuner 的 LTX-2 分支在马赛克/原图窗口对上训练 IC-LoRA，得到本构建能加载的 LTX 模型。能修复马赛克，但比发布版模型偏软。见 [docs/en/ltx_lora_training.md](docs/en/ltx_lora_training.md)（英文）。
-> - **帧生成**（`--frame-generation` 2x/4x，RIFE 或 RTX Video Frame Generation），以及用于已修复视频的独立命令 `jasna-framegen`。
+> - **帧生成**（`--frame-generation` 2x/4x，RIFE 或 RTX Video Frame Generation），以及用于已修复视频的独立命令 `jasna-postprocess`。
+> - **不经过修复的后处理**（`jasna-postprocess`，原 `jasna-framegen`）：对已完成的视频做整帧放大（`--upscale`，使用 jasna 的放大模型或整帧 SwiftVR）和帧生成。参见 [docs/en/postprocess.md](docs/en/postprocess.md)。
 > - **后端**：实验性的 **torchcodec 视频后端**、实验性的 **cuDNN FP8 修复后端**，以及几秒内即可构建引擎的 **TensorRT-RTX** 版本。
 > - **GUI**：区间编辑器中的 **A/B 模型对比**，以及视频播放器中的**修复检查点**选择。
 >
@@ -255,7 +256,8 @@ jasna --input input_folder --output output_folder
   `--ltx-crop-vsr`。
 - [训练自己的 LTX 模型](docs/en/ltx_lora_training.md)：转换公开的 LTX-2.3 检查点，并为 jasna 的
   LTX 路径训练 IC-LoRA（已在 Linux 上验证）。
-- [帧生成](docs/en/frame_generation.md)：`--frame-generation`、RIFE 与 RTX 后端、`jasna-framegen`。
+- [帧生成](docs/en/frame_generation.md)：`--frame-generation`、RIFE 与 RTX 后端、`jasna-postprocess`。
+- [后处理 CLI](docs/en/postprocess.md)：`jasna-postprocess`，对已修复视频的整帧放大与帧生成、整帧 SwiftVR。
 - [torchcodec 后端](docs/en/torchcodec_backend.md)、[FP8 修复后端](docs/en/fp8_recon.md)、
   [TensorRT-RTX 版本](docs/en/tensorrt_rtx.md)：实验性后端。
 - [在 Linux 上构建](docs/en/building_linux.md)、[在 Windows 上构建](docs/en/building_windows.md)、

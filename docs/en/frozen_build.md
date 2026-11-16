@@ -1,6 +1,6 @@
 # Building the frozen distribution (Windows, experimental)
 
-This fork can produce a standalone frozen distribution at `dist_nuitka\jasna\` with a single `jasna.exe`: run it **with arguments** for the CLI, **without arguments** for the GUI (the console window is detached automatically). A `jasna-framegen.exe` copy sits next to it and runs the standalone frame-generation CLI (the argv0 name selects the entry point). End users need no Python installation.
+This fork can produce a standalone frozen distribution at `dist_nuitka\jasna\` with a single `jasna.exe`: run it **with arguments** for the CLI, **without arguments** for the GUI (the console window is detached automatically). A `jasna-postprocess.exe` copy sits next to it and runs the standalone frame-generation CLI (the argv0 name selects the entry point). End users need no Python installation.
 
 Background: upstream switched its packaging from PyInstaller to Nuitka, but its packaging tooling lives in a private submodule (`jasna/protection`) and is not part of this fork. `scripts\build_nuitka.py` is this fork's own, self-contained replacement. It is currently Windows-only.
 
@@ -52,7 +52,7 @@ TensorRT engines (`*.engine`, `*_sub_engines\`) are **deliberately not bundled**
 ```
 dist_nuitka\jasna\
 ├── jasna.exe               # main entry point (args → CLI, no args → GUI)
-├── jasna-framegen.exe      # standalone frame-generation CLI (copy of jasna.exe)
+├── jasna-postprocess.exe      # standalone frame-generation CLI (copy of jasna.exe)
 ├── python313.dll, python3.dll, vcruntime140*.dll
 ├── *.fatbin                # precompiled CUDA kernels (read from the dist root when frozen)
 ├── torch\, torchvision\, tensorrt_libs\, torchcodec\, nvvfx\, ...
@@ -81,7 +81,7 @@ dist_nuitka\jasna\
 cd dist_nuitka\jasna
 .\jasna.exe --version                 # -> 0.12.3+modi (the script asserts the version of the installed package)
 .\jasna.exe --input assets\test_clip1_1080p.mp4 --output %TEMP%\out.mkv
-.\jasna-framegen.exe --input %TEMP%\out.mkv --output %TEMP%\out2x.mkv --factor 2x   # needs --bundle-rife weights
+.\jasna-postprocess.exe --input %TEMP%\out.mkv --output %TEMP%\out2x.mkv --frame-generation 2x   # needs --bundle-rife weights
 ```
 
 The first processing run also exercises the engine-compilation subprocess path (`jasna.exe --compile-engines ...` relaunches itself). Then double-click `jasna.exe`: the console window must disappear and the GUI appear. For a realistic end-user test, run on a machine (or shell) whose `PATH` contains neither the venv nor a CUDA Toolkit — the bundled DLLs must be picked up.

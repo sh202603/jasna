@@ -105,10 +105,10 @@ SDK, so there is nothing to download or convert.
 ```bash
 jasna --input in.mp4 --output out2x.mkv --frame-generation 2x --frame-generation-backend rtx
 jasna --input in.mp4 --output out4x.mkv --frame-generation 4x --frame-generation-backend rtx --frame-generation-rtx-mode high
-jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x --backend rtx
+jasna-postprocess --input restored.mkv --output out2x.mkv --frame-generation 2x --frame-generation-backend rtx
 ```
 
-`--frame-generation-rtx-mode {low,medium,high}` (`--rtx-mode` on `jasna-framegen`) selects the SDK quality mode.
+`--frame-generation-rtx-mode {low,medium,high}` selects the SDK quality mode.
 `medium` (default) is the sweet spot; `high` is about 6x slower for at most 0.2 dB. `--frame-generation-model-path`
 and `--fp16` are RIFE-only and ignored here. The SDK's automatic shot-change detection stays on, so a hard cut
 is not blended across.
@@ -133,7 +133,7 @@ harder motion step than the 2x case):
 | RTX `high` | 43.74 dB | 42.94 dB |
 
 Extra VRAM after the effect is loaded: 1080p `medium` +0.55 GB (`high` +1.24 GB, RIFE fp16 +0.75 GB); 2160p
-`medium` +2.06 GB (RIFE +2.85 GB). End-to-end, `jasna-framegen --factor 2x` on the 300-frame 1080p test clip
+`medium` +2.06 GB (RIFE +2.85 GB). End-to-end, `jasna-postprocess --frame-generation 2x` on the 300-frame 1080p test clip
 takes 2.3 s wall clock with `rtx` against 5.8 s with `rife` (decode, encode and startup included).
 
 The effect accepts any frame size (no multiple-of-64 padding as with RIFE) and is re-loaded in about 15 ms
@@ -145,7 +145,7 @@ two outputs 47.6 dB, so they are close but not identical).
 
 **Windows results (2026-10-03, RTX 5080, driver 616.92, Windows 11)**: the 0.2.0.0 Windows wheel (436 MB,
 fetched from pypi.nvidia.com by `uv pip install nvidia-vfx==0.2.0.0`) runs the same code unchanged. The unit
-test that exercises the real SDK passes; `jasna-framegen --factor 2x` on the 1080p test clip takes 4.3 s with
+test that exercises the real SDK passes; `jasna-postprocess --frame-generation 2x` on the 1080p test clip takes 4.3 s with
 `rtx` against 23.5 s with `rife` (the local `rife.pth` is a TorchScript checkpoint with a baked-in float32
 warp grid, so RIFE fell back to fp32). Both outputs are 599 frames at 60 fps with a PSNR of 47.8 dB between
 them (in line with 47.6 dB on Linux). The full pipeline (rtx-super-res with `--rtx-strength 0.6
@@ -156,10 +156,13 @@ showed no cuDNN contention.
 
 ---
 
-## Two-pass workflow: `jasna-framegen` (standalone)
+## Two-pass workflow: `jasna-postprocess` (standalone)
 
-`jasna-framegen` is a separate command that applies **only** frame generation to an
-already-restored video, with no mosaic detection and no BasicVSR++ restoration. Use it when:
+`jasna-postprocess` is a separate command that applies **only** post-processing to an
+already-restored video, with no mosaic detection and no BasicVSR++ restoration. It is
+`jasna-framegen` (up to `0.12.3+modi`) renamed, and it can also upscale whole frames
+(`--upscale`); [postprocess.md](postprocess.md) describes the whole command, this section its
+frame generation. Use it when:
 
 - You restored a video in a **first pass** (the official jasna binary, or `jasna`
   without `--frame-generation`) and want to add 2x/4x afterwards without re-running the
@@ -179,14 +182,15 @@ jasna --input in.mp4 --output restored.mkv --encoder-settings cq=16
 # (or produce restored.mkv with the official binary)
 
 # Pass 2: frame generation only
-jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x
-jasna-framegen --input restored.mkv --output out4x.mkv --factor 4x
+jasna-postprocess --input restored.mkv --output out2x.mkv --frame-generation 2x
+jasna-postprocess --input restored.mkv --output out4x.mkv --frame-generation 4x
 ```
 
-Common options: `--factor {2x,4x}`, `--backend {rife,rtx}`, `--model-path <rife.pth>` (RIFE),
-`--rtx-mode {low,medium,high}` (RTX), `--codec {hevc,av1}`, `--encoder-settings <k=v,...>`,
+Common options: `--frame-generation {2x,4x}`, `--frame-generation-backend {rife,rtx}` (default
+`rife`; the main CLI defaults to `rtx`), `--frame-generation-model-path <rife.pth>` (RIFE),
+`--frame-generation-rtx-mode {low,medium,high}` (RTX), `--codec {hevc,av1}`, `--encoder-settings <k=v,...>`,
 `--device cuda:0`, `--no-fp16` (RIFE). Output quality defaults to jasna's encoder profile
-(cq=25); override with `--encoder-settings`. Run `jasna-framegen --help` for the full
+(cq=25); override with `--encoder-settings`. Run `jasna-postprocess --help` for the full
 list. Verify the same way as step 4 (`ffprobe` → ~2x/4x frame rate, unchanged
 duration, audio in sync).
 
@@ -200,10 +204,10 @@ stem; the default is `{original}_out` keeping each input's extension.
 
 ```bash
 # 2x every video in in_dir/ into out_dir/ (default names: <name>_out.<ext>)
-jasna-framegen --input in_dir --output out_dir --factor 2x
+jasna-postprocess --input in_dir --output out_dir --frame-generation 2x
 
 # Custom names, e.g. clip.mkv -> clip_2x.mkv
-jasna-framegen --input in_dir --output out_dir --factor 2x --output-pattern "{original}_2x.mkv"
+jasna-postprocess --input in_dir --output out_dir --frame-generation 2x --output-pattern "{original}_2x.mkv"
 ```
 
 A folder run prints `[i/N] name -> out` per file and continues past a file with an
