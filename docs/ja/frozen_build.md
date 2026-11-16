@@ -2,7 +2,7 @@
 
 このフォークは、スタンドアロンの**凍結配布物**（Python の導入なしで動く配布用ディレクトリ）を `dist_nuitka\jasna\` に生成できる。
 メインの実行ファイルは `jasna.exe` で、引数を付けて起動すれば CLI、引数なしで起動すれば GUI として動く（GUI 起動時はコンソールウィンドウが自動で切り離される）。
-その隣に `jasna-framegen.exe`（`jasna.exe` のコピー）が置かれ、こちらはスタンドアロンのフレーム生成 CLI として動く（実行ファイル名で入口が切り替わる）。
+その隣に `jasna-postprocess.exe`（`jasna.exe` のコピー）が置かれ、こちらはスタンドアロンのフレーム生成 CLI として動く（実行ファイル名で入口が切り替わる）。
 
 upstream はパッケージングを PyInstaller から Nuitka へ切り替えたが、そのツールは非公開の submodule（`jasna/protection`）にあり、このフォークには含まれない。
 `scripts\build_nuitka.py` は、このフォークが独自に持つ自己完結のビルドスクリプトである。
@@ -84,7 +84,7 @@ TensorRT エンジン（`*.engine` と `*_sub_engines\`）は意図的に同梱�
 ```
 dist_nuitka\jasna\
 ├── jasna.exe               # メインのエントリポイント（引数あり → CLI、なし → GUI）
-├── jasna-framegen.exe      # スタンドアロンのフレーム生成 CLI（jasna.exe のコピー）
+├── jasna-postprocess.exe      # スタンドアロンのフレーム生成 CLI（jasna.exe のコピー）
 ├── python313.dll, python3.dll, vcruntime140*.dll
 ├── *.fatbin                # 事前コンパイル済み CUDA カーネル（凍結時はルートから読まれる）
 ├── torch\, torchvision\, tensorrt_libs\, torchcodec\, nvvfx\, ...
@@ -121,7 +121,7 @@ dist_nuitka\jasna\
 cd dist_nuitka\jasna
 .\jasna.exe --version                 # -> 0.12.3+modi（スクリプトがインストール済みパッケージの版と照合する）
 .\jasna.exe --input assets\test_clip1_1080p.mp4 --output %TEMP%\out.mkv
-.\jasna-framegen.exe --input %TEMP%\out.mkv --output %TEMP%\out2x.mkv --factor 2x   # --bundle-rife の重みが必要
+.\jasna-postprocess.exe --input %TEMP%\out.mkv --output %TEMP%\out2x.mkv --frame-generation 2x   # --bundle-rife の重みが必要
 ```
 
 初回の実処理では、エンジンコンパイルのサブプロセス経路（`jasna.exe --compile-engines ...` として自分自身を再起動する）も同時に検証される。

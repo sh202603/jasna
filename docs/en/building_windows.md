@@ -8,7 +8,7 @@ How to set up Jasna on Windows and run it **from source**.
 >
 > **VALI is required.** On Windows you build Kruk2's VALI fork (`python_vali` 4.8.8) yourself and install it (Section 5.2). The `[nvidia]` extra pins `python_vali==4.8.8`, which is not published on PyPI (the newest release there is 4.8.7, with Linux wheels only, as of 2026-10-16), and jasna's VALI decoder uses an API only the fork has. This makes VS Build Tools and the CUDA Toolkit prerequisites.
 >
-> **Packaging.** This fork is run from source. Its experimental Nuitka script (`scripts\build_nuitka.py`) builds a standalone `jasna.exe` + `jasna-framegen.exe` distribution from the venv of this guide ([frozen_build.md](frozen_build.md), Section 8). LTX and the supporter models work only in upstream's official release.
+> **Packaging.** This fork is run from source. Its experimental Nuitka script (`scripts\build_nuitka.py`) builds a standalone `jasna.exe` + `jasna-postprocess.exe` distribution from the venv of this guide ([frozen_build.md](frozen_build.md), Section 8). LTX and the supporter models work only in upstream's official release.
 
 ---
 
@@ -329,7 +329,7 @@ Check:
 
 ## 8. Packaging / frozen builds
 
-This fork ships its own experimental Nuitka build script (`scripts\build_nuitka.py`) that produces a standalone distribution with `jasna.exe` and `jasna-framegen.exe` from the venv of this guide; the procedure, the bundle layout and its limits are in [frozen_build.md](frozen_build.md). The script follows the branch (PyAV media layer, the rfdetr-v6 detector, the CUDA kernel set, the worker scripts of the external restorers), but each new base needs a fresh build and smoke test on Windows.
+This fork ships its own experimental Nuitka build script (`scripts\build_nuitka.py`) that produces a standalone distribution with `jasna.exe` and `jasna-postprocess.exe` from the venv of this guide; the procedure, the bundle layout and its limits are in [frozen_build.md](frozen_build.md). The script follows the branch (PyAV media layer, the rfdetr-v6 detector, the CUDA kernel set, the worker scripts of the external restorers), but each new base needs a fresh build and smoke test on Windows.
 
 Upstream's own packaging tooling (also Nuitka-based) lives in a **private submodule (`jasna/protection`)** not included in this fork. Features depending on that submodule (`unet-4x`, SD1.5 inpaint, license activation) do not work in this fork's frozen builds.
 

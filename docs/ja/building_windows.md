@@ -8,7 +8,7 @@ Windows で Jasna のセットアップを行い、**ソースから実行**す�
 >
 > **VALI は必須。** Windows では Kruk2 氏の VALI フォーク（`python_vali` 4.8.8）を自前でビルドして入れます（5.2 節）。`[nvidia]` extra は `python_vali==4.8.8` を固定していますが、4.8.8 は PyPI に公開されていません（PyPI の最新は 4.8.7 で、wheel は Linux 用だけ。2026-10-16 時点）。また jasna の VALI デコーダはフォークにしかない API を使います。そのため VS Build Tools と CUDA Toolkit が前提になります。
 >
-> **パッケージング。** このフォークはソースから実行します。実験的な Nuitka スクリプト（`scripts\build_nuitka.py`）で、本ガイドの venv から `jasna.exe` + `jasna-framegen.exe` のスタンドアロン配布物を作れます（[frozen_build.md](frozen_build.md)、8 節）。LTX と支援者モデルは upstream の公式リリースでしか動きません。
+> **パッケージング。** このフォークはソースから実行します。実験的な Nuitka スクリプト（`scripts\build_nuitka.py`）で、本ガイドの venv から `jasna.exe` + `jasna-postprocess.exe` のスタンドアロン配布物を作れます（[frozen_build.md](frozen_build.md)、8 節）。LTX と支援者モデルは upstream の公式リリースでしか動きません。
 
 ---
 
@@ -329,7 +329,7 @@ python -m jasna              # GUI を起動（引数なし）
 
 ## 8. パッケージング / frozen ビルド
 
-このフォークは独自の実験的 Nuitka ビルドスクリプト（`scripts\build_nuitka.py`）を同梱しており、本ガイドの venv から `jasna.exe` と `jasna-framegen.exe` から成るスタンドアロン配布物を生成できます。手順、バンドルの構成、制限は [frozen_build.md](frozen_build.md) にあります。スクリプトはブランチに追従しています（PyAV メディア層、rfdetr-v6 検出器、CUDA カーネル一式、外部復元器の worker スクリプト）が、ベースを上げるごとに Windows で再ビルドと動作確認が必要です。
+このフォークは独自の実験的 Nuitka ビルドスクリプト（`scripts\build_nuitka.py`）を同梱しており、本ガイドの venv から `jasna.exe` と `jasna-postprocess.exe` から成るスタンドアロン配布物を生成できます。手順、バンドルの構成、制限は [frozen_build.md](frozen_build.md) にあります。スクリプトはブランチに追従しています（PyAV メディア層、rfdetr-v6 検出器、CUDA カーネル一式、外部復元器の worker スクリプト）が、ベースを上げるごとに Windows で再ビルドと動作確認が必要です。
 
 upstream 自身のパッケージングツール（同じく Nuitka ベース）は**プライベートな submodule（`jasna/protection`）**にあり、このフォークには含まれません。この submodule に依存する機能（`unet-4x`、SD1.5 inpaint、ライセンス認証）は、このフォークの凍結ビルドでは動きません。
 

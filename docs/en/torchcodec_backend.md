@@ -159,11 +159,11 @@ returns the existing reader directly.
 - `--video-decode-backend` / `--video-encode-backend` override each side independently; `inherit`
   follows `--video-backend`.
 
-Added to both `jasna` (`main.py`) and `jasna-framegen` (`framegen_cli.py`). Early
+Added to both `jasna` (`main.py`) and `jasna-postprocess` (`postprocess_cli.py`). Early
 validation: `torchcodec` (decode or encode) + streaming, and `encode-backend torchcodec`
-+ `--bit-depth 10`, error. Frame generation (`--frame-generation`, `jasna-framegen`) hands
++ `--bit-depth 10`, error. Frame generation (`--frame-generation`, `jasna-postprocess`) hands
 the encoder its multiplier; the torchcodec encoder scales its constant frame rate by it
-(since the v0.12.2 base; before, `jasna-framegen` fell back to native for the encode).
+(since the v0.12.2 base; before, `jasna-postprocess` fell back to native for the encode).
 
 ## Dependencies and install
 

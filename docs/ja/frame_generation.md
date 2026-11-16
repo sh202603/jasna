@@ -80,10 +80,10 @@ ffprobe out2x.mkv
 ```bash
 jasna --input in.mp4 --output out2x.mkv --frame-generation 2x --frame-generation-backend rtx
 jasna --input in.mp4 --output out4x.mkv --frame-generation 4x --frame-generation-backend rtx --frame-generation-rtx-mode high
-jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x --backend rtx
+jasna-postprocess --input restored.mkv --output out2x.mkv --frame-generation 2x --frame-generation-backend rtx
 ```
 
-`--frame-generation-rtx-mode {low,medium,high}`（`jasna-framegen` では `--rtx-mode`）で SDK の品質モードを選ぶ。既定の `medium` が最もバランスがよく、`high` は最大でも 0.2 dB の差に対して約 6 倍遅い。`--frame-generation-model-path` と `--fp16` は RIFE 専用で、`rtx` では無視される。SDK の自動シーン切替検出は有効のままなので、カット点をまたいだ補間は起きない。
+`--frame-generation-rtx-mode {low,medium,high}`で SDK の品質モードを選ぶ。既定の `medium` が最もバランスがよく、`high` は最大でも 0.2 dB の差に対して約 6 倍遅い。`--frame-generation-model-path` と `--fp16` は RIFE 専用で、`rtx` では無視される。SDK の自動シーン切替検出は有効のままなので、カット点をまたいだ補間は起きない。
 
 **実測（RTX 5080、nvidia-vfx 0.2.0.0、2026-10-03）**
 
@@ -103,21 +103,21 @@ jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x --backend rtx
 | RTX `medium` | 43.57 dB | 43.01 dB |
 | RTX `high` | 43.74 dB | 42.94 dB |
 
-effect ロード後の追加 VRAM: 1080p `medium` +0.55 GB（`high` +1.24 GB、RIFE fp16 +0.75 GB）、2160p `medium` +2.06 GB（RIFE +2.85 GB）。エンドツーエンドでは、300 フレームの 1080p テストクリップに `jasna-framegen --factor 2x` をかけた壁時計時間が `rtx` 2.3 秒、`rife` 5.8 秒（デコード、エンコード、起動込み）。
+effect ロード後の追加 VRAM: 1080p `medium` +0.55 GB（`high` +1.24 GB、RIFE fp16 +0.75 GB）、2160p `medium` +2.06 GB（RIFE +2.85 GB）。エンドツーエンドでは、300 フレームの 1080p テストクリップに `jasna-postprocess --frame-generation 2x` をかけた壁時計時間が `rtx` 2.3 秒、`rife` 5.8 秒（デコード、エンコード、起動込み）。
 
 任意のフレームサイズを受け付け（RIFE のような 64 の倍数へのパディングは不要）、サイズが変わると約 15 ms で再ロードするので、解像度が混在するフォルダ一括処理でも generator を 1 つ共有できる。
 
 **目視確認（2026-10-03、Linux）**: 1080p テストクリップの 2x 出力を `rtx` と `rife` で見比べ、RTX 側に残像、エッジの破綻、シーン切替の誤ブレンドは見られなかった（両出力間の PSNR は 47.6 dB で、近いが同一ではない）。
 
-**Windows の実測（2026-10-03、RTX 5080、ドライバ 616.92、Windows 11）**: 0.2.0.0 の Windows wheel（436 MB、`uv pip install nvidia-vfx==0.2.0.0` で pypi.nvidia.com から取得）で同一コードがそのまま動く。実 SDK を呼ぶユニットテストが合格し、1080p テストクリップの `jasna-framegen --factor 2x` は `rtx` 4.3 秒、`rife` 23.5 秒（この環境の `rife.pth` は warp grid が float32 で焼き込まれた TorchScript のため fp32 fallback）。出力はどちらも 599 枚 60 fps で、両出力間の PSNR は 47.8 dB（Linux の 47.6 dB と同水準）。フルパイプライン（rtx-super-res + `--rtx-strength 0.6 --rtx-highbitrate` + 2x `rtx`）も 599 枚 60 fps で完走し、`--fp8-recon` との併用でも cuDNN の取り合いは起きなかった。
+**Windows の実測（2026-10-03、RTX 5080、ドライバ 616.92、Windows 11）**: 0.2.0.0 の Windows wheel（436 MB、`uv pip install nvidia-vfx==0.2.0.0` で pypi.nvidia.com から取得）で同一コードがそのまま動く。実 SDK を呼ぶユニットテストが合格し、1080p テストクリップの `jasna-postprocess --frame-generation 2x` は `rtx` 4.3 秒、`rife` 23.5 秒（この環境の `rife.pth` は warp grid が float32 で焼き込まれた TorchScript のため fp32 fallback）。出力はどちらも 599 枚 60 fps で、両出力間の PSNR は 47.8 dB（Linux の 47.6 dB と同水準）。フルパイプライン（rtx-super-res + `--rtx-strength 0.6 --rtx-highbitrate` + 2x `rtx`）も 599 枚 60 fps で完走し、`--fp8-recon` との併用でも cuDNN の取り合いは起きなかった。
 
 **未確認**: Turing/Ampere で SDK が返す正確なエラー（jasna 側の capability 判定が先に効く）。
 
 ---
 
-## 2パス運用: `jasna-framegen`（スタンドアロン）
+## 2パス運用: `jasna-postprocess`（スタンドアロン）
 
-`jasna-framegen` は、**復元済み動画にフレーム生成だけ**を適用する独立コマンド（モザイク検出も BasicVSR++ 復元も走らせない）。次の用途に使う：
+`jasna-postprocess` は、**復元済み動画に後処理だけ**を適用する独立コマンド（モザイク検出も BasicVSR++ 復元も走らせない）。`0.12.3+modi` までの `jasna-framegen` を改名したもので、全画面アップスケール（`--upscale`）も掛けられる。コマンド全体の説明は [postprocess.md](postprocess.md) にあり、ここではフレーム生成の使い方を述べる。次の用途に使う：
 
 - **1パス目**で復元した動画（公式 jasna バイナリ、または `--frame-generation` なしの `jasna`）に対し、重い復元を再実行せず後から 2x/4x を足したいとき。
 - factor やコーデックだけ変えて素早く再エンコードしたいとき。
@@ -132,11 +132,11 @@ jasna --input in.mp4 --output restored.mkv --encoder-settings cq=16
 # (または公式バイナリで restored.mkv を作成)
 
 # パス2: フレーム生成のみ
-jasna-framegen --input restored.mkv --output out2x.mkv --factor 2x
-jasna-framegen --input restored.mkv --output out4x.mkv --factor 4x
+jasna-postprocess --input restored.mkv --output out2x.mkv --frame-generation 2x
+jasna-postprocess --input restored.mkv --output out4x.mkv --frame-generation 4x
 ```
 
-主なオプション: `--factor {2x,4x}`、`--backend {rife,rtx}`、`--model-path <rife.pth>`（RIFE）、`--rtx-mode {low,medium,high}`（RTX）、`--codec {hevc,av1}`、`--encoder-settings <k=v,...>`、`--device cuda:0`、`--no-fp16`（RIFE）。出力品質は既定で jasna のエンコーダプロファイル（cq=25）。`--encoder-settings` で上書き可能。全オプションは `jasna-framegen --help`。確認は手順4と同じ（`ffprobe` でフレームレートが約2x/4x、尺不変、音声同期）。
+主なオプション: `--frame-generation {2x,4x}`、`--frame-generation-backend {rife,rtx}`（既定は `rife`。本体は `rtx`）、`--frame-generation-model-path <rife.pth>`（RIFE）、`--frame-generation-rtx-mode {low,medium,high}`（RTX）、`--codec {hevc,av1}`、`--encoder-settings <k=v,...>`、`--device cuda:0`、`--no-fp16`（RIFE）。出力品質は既定で jasna のエンコーダプロファイル（cq=25）。`--encoder-settings` で上書き可能。全オプションは `jasna-postprocess --help`。確認は手順4と同じ（`ffprobe` でフレームレートが約2x/4x、尺不変、音声同期）。
 
 ### フォルダ一括 + 命名規則
 
@@ -144,10 +144,10 @@ jasna-framegen --input restored.mkv --output out4x.mkv --factor 4x
 
 ```bash
 # in_dir/ の全動画を 2x にして out_dir/ へ（既定名: <name>_out.<ext>）
-jasna-framegen --input in_dir --output out_dir --factor 2x
+jasna-postprocess --input in_dir --output out_dir --frame-generation 2x
 
 # 命名カスタム例: clip.mkv -> clip_2x.mkv
-jasna-framegen --input in_dir --output out_dir --factor 2x --output-pattern "{original}_2x.mkv"
+jasna-postprocess --input in_dir --output out_dir --frame-generation 2x --output-pattern "{original}_2x.mkv"
 ```
 
 フォルダ実行ではファイルごとに `[i/N] name -> out` を表示し、色域非対応のファイルはスキップして継続する。`--output-pattern` が 2 つの入力を同じ出力に割り当てる（または入力を上書きする）場合は事前にエラーになる。

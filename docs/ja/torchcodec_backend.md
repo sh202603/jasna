@@ -113,9 +113,9 @@ AUTO のデコードでは、torchcodec の初期化（NVDEC オープン、CPU 
 - `torchcodec`：torchcodec を強制する。満たせない要求（10bit、streaming など）は早期にエラーにする。
 - `--video-decode-backend` と `--video-encode-backend` はデコード側とエンコード側を個別に上書きする。`inherit` は `--video-backend` に従う。
 
-`jasna`（`main.py`）と `jasna-framegen`（`framegen_cli.py`）の両方に追加する。
+`jasna`（`main.py`）と `jasna-postprocess`（`postprocess_cli.py`）の両方に追加する。
 早期バリデーションとして、`torchcodec`（decode/encode いずれか）と streaming の組み合わせ、`encode-backend torchcodec` と `--bit-depth 10` の組み合わせをエラーにする。
-フレーム生成（`--frame-generation`、`jasna-framegen`）はエンコーダに倍率を渡し、torchcodec エンコーダはその倍率で固定フレームレートを上げる（v0.12.2 ベースから。以前の `jasna-framegen` はエンコード側をネイティブに降格していた）。
+フレーム生成（`--frame-generation`、`jasna-postprocess`）はエンコーダに倍率を渡し、torchcodec エンコーダはその倍率で固定フレームレートを上げる（v0.12.2 ベースから。以前の `jasna-postprocess` はエンコード側をネイティブに降格していた）。
 
 ## 依存とインストール
 
