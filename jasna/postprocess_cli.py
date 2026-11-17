@@ -2,8 +2,8 @@
 
 Pass 2 of a two-pass workflow. Pass 1 (jasna) removes the mosaics and writes a near-lossless
 intermediate video. This CLI then applies only whole-frame post-processing to that finished
-video: upscaling (``--upscale``: the whole-video upscalers of v0.12.3, and SwiftVR on whole
-frames) and frame-rate up-conversion (``--frame-generation`` 2x/4x, RIFE or RTX Video Frame
+video: upscaling (``--upscale``: the whole-video upscalers of v0.12.3, and SwiftVR and RelayVSR on
+whole frames) and frame-rate up-conversion (``--frame-generation`` 2x/4x, RIFE or RTX Video Frame
 Generation). It runs no mosaic detection and no restoration.
 
 Why a separate entry point instead of the main CLI's ``--upscale`` / ``--frame-generation``: the
@@ -11,8 +11,8 @@ main pipeline always runs detection + restoration, so feeding it an already-rest
 wastes the whole restore pass and risks re-mangling clean frames on a false detection, and it
 refuses ``--upscale`` next to several restorers. This CLI is a thin driver over jasna's
 protection-free media, upscale and framegen modules (NVDEC decode, NVENC encode + mkvmerge/ffmpeg
-mux, ``FrameUpscaleWriter`` / ``ClipUpscaleWriter``, ``FrameGenerationWriter``). It imports
-nothing from ``jasna.pipeline`` or ``jasna.protection``.
+mux, ``FrameUpscaleWriter`` / ``ClipUpscaleWriter`` / ``StreamUpscaleWriter``,
+``FrameGenerationWriter``). It imports nothing from ``jasna.pipeline`` or ``jasna.protection``.
 
 The writers wrap each other in the main pipeline's order: frames are upscaled first, so the
 generator works on upscaled frames.
@@ -85,11 +85,14 @@ from jasna.session_config import (
 
 log = logging.getLogger("jasna.postprocess_cli")
 
-# Kept as literals (as in jasna.upscale.clip_writer / swiftvr_frame_worker) so that building
-# the parser imports neither torch nor the worker script.
+# Kept as literals (as in jasna.upscale.clip_writer / swiftvr_frame_worker / relayvsr_frame_worker)
+# so that building the parser imports neither torch nor the worker scripts.
 _SWIFTVR_DEFAULT_WINDOW = 89
 _SWIFTVR_WINDOW_OVERLAP = 16
 _SWIFTVR_DEFAULT_TILE_MEGAPIXELS = 1.25
+_RELAYVSR_DEFAULT_WINDOW_SIZE = 16
+# The upscalers that run in a worker of their own venv, not through session_factory.
+_EXTERNAL_UPSCALERS = ("swiftvr", "relayvsr")
 
 
 @dataclass(frozen=True)
@@ -207,13 +210,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--upscale",
         type=str,
         default="none",
-        choices=[*get_args(UpscaleModelName), "swiftvr"],
+        choices=[*get_args(UpscaleModelName), *_EXTERNAL_UPSCALERS],
         help="Upscale every frame to --upscale-height. span, realplksr, rtx-super-res and dlss5 are the "
              "upscalers of jasna's own --upscale (span and realplksr need their weights in model_weights/ "
              "and compile a TensorRT engine per input size). swiftvr runs the SwiftVR diffusion restorer "
              "on whole frames, in tiles and overlapping windows: far slower than the others (a few frames "
-             "per second for 1080p to 2160p), needs --swiftvr-repo, and cannot be combined with "
-             "--frame-generation. (default: %(default)s)",
+             "per second for 1080p to 2160p) and needs --swiftvr-repo. relayvsr runs the RelayVSR streaming "
+             "super-resolution model on whole frames, 2x or 4x, with its state kept over the whole video; "
+             "it needs --relayvsr-repo. Neither of the two can be combined with --frame-generation. "
+             "(default: %(default)s)",
     )
     upscale.add_argument(
         "--upscale-height", type=int, default=DEFAULT_UPSCALE_HEIGHT, choices=list(UPSCALE_HEIGHTS),
@@ -279,6 +284,48 @@ def build_parser() -> argparse.ArgumentParser:
         help="Frames SwiftVR restores per call (default: %(default)s). SwiftVR keeps no state between "
              f"calls, so neighbouring windows share {_SWIFTVR_WINDOW_OVERLAP} frames and are crossfaded "
              "there. 4k+1 values avoid padding.",
+    )
+
+    relayvsr = parser.add_argument_group("RelayVSR (--upscale relayvsr)")
+    relayvsr.add_argument(
+        "--relayvsr-repo", type=str, default="",
+        help="Path to the RelayVSR checkout (fork sh202603/RelayVSR, branch windows-support). Required "
+             "for --upscale relayvsr.",
+    )
+    relayvsr.add_argument(
+        "--relayvsr-python", type=str, default="",
+        help="Python of the RelayVSR venv (default: <repo>/.venv/bin/python; on Windows "
+             "<repo>/.venv/Scripts/python.exe).",
+    )
+    relayvsr.add_argument(
+        "--relayvsr-weights-dir", type=str, default="",
+        help="Directory of the RelayVSR checkpoints (default: <repo>/weights). 2x needs wan_x2.safetensors "
+             "and flash_x2.safetensors, 4x wan.safetensors and flash.safetensors; the factor follows the "
+             "input and --upscale-height.",
+    )
+    relayvsr.add_argument(
+        "--relayvsr-window-size", type=int, default=_RELAYVSR_DEFAULT_WINDOW_SIZE, metavar="N",
+        help="Keyframe interval + 1 (default: %(default)s): the large model restores every (N-1)th frame "
+             "and the small one the frames between. Larger is faster; the output arrives up to N frames late.",
+    )
+    relayvsr.add_argument(
+        "--relayvsr-wan-weights", type=str, default="fp8", choices=["fp8", "bf16"],
+        help="fp8 halves the Wan weights on the GPU and speeds up the keyframes; it needs an RTX 40 series "
+             "or newer GPU and falls back to bf16 (with a warning) elsewhere. bf16 gives RelayVSR's reference "
+             "output (default: %(default)s).",
+    )
+    relayvsr.add_argument(
+        "--relayvsr-kv-cache", type=str, default="auto", choices=["auto", "gpu", "cpu"],
+        help="Where the Wan K/V cache lives (about 12 GB for 2160p output). cpu keeps it in host memory: "
+             "the same output, slower keyframes. auto uses the GPU when the cache fits at the start of the "
+             "video. gpu forces it there: when the VRAM overflows, everything gets slower "
+             "(default: %(default)s).",
+    )
+    relayvsr.add_argument(
+        "--relayvsr-kv-cache-dtype", type=str, default="native", choices=["native", "int8"],
+        help="int8 halves the K/V cache and changes the output slightly. The smaller cache can make auto "
+             "choose the GPU where it barely fits: on a 16 GB GPU with a desktop on it, 2160p output then "
+             "overflowed the VRAM and ran slower than the defaults (default: %(default)s).",
     )
 
     framegen = parser.add_argument_group("Frame generation")
@@ -417,14 +464,16 @@ def run_postprocess(
     multiplier: int = 1,
     upscaler=None,
     clip_upscaler=None,
+    stream_upscaler=None,
     window: int = _SWIFTVR_DEFAULT_WINDOW,
     progress=None,
 ) -> int:
     """Decode every frame, push it through the writers, return the source-frame count.
 
     ``reader`` is an already-entered ``VideoReader``. The writers wrap the encoder in the main
-    pipeline's order: ``upscaler`` (a ``FrameUpscaler``) or ``clip_upscaler`` (a ``ClipUpscaler``,
-    fed windows of ``window`` frames) first, then ``generator`` when ``multiplier`` is above 1.
+    pipeline's order: ``upscaler`` (a ``FrameUpscaler``), ``clip_upscaler`` (a ``ClipUpscaler``,
+    fed windows of ``window`` frames) or ``stream_upscaler`` (a ``StreamUpscaler``, fed frame by
+    frame) first, then ``generator`` when ``multiplier`` is above 1.
     The upscaler is owned and closed here with the encoder. The ``generator`` is *borrowed*:
     this function never closes it (the writer is told not to own it); the caller owns its
     lifetime.
@@ -442,6 +491,10 @@ def run_postprocess(
         from jasna.upscale.clip_writer import ClipUpscaleWriter
 
         writer = ClipUpscaleWriter(writer, clip_upscaler, window=window, overlap=_SWIFTVR_WINDOW_OVERLAP)
+    elif stream_upscaler is not None:
+        from jasna.upscale.stream_writer import StreamUpscaleWriter
+
+        writer = StreamUpscaleWriter(writer, stream_upscaler)
 
     source_frames = 0
     try:
@@ -493,6 +546,49 @@ class _SwiftvrSession:
             self._worker = None
 
 
+class _RelayvsrSession:
+    """The RelayVSR worker of a run, started for the first video that is upscaled (it loads the
+    checkpoints of that video's factor) and shared by the videos after it."""
+
+    def __init__(self, *, rv_python: Path, weights_dir: Path, window_size: int, wan_weights: str,
+                 kv_cache: str, kv_cache_dtype: str, verbose: bool) -> None:
+        self._options = dict(
+            rv_python=rv_python, weights_dir=weights_dir, window_size=window_size, wan_weights=wan_weights,
+            kv_cache=kv_cache, kv_cache_dtype=kv_cache_dtype, verbose=verbose,
+        )
+        self._worker = None
+
+    def upscaler(self, device, source_size, output_size, strength: float):
+        from jasna.upscale.relayvsr import RelayvsrStreamUpscaler, RelayvsrWorker, relayvsr_scale
+
+        if self._worker is None:
+            self._worker = RelayvsrWorker(
+                device=str(device), scale=relayvsr_scale(source_size[1], output_size[1]), **self._options
+            )
+        return RelayvsrStreamUpscaler(
+            self._worker, device, source_size=source_size, output_size=output_size, strength=strength
+        )
+
+    def close(self) -> None:
+        if self._worker is not None:
+            self._worker.close()
+            self._worker = None
+
+
+def _warn_heavy_relayvsr(name: str, source_size, output_size) -> None:
+    """RelayVSR's memory and time follow what the model emits, not ``output_size``: tell the user
+    when the factor lands above 2160p (the K/V cache then moves to host memory on most GPUs)."""
+    from jasna.upscale.relayvsr import HEAVY_MODEL_HEIGHT, relayvsr_scale
+
+    scale = relayvsr_scale(source_size[1], output_size[1])
+    if source_size[1] * scale > HEAVY_MODEL_HEIGHT:
+        print(
+            f"Warning: {name}: RelayVSR generates {source_size[0] * scale}x{source_size[1] * scale} "
+            f"({scale}x) and the result is resized to {output_size[0]}x{output_size[1]}. This needs far "
+            f"more memory and time than {HEAVY_MODEL_HEIGHT}p output."
+        )
+
+
 def _process_video(
     input_path: Path,
     output_path: Path,
@@ -508,12 +604,13 @@ def _process_video(
     video_encode_backend="native",
     upscale: UpscaleSettings | None = None,
     swiftvr: _SwiftvrSession | None = None,
+    relayvsr: _RelayvsrSession | None = None,
     window: int = _SWIFTVR_DEFAULT_WINDOW,
 ) -> int:
     """Post-process a single video; return its source-frame count.
 
-    The ``generator`` and the SwiftVR worker of ``swiftvr`` are borrowed (built/closed once by
-    the caller so a folder batch reuses them across all videos). Everything else — metadata,
+    The ``generator`` and the worker of ``swiftvr`` or ``relayvsr`` are borrowed (built/closed
+    once by the caller so a folder batch reuses them across all videos). Everything else — metadata,
     encoder, reader, the upscaler of ``upscale`` (it depends on the frame size) — is created
     fresh per video. The encoder is closed by ``run_postprocess`` (via the writer) which
     finalizes the encode and muxes audio. Raises ``NothingToDo`` for a video that is already
@@ -543,7 +640,9 @@ def _process_video(
                 "Upscaling %s %dx%d to %dx%d with %s",
                 input_path.name, *source_size, *output_size, upscale.upscale_model,
             )
-            if swiftvr is None:
+            if relayvsr is not None:
+                _warn_heavy_relayvsr(input_path.name, source_size, output_size)
+            elif swiftvr is None:
                 ensure_frame_upscale_engines(upscale, source_size, output_size, log_callback=log.info)
             encoder_metadata = upscaled_metadata(metadata, output_size)
 
@@ -570,16 +669,19 @@ def _process_video(
             ) as reader,
             torch.inference_mode(),
         ):
-            upscaler = clip_upscaler = None
+            upscaler = clip_upscaler = stream_upscaler = None
             if output_size is not None and swiftvr is not None:
                 clip_upscaler = swiftvr.upscaler(device, source_size, output_size, upscale.upscale_strength)
+            elif output_size is not None and relayvsr is not None:
+                stream_upscaler = relayvsr.upscaler(device, source_size, output_size, upscale.upscale_strength)
             elif output_size is not None:
                 from jasna.session_factory import build_frame_upscaler
 
                 upscaler = build_frame_upscaler(upscale, device, source_size, output_size)
             return run_postprocess(
                 reader, encoder_ctx, generator=generator, multiplier=multiplier,
-                upscaler=upscaler, clip_upscaler=clip_upscaler, window=window, progress=progress,
+                upscaler=upscaler, clip_upscaler=clip_upscaler, stream_upscaler=stream_upscaler,
+                window=window, progress=progress,
             )
     finally:
         if progress is not None:
@@ -616,13 +718,24 @@ def main() -> None:
     if not 0.0 <= float(args.upscale_strength) <= 1.0:
         parser.error("--upscale-strength must be between 0 and 1")
     window = int(args.upscale_swiftvr_window)
-    swiftvr_paths = None
-    if upscale_model == "swiftvr":
-        if frame_generation != "none":
-            parser.error(
-                "--upscale swiftvr cannot be combined with --frame-generation "
-                "(run frame generation as a separate pass)"
+    swiftvr_paths = relayvsr_paths = None
+    if upscale_model in _EXTERNAL_UPSCALERS and frame_generation != "none":
+        parser.error(
+            f"--upscale {upscale_model} cannot be combined with --frame-generation "
+            "(run frame generation as a separate pass)"
+        )
+    if upscale_model == "relayvsr":
+        if int(args.relayvsr_window_size) < 2:
+            parser.error("--relayvsr-window-size must be at least 2")
+        from jasna.restorer.relayvsr_common import resolve_relayvsr_paths
+
+        try:
+            relayvsr_paths = resolve_relayvsr_paths(
+                args.relayvsr_repo, args.relayvsr_python, args.relayvsr_weights_dir
             )
+        except (ValueError, OSError, RuntimeError) as e:
+            parser.error(str(e))
+    if upscale_model == "swiftvr":
         if not str(args.swiftvr_repo).strip():
             parser.error("--swiftvr-repo is required for --upscale swiftvr")
         if window < 2 * _SWIFTVR_WINDOW_OVERLAP + 1:
@@ -754,7 +867,7 @@ def main() -> None:
     processed = 0
     failed = 0
     with torch.cuda.device(device):
-        # Build the generator and the SwiftVR session ONCE and reuse them across every job (a
+        # Build the generator and the worker session ONCE and reuse them across every job (a
         # folder batch shares one model). They are borrowed by each video's writers and closed
         # here exactly once. build_frame_generator may raise for an unavailable backend
         # (e.g. "rtx"); that propagates before the try below, so the generator is only closed
@@ -773,6 +886,15 @@ def main() -> None:
                 tile_megapixels=float(args.upscale_swiftvr_tile),
                 verbose=str(args.log_level).lower() == "debug",
             )
+        relayvsr = None
+        if relayvsr_paths is not None:
+            _, rv_python, weights_dir = relayvsr_paths
+            relayvsr = _RelayvsrSession(
+                rv_python=rv_python, weights_dir=weights_dir, window_size=int(args.relayvsr_window_size),
+                wan_weights=str(args.relayvsr_wan_weights), kv_cache=str(args.relayvsr_kv_cache),
+                kv_cache_dtype=str(args.relayvsr_kv_cache_dtype),
+                verbose=str(args.log_level).lower() == "debug",
+            )
         try:
             for i, (vid, out_path) in enumerate(jobs, start=1):
                 if input_is_dir:
@@ -784,7 +906,7 @@ def main() -> None:
                         encoder_settings=encoder_settings, device=device,
                         batch_size=batch_size, show_progress=not args.no_progress,
                         video_decode_backend=video_decode_backend, video_encode_backend=video_encode_backend,
-                        upscale=upscale, swiftvr=swiftvr, window=window,
+                        upscale=upscale, swiftvr=swiftvr, relayvsr=relayvsr, window=window,
                     )
                 except NothingToDo as e:
                     # A folder batch skips the video; for a single file there is no output to write.
@@ -817,6 +939,8 @@ def main() -> None:
                 generator.close()
             if swiftvr is not None:
                 swiftvr.close()
+            if relayvsr is not None:
+                relayvsr.close()
 
     if input_is_dir:
         print(f"Done: {processed} processed, {failed} failed/skipped (of {total}).")
