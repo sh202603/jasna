@@ -379,7 +379,7 @@ def copy_frozen_runtime_files() -> None:
     # files).
     for fatbin in sorted((ROOT / "jasna" / "media").glob("*.fatbin")):
         shutil.copy2(fatbin, DIST / fatbin.name)
-    # FlashVSR / SwiftVR / SeedVR2 pass these as real script files to their
+    # FlashVSR / SwiftVR / SeedVR2 / RelayVSR pass these as real script files to their
     # external venv's Python; when frozen they are resolved under
     # <dist>/jasna/restorer/ (see _resolve_worker_script / the phase-2 driver
     # lookup). The SwiftVR Phase 2 driver and frame worker load the SwiftVR worker by path, so
@@ -387,7 +387,8 @@ def copy_frozen_runtime_files() -> None:
     restorer_out = DIST / "jasna" / "restorer"
     restorer_out.mkdir(parents=True, exist_ok=True)
     for script in ["flashvsr_inline_worker.py", "flashvsr_phase2_driver.py", "seedvr2_lora_worker.py",
-                   "swiftvr_inline_worker.py", "swiftvr_phase2_driver.py", "swiftvr_frame_worker.py"]:
+                   "swiftvr_inline_worker.py", "swiftvr_phase2_driver.py", "swiftvr_frame_worker.py",
+                   "relayvsr_frame_worker.py"]:
         shutil.copy2(ROOT / "jasna" / "restorer" / script, restorer_out / script)
 
 

@@ -107,24 +107,47 @@ def test_swiftvr_window_must_hold_two_overlaps(capsys):
     assert "--upscale-swiftvr-window must be at least 33" in err
 
 
+def test_relayvsr_refuses_frame_generation(capsys):
+    err = _usage_error(["--upscale", "relayvsr", "--relayvsr-repo", "x", "--frame-generation", "2x"], capsys)
+    assert "--upscale relayvsr cannot be combined with --frame-generation" in err
+
+
+def test_relayvsr_needs_its_repo(capsys):
+    assert "--relayvsr-repo is required" in _usage_error(["--upscale", "relayvsr"], capsys)
+
+
+def test_relayvsr_repo_is_checked_before_the_gpu(tmp_path, capsys):
+    err = _usage_error(["--upscale", "relayvsr", "--relayvsr-repo", str(tmp_path / "absent")], capsys)
+    assert "--relayvsr-repo not found" in err
+
+
+def test_relayvsr_window_needs_two_frames(capsys):
+    err = _usage_error(["--upscale", "relayvsr", "--relayvsr-repo", "x", "--relayvsr-window-size", "1"], capsys)
+    assert "--relayvsr-window-size must be at least 2" in err
+
+
 def test_strength_out_of_range_is_a_usage_error(capsys):
     assert "--upscale-strength" in _usage_error(["--upscale", "rtx-super-res", "--upscale-strength", "1.5"], capsys)
 
 
-def test_parser_offers_jasnas_upscalers_and_swiftvr():
+def test_parser_offers_jasnas_upscalers_and_the_external_ones():
     action = next(a for a in cli.build_parser()._actions if a.dest == "upscale")
-    assert action.choices == [*get_args(UpscaleModelName), "swiftvr"]
+    assert action.choices == [*get_args(UpscaleModelName), "swiftvr", "relayvsr"]
     assert action.default == "none"
 
 
 def test_parser_defaults_match_the_modules_they_are_copied_from():
-    from jasna.restorer import swiftvr_frame_worker
+    from jasna.restorer import relayvsr_frame_worker, swiftvr_frame_worker
     from jasna.upscale import clip_writer
 
     args = cli.build_parser().parse_args(["--input", "a", "--output", "b"])
     assert args.upscale_swiftvr_window == clip_writer.DEFAULT_WINDOW
     assert cli._SWIFTVR_WINDOW_OVERLAP == clip_writer.DEFAULT_OVERLAP
     assert args.upscale_swiftvr_tile == swiftvr_frame_worker.DEFAULT_TILE_MEGAPIXELS
+    assert args.relayvsr_window_size == relayvsr_frame_worker.DEFAULT_WINDOW_SIZE
+    assert (args.relayvsr_wan_weights, args.relayvsr_kv_cache, args.relayvsr_kv_cache_dtype) == (
+        "fp8", "auto", "native"
+    )
     assert args.frame_generation == "none"
 
 
@@ -191,6 +214,34 @@ def test_clip_upscaler_gets_windows_and_every_frame_comes_out():
     assert [pts for _, pts in enc.encoded] == list(range(40))
     assert [int(frame[0, 0, 0]) for frame, _ in enc.encoded] == list(range(40))
     assert clip.closed == 1
+
+
+def test_stream_upscaler_gets_single_frames_and_every_frame_comes_out():
+    class Stream:
+        def __init__(self):
+            self.held = []
+            self.closed = 0
+
+        def push(self, frame):
+            self.held.append(frame)
+            if len(self.held) == 4:
+                yield from self.finish()
+
+        def finish(self):
+            held, self.held = self.held, []
+            yield from (("up", frame) for frame in held)
+
+        def close(self):
+            self.closed += 1
+
+    reader = FakeReader([(["f0", "f1", "f2"], [0, 10, 20]), (["f3", "f4", "f5"], [30, 40, 50])])
+    enc, stream = FakeEncoderCtx(), Stream()
+
+    count = cli.run_postprocess(reader, enc, stream_upscaler=stream)
+
+    assert count == 6
+    assert enc.encoded == [(("up", f"f{index}"), index * 10) for index in range(6)]
+    assert stream.closed == 1 and enc.exited == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -432,3 +483,74 @@ def test_swiftvr_run_uses_one_shared_worker_and_the_clip_writer(tmp_path):
     assert pts == 0 and int(encoded.max()) == 8
     captured["ensure_engines"].assert_not_called()
     captured["build_upscaler"].assert_not_called()
+
+
+def test_relayvsr_run_uses_one_shared_worker_and_the_stream_writer(tmp_path):
+    repo = tmp_path / "RelayVSR"
+    created = []
+
+    class Stream:
+        def push(self, frame):
+            yield frame + 1
+
+        def finish(self):
+            return iter(())
+
+        def close(self):
+            pass
+
+    class Session:
+        def __init__(self, **kwargs):
+            created.append(self)
+            self.kwargs = kwargs
+            self.requests = []
+            self.closed = 0
+
+        def upscaler(self, device, source_size, output_size, strength):
+            self.requests.append((source_size, output_size, strength))
+            return Stream()
+
+        def close(self):
+            self.closed += 1
+
+    with (
+        patch(
+            "jasna.restorer.relayvsr_common.resolve_relayvsr_paths",
+            return_value=(repo, repo / "py", repo / "weights"),
+        ),
+        patch("jasna.postprocess_cli._RelayvsrSession", Session),
+    ):
+        captured = _run_main(
+            tmp_path,
+            ["--upscale", "relayvsr", "--relayvsr-repo", str(repo), "--upscale-strength", "0.5",
+             "--relayvsr-window-size", "32", "--relayvsr-wan-weights", "bf16", "--relayvsr-kv-cache", "cpu",
+             "--relayvsr-kv-cache-dtype", "int8"],
+            frame=torch.full((3, 2, 2), 7, dtype=torch.uint8),
+        )
+
+    (session,) = created
+    assert session.kwargs == dict(
+        rv_python=repo / "py", weights_dir=repo / "weights", window_size=32, wan_weights="bf16",
+        kv_cache="cpu", kv_cache_dtype="int8", verbose=False,
+    )
+    assert session.requests == [((1920, 1080), (3840, 2160), 0.5)]
+    assert session.closed == 1
+    ((encoded, pts),) = captured["encoded"]
+    assert pts == 0 and int(encoded.max()) == 8
+    captured["ensure_engines"].assert_not_called()
+    captured["build_upscaler"].assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "source, target, warned",
+    [((1920, 1080), 2160, False), ((960, 540), 2160, False), ((1280, 720), 2160, True),
+     ((2560, 1440), 2160, True), ((1920, 1080), 1440, False)],
+)
+def test_relayvsr_output_above_2160p_is_announced(source, target, warned, capsys):
+    from jasna.upscale import upscaled_size
+
+    cli._warn_heavy_relayvsr("a.mkv", source, upscaled_size(*source, target))
+    out = capsys.readouterr().out
+    assert ("Warning: a.mkv: RelayVSR generates" in out) is warned
+    if source == (1280, 720):
+        assert "5120x2880 (4x)" in out and "3840x2160" in out
