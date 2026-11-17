@@ -4,7 +4,7 @@
 モザイク検出も復元も走らせない。
 後処理は次の 2 種類で、片方だけでも両方でも指定できる。
 
-- **全画面アップスケール**（`--upscale`）：jasna 本体の `--upscale` と同じ `span`、`realplksr`、`rtx-super-res`、`dlss5` と、このコマンドだけが持つ `swiftvr`
+- **全画面アップスケール**（`--upscale`）：jasna 本体の `--upscale` と同じ `span`、`realplksr`、`rtx-super-res`、`dlss5` と、このコマンドだけが持つ `swiftvr`、`relayvsr`
 - **フレーム生成**（`--frame-generation 2x|4x`）：RIFE または RTX Video Frame Generation。詳細は [frame_generation.md](frame_generation.md)
 
 `0.12.3+modi` までの `jasna-framegen` を改名して拡張したもので、旧名は残っていない。
@@ -38,6 +38,10 @@ jasna-postprocess --input restored.mkv --output out.mkv \
 # SwiftVR を全画面に掛ける
 jasna-postprocess --input restored.mkv --output out.mkv \
     --upscale swiftvr --upscale-height 2160 --swiftvr-repo ~/SwiftVR
+
+# RelayVSR を全画面に掛ける
+jasna-postprocess --input restored.mkv --output out.mkv \
+    --upscale relayvsr --upscale-height 2160 --relayvsr-repo ~/RelayVSR
 ```
 
 `--upscale` と `--frame-generation` のどちらも指定しなければエラーになる。
@@ -51,7 +55,7 @@ jasna-postprocess --input restored.mkv --output out.mkv \
 
 | オプション | 既定 | 意味 |
 |---|---|---|
-| `--upscale` | `none` | `span`、`realplksr`、`rtx-super-res`、`dlss5`、`swiftvr`。 |
+| `--upscale` | `none` | `span`、`realplksr`、`rtx-super-res`、`dlss5`、`swiftvr`、`relayvsr`。 |
 | `--upscale-height` | `2160` | `1080`、`1440`、`2160`。幅は縦横比を保つ。 |
 | `--upscale-strength` | `1.0` | 0〜1。下げると bicubic の拡大が混ざる。 |
 | `--upscale-rtx-*`、`--upscale-dlss5-*` | 本体と同じ | [cli.md](cli.md) を参照。 |
@@ -63,7 +67,7 @@ jasna-postprocess --input restored.mkv --output out.mkv \
 | `--encoder-settings` | （本体の既定） | 本体と同じ形式。 |
 | `--device`、`--fp16`、`--batch-size`、`--video-backend` 系、`--log-level`、`--no-progress`、`--disable-ffmpeg-check` | | 本体と同じ意味。 |
 
-SwiftVR 用のオプションは「[SwiftVR の全画面適用](#swiftvr-の全画面適用--upscale-swiftvr)」にまとめる。
+SwiftVR 用のオプションは「[SwiftVR の全画面適用](#swiftvr-の全画面適用--upscale-swiftvr)」に、RelayVSR 用のオプションは「[RelayVSR の全画面適用](#relayvsr-の全画面適用--upscale-relayvsr)」にまとめる。
 
 ### フレーム単位の upscaler
 
@@ -145,10 +149,99 @@ GPU 全体のピークは `nvidia-smi` の 0.5 秒ポーリングの最大値で
 利用者がこの 1080p から 2160p の出力を目視し、問題なしと判断した。
 別の実素材 1 本（720p から 1080p、1763 フレーム）も毎秒 4.3 フレームで完走し、仕上がりは良好だった。
 
+## RelayVSR の全画面適用（`--upscale relayvsr`）
+
+[RelayVSR](https://github.com/kopperx/RelayVSR) は、ストリーミング型の動画超解像モデルである。
+大きいモデル（Wan）が数フレームおきのキーフレームを復元し、小さいデコーダーがキーフレームの間のフレームを埋める。
+`--upscale relayvsr` はこれをフレーム全体に掛ける。
+RTX 5060 Ti で 1080p を 2160p にする場合、既定の設定で毎秒約 1.7 フレームである（「[RelayVSR の実測](#relayvsr-の実測)」）。
+
+### RelayVSR に必要なもの
+
+RelayVSR は jasna と別の torch（2.10、CUDA 12.8）に固定されているので、自分の venv で動かす。
+
+1. fork [sh202603/RelayVSR](https://github.com/sh202603/RelayVSR)（`windows-support` ブランチ）を clone する。上流には jasna が使う `build_stream()` と 2 倍の重みの対応が無い。
+2. checkout の中で `uv sync --locked --extra cu128` を実行する。
+3. 重みを `weights/` に置く。倍率ごとに別の組で、使う倍率の組だけあればよい。
+
+| 倍率 | ファイル | 入手 |
+|---|---|---|
+| 2 倍 | `wan_x2.safetensors`、`flash_x2.safetensors` | `uvx hf download lightx2v/RelayVSR_X2 wan_x2.safetensors flash_x2.safetensors --local-dir weights` |
+| 4 倍 | `wan.safetensors`、`flash.safetensors` | `uvx hf download kopper/RelayVSR wan.safetensors flash.safetensors --local-dir weights` |
+
+| オプション | 既定 | 意味 |
+|---|---|---|
+| `--relayvsr-repo` | （必須） | fork `sh202603/RelayVSR` の checkout。 |
+| `--relayvsr-python` | `<repo>/.venv` の Python | RelayVSR venv の Python。 |
+| `--relayvsr-weights-dir` | `<repo>/weights` | 重みの置き場所。 |
+| `--relayvsr-window-size` | `16` | キーフレームの間隔 + 1。大きいほど速いが、動きの速い場面で入力から離れやすい。 |
+| `--relayvsr-wan-weights` | `fp8` | `fp8`、`bf16`。`fp8` は RTX 40 以降が要り、使えなければ警告して `bf16` で動く。`bf16` は RelayVSR の基準の出力になる。 |
+| `--relayvsr-kv-cache` | `auto` | `auto`、`gpu`、`cpu`。Wan の K/V キャッシュの置き場所。 |
+| `--relayvsr-kv-cache-dtype` | `native` | `native`、`int8`。`int8` はキャッシュを半分にし、出力がわずかに変わる。 |
+
+### RelayVSR の仕組み
+
+- **状態は動画全体で続く**：RelayVSR は Wan の K/V キャッシュを動画の最後まで持ち続ける。SwiftVR のように動画を窓へ切り直すと文脈を捨てることになるので、タイルも窓の重ねもクロスフェードも使わず、フレームを 1 枚ずつ順に渡す。
+- **出力は遅れて出る**：フレームは、その後ろのキーフレームができてから出力される。最初は 16 フレームを読んでから 16 フレームがまとめて出て、以後は 15 フレームごとに 15 フレームが出る（`--relayvsr-window-size 16` のとき）。jasna 側の writer（`jasna/upscale/stream_writer.py`）は、まだ出てきていないフレームの pts を順に持っておく。
+- **倍率**：RelayVSR は 2 倍か 4 倍しか出せず、倍率は重みの組で決まる。選び方は SwiftVR と同じで、目標の高さが入力の 2.5 倍以下なら 2 倍、それを超えれば 4 倍で生成し、端数は bicubic のリサイズで合わせる。
+- **メモリは生成する画素数で決まる**：支配的なのは K/V キャッシュで、2160p を生成するとき bf16 で約 12 GB になる。`auto` は動画の開始時に GPU の空きを見て、収まらなければホストメモリに置く（出力は同じで、キーフレームが遅くなる）。
+- **2160p を超える生成**：720p から 2160p は 4 倍で 5120×2880 を生成して縮める。1440p から 2160p も 2 倍で同じ大きさになる。キャッシュは 2160p の約 1.8 倍になるので、該当する動画では開始時に警告を表示する。この組み合わせは実測していない。
+
+worker（`jasna/restorer/relayvsr_frame_worker.py`）は RelayVSR venv で 1 回だけ起動し、フォルダ入力では全動画で使い回す。
+倍率が変わる動画では、worker がもう一方の重みの組を読み直す（本機で約 8 秒）。
+
+### RelayVSR の実測
+
+Windows 11、RTX 5060 Ti 16 GB、2026-11-17。
+RelayVSR fork `77be23e`。
+速度は worker が 1 本の動画に掛けた時間から出したもので、デコード、転送、エンコードを含む。
+GPU 全体のピークは `nvidia-smi` の 0.5 秒ポーリングの最大値で、デスクトップ常駐（約 3.0 GB）を含む。
+
+1920×1080 の 151 フレームを 3840×2160 にした結果（2 倍）。
+
+| 設定（既定からの変更） | 速度 | K/V キャッシュ | GPU 全体のピーク |
+|---|---|---|---|
+| なし（`fp8`、`auto`、`native`、窓 16） | 1.69 fps | ホストメモリ | 13.2 GiB |
+| `--relayvsr-window-size 32` | 2.38 fps | ホストメモリ | 11.9 GiB |
+| `--relayvsr-kv-cache-dtype int8` | 0.72 fps | GPU（`auto` が選択） | 15.6 GiB |
+| `--relayvsr-kv-cache gpu --relayvsr-kv-cache-dtype int8` | 0.73 fps | GPU | 15.6 GiB |
+| 上に加えて `--relayvsr-window-size 32`、`--upscale-strength 0.8` | 0.86 fps | GPU | 15.5 GiB |
+
+- **本機では既定が最速である**：K/V キャッシュを GPU に置いた 3 行は、GPU 全体が 16 GB の上限に達して既定より遅くなった。`int8` を付けただけの行も、キャッシュが小さくなったことで `auto` が GPU を選び、同じ結果になった。`auto` は動画の開始時の空きしか見ないので、その後に増える分（jasna 側のエンコーダーなど）とデスクトップの常駐が大きい環境では見積もりが外れる。RelayVSR の README が 16 GB 向けに勧める `fp8`、`gpu`、`int8` の組は、本機の jasna 経由では勧められない。
+- **窓を大きくすると速いが、入力から離れる**：出力を 1080p に縮めて入力と比べた PSNR は、窓 16 で平均 34.3 dB（最小 26.8 dB）、窓 32 で平均 29.7 dB（最小 20.4 dB）だった。下がるのは動きの速い区間である。素材 1 本だけの数値で、見た目の良し悪しは判定していない。
+- **フォルダ入力**：1440×1080（2 倍、1.56 fps）と 720×540（4 倍、2.12 fps）の各 48 フレームを続けて処理し、倍率が変わっても同じ worker で完走した。どちらも 2880×2160 を生成し、ピークは 13.9 GiB だった。
+- **起動**：重みの読込は約 7 秒、worker の起動から最初の動画の開始までは約 10 秒だった。
+- **worker を通しても画素は変わらない**：360×270 の 33 フレームで、RelayVSR の `build_stream()` を直接回した結果と worker 経由の結果が全フレーム、全画素で一致した。
+- 出力のフレーム数と音声のパケット数は、すべての実行で入力と一致した。フレームを 1 枚ずらして比べると PSNR は 23.1 dB に落ちるので、フレームの順序も入力と合っている。
+
+### SwiftVR との比較
+
+同じ日、同じ機材で、ネイティブ 1080p の復元済み動画 180 フレームを両方で 2160p にした。
+エンコードはどちらも `cq=16` で、RelayVSR の GPU 全体のピークが上の表より低いのは、デスクトップの常駐が約 1.75 GiB だったためである。
+
+| | SwiftVR（既定） | RelayVSR（既定） | RelayVSR 窓 32 | RelayVSR `bf16` |
+|---|---|---|---|---|
+| 処理速度（起動を除く） | 1.81 fps | 1.74 fps | 2.38 fps | 0.79 fps |
+| 起動（読込と warmup） | 34.9 秒 | 7.1 秒 | 7.1 秒 | 6.4 秒 |
+| 全体の時間 | 155 秒 | 119 秒 | 91 秒 | 244 秒 |
+| GPU 全体のピーク | 13.3 GiB | 12.1 GiB | 12.3 GiB | 15.2 GiB |
+| worker のホストメモリのピーク | 19.5 GiB | 17.7 GiB | 17.7 GiB | 19.6 GiB |
+| 入力との一致（出力を縮めた PSNR、平均 / 最小） | 37.3 / 32.9 dB | 36.4 / 33.8 dB | 33.8 / 18.5 dB | 36.3 / 33.8 dB |
+| 鮮鋭度（ラプラシアン分散、bicubic 比） | 41.9 | 8.1 | 7.5 | 8.3 |
+
+- **速度と VRAM は既定同士でほぼ同じである**：差は起動で、RelayVSR は torch.compile の warmup が無い分だけ約 28 秒早く始まる。
+- **ホストメモリはどちらも 20 GiB 近く使う**：RelayVSR は K/V キャッシュがホスト側に置かれるため、SwiftVR は 1 窓分のタイルの結果を CPU に持つためである。
+- **高周波の量は SwiftVR が約 5 倍多い**：数値で最も大きい違いである。入力への一致は同程度だった。
+- **窓 32 は一部のフレームが入力から大きく離れる**：最小が 18.5 dB まで落ちた。既定の 16 を勧める。
+- **`bf16` は 16 GB では遅い**：VRAM が上限近くまで埋まり、速度が半分以下になった。指標は `fp8` とほぼ同じである。
+
+利用者がこの比較の出力を目視し、SwiftVR と RelayVSR の仕上がりは同等と判断した。
+
 ## 挙動と制約
 
-- `--upscale swiftvr` は `--frame-generation` と併用できない（起動時エラー）。4K の生成器と SwiftVR worker の同居を測っていないためで、必要なら 2 回に分けて実行する。
-- 中断からの再開は無い。`swiftvr` の長時間ジョブを止めると最初からやり直しになる。
+- `--upscale swiftvr` と `--upscale relayvsr` は `--frame-generation` と併用できない（起動時エラー）。4K の生成器と worker の同居を測っていないためで、必要なら 2 回に分けて実行する。
+- 中断からの再開は無い。`swiftvr` や `relayvsr` の長時間ジョブを止めると最初からやり直しになる（RelayVSR の `--resume` は RelayVSR のコマンドの機能で、ここからは使えない）。
+- `relayvsr` は Linux で未検証である。
 - 出力に設定コメントのタグは書かない。
 - LUT、シャープ、fps のリターゲットなど、本体の出力オプションは持たない。
 - CLI のみで、GUI には出ない。
@@ -161,4 +254,8 @@ GPU 全体のピークは `nvidia-smi` の 0.5 秒ポーリングの最大値で
 - `jasna/upscale/clip_writer.py`：`ClipUpscaler` プロトコルと `ClipUpscaleWriter`（窓、重なり、クロスフェード）。
 - `jasna/upscale/swiftvr.py`：`SwiftvrWorker`（worker の起動と wire）、`SwiftvrClipUpscaler`、倍率の選択。
 - `jasna/restorer/swiftvr_frame_worker.py`：SwiftVR venv で動く worker（タイルの割り付け、合成、色補正）。モデルの扱いは `swiftvr_inline_worker.py` を path で読んで共有する。
-- テスト：`tests/test_postprocess_cli_*.py`、`test_clip_upscale_writer.py`、`test_swiftvr_frame_worker.py`、`test_upscale_swiftvr.py`（いずれも CPU）。
+- `jasna/upscale/stream_writer.py`：`StreamUpscaler` プロトコルと `StreamUpscaleWriter`（遅れて出るフレームと pts の対応）。
+- `jasna/upscale/relayvsr.py`：`RelayvsrWorker`（worker の起動と wire）、`RelayvsrStreamUpscaler`。
+- `jasna/restorer/relayvsr_frame_worker.py`：RelayVSR venv で動く worker。動画のフレームを stdin から読むジェネレーターとして `stream.frames()` に渡す。wire の定義はこのファイルの冒頭にある。
+- `jasna/restorer/relayvsr_common.py`：`--relayvsr-*` のパスの検査と、倍率ごとの重みの組。
+- テスト：`tests/test_postprocess_cli_*.py`、`test_clip_upscale_writer.py`、`test_swiftvr_frame_worker.py`、`test_upscale_swiftvr.py`、`test_stream_upscale_writer.py`、`test_upscale_relayvsr.py`、`test_relayvsr_frame_worker.py`（いずれも CPU）。

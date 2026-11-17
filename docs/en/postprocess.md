@@ -5,7 +5,7 @@ finished video. It runs no mosaic detection and no restoration. There are two ki
 post-processing, and you can ask for either or both:
 
 - **Whole-frame upscaling** (`--upscale`): the `span`, `realplksr`, `rtx-super-res` and `dlss5`
-  upscalers of jasna's own `--upscale`, and `swiftvr`, which only this command has.
+  upscalers of jasna's own `--upscale`, and `swiftvr` and `relayvsr`, which only this command has.
 - **Frame generation** (`--frame-generation 2x|4x`): RIFE or RTX Video Frame Generation; see
   [frame_generation.md](frame_generation.md).
 
@@ -42,6 +42,10 @@ jasna-postprocess --input restored.mkv --output out.mkv \
 # SwiftVR on whole frames
 jasna-postprocess --input restored.mkv --output out.mkv \
     --upscale swiftvr --upscale-height 2160 --swiftvr-repo ~/SwiftVR
+
+# RelayVSR on whole frames
+jasna-postprocess --input restored.mkv --output out.mkv \
+    --upscale relayvsr --upscale-height 2160 --relayvsr-repo ~/RelayVSR
 ```
 
 Passing neither `--upscale` nor `--frame-generation` is an error. When `--input` is a folder,
@@ -55,7 +59,7 @@ either, it is not re-encoded: a folder batch skips it, a single file ends with a
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--upscale` | `none` | `span`, `realplksr`, `rtx-super-res`, `dlss5`, `swiftvr`. |
+| `--upscale` | `none` | `span`, `realplksr`, `rtx-super-res`, `dlss5`, `swiftvr`, `relayvsr`. |
 | `--upscale-height` | `2160` | `1080`, `1440`, `2160`. The width keeps the aspect ratio. |
 | `--upscale-strength` | `1.0` | 0 to 1. Lower values mix in a bicubic resize. |
 | `--upscale-rtx-*`, `--upscale-dlss5-*` | as in the main CLI | See [cli.md](cli.md). |
@@ -67,7 +71,8 @@ either, it is not re-encoded: a folder batch skips it, a single file ends with a
 | `--encoder-settings` | (the main CLI's defaults) | Same format as the main CLI. |
 | `--device`, `--fp16`, `--batch-size`, the `--video-backend` family, `--log-level`, `--no-progress`, `--disable-ffmpeg-check` | | Same meaning as in the main CLI. |
 
-The SwiftVR options are listed under [SwiftVR on whole frames](#swiftvr-on-whole-frames---upscale-swiftvr).
+The SwiftVR options are listed under [SwiftVR on whole frames](#swiftvr-on-whole-frames---upscale-swiftvr),
+the RelayVSR options under [RelayVSR on whole frames](#relayvsr-on-whole-frames---upscale-relayvsr).
 
 ### The per-frame upscalers
 
@@ -173,11 +178,138 @@ Seams in the 1080p output, measured:
 The user reviewed this 1080p to 2160p output by eye and found no problem. Another real video
 (720p to 1080p, 1763 frames) ran at 4.3 frames per second, and its result looked good.
 
+## RelayVSR on whole frames (`--upscale relayvsr`)
+
+[RelayVSR](https://github.com/kopperx/RelayVSR) is a streaming video super-resolution model. A
+large model (Wan) restores a keyframe every few frames, and a small decoder fills in the frames
+between two keyframes. `--upscale relayvsr` runs it on whole frames. On an RTX 5060 Ti, 1080p to
+2160p runs at about 1.7 frames per second with the defaults (see
+[RelayVSR measurements](#relayvsr-measurements)).
+
+### What RelayVSR needs
+
+RelayVSR pins another torch than jasna (2.10, CUDA 12.8), so it runs in a venv of its own.
+
+1. Clone the fork [sh202603/RelayVSR](https://github.com/sh202603/RelayVSR) (branch
+   `windows-support`). Upstream has neither the `build_stream()` jasna calls nor the 2x
+   checkpoints.
+2. Run `uv sync --locked --extra cu128` in the checkout.
+3. Put the checkpoints into `weights/`. Each factor has its own pair; the pair of the factor you
+   use is enough.
+
+| Factor | Files | Download |
+|---|---|---|
+| 2x | `wan_x2.safetensors`, `flash_x2.safetensors` | `uvx hf download lightx2v/RelayVSR_X2 wan_x2.safetensors flash_x2.safetensors --local-dir weights` |
+| 4x | `wan.safetensors`, `flash.safetensors` | `uvx hf download kopper/RelayVSR wan.safetensors flash.safetensors --local-dir weights` |
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--relayvsr-repo` | (required) | Checkout of the fork `sh202603/RelayVSR`. |
+| `--relayvsr-python` | the Python of `<repo>/.venv` | Python of the RelayVSR venv. |
+| `--relayvsr-weights-dir` | `<repo>/weights` | Where the checkpoints are. |
+| `--relayvsr-window-size` | `16` | Keyframe interval + 1. Larger is faster, and drifts further from the input where the motion is fast. |
+| `--relayvsr-wan-weights` | `fp8` | `fp8`, `bf16`. `fp8` needs an RTX 40 series or newer GPU; elsewhere the worker warns and runs `bf16`. `bf16` gives RelayVSR's reference output. |
+| `--relayvsr-kv-cache` | `auto` | `auto`, `gpu`, `cpu`. Where the Wan K/V cache lives. |
+| `--relayvsr-kv-cache-dtype` | `native` | `native`, `int8`. `int8` halves the cache and changes the output slightly. |
+
+### How RelayVSR runs
+
+- **The state spans the video.** RelayVSR keeps the Wan K/V cache until the video ends. Cutting
+  the video into windows, as for SwiftVR, would throw that context away, so there are no tiles,
+  no overlapping windows and no crossfade: the frames go in one by one, in order.
+- **The output comes late.** A frame is emitted once the keyframe after it exists. The first 16
+  frames come out together after the 16th was read, then 15 frames per 15 frames (with
+  `--relayvsr-window-size 16`). jasna's writer (`jasna/upscale/stream_writer.py`) keeps the
+  timestamps of the frames that have not come out yet, in order.
+- **Factor.** RelayVSR upscales 2x or 4x only, and the factor belongs to the pair of
+  checkpoints. It is chosen as for SwiftVR: 2x when the target height is at most 2.5 times the
+  input, else 4x, and a bicubic resize covers the rest.
+- **Memory follows the generated pixels.** The K/V cache dominates: about 12 GB in bf16 when
+  2160p is generated. `auto` looks at the free VRAM when the video starts and keeps the cache in
+  host memory when it does not fit (the same output, slower keyframes).
+- **Generating above 2160p.** 720p to 2160p generates 5120x2880 at 4x and shrinks it; 1440p to
+  2160p generates the same size at 2x. The cache is about 1.8 times that of 2160p, so such a
+  video gets a warning when it starts. These combinations have not been measured.
+
+The worker (`jasna/restorer/relayvsr_frame_worker.py`) starts once in the RelayVSR venv, and a
+folder batch shares it across its videos. A video of the other factor makes the worker load the
+other pair of checkpoints (about 8 seconds here).
+
+### RelayVSR measurements
+
+Windows 11, RTX 5060 Ti 16 GB, 2026-11-17. RelayVSR fork `77be23e`. The speed is the time the
+worker spent on one video, so it includes decoding, the transfer and encoding. The GPU peak is
+the maximum of `nvidia-smi` polled every 0.5 s and includes the desktop (about 3.0 GB).
+
+151 frames of 1920x1080 to 3840x2160 (2x):
+
+| Settings (changes from the defaults) | Speed | K/V cache | GPU peak |
+|---|---|---|---|
+| none (`fp8`, `auto`, `native`, window 16) | 1.69 fps | host memory | 13.2 GiB |
+| `--relayvsr-window-size 32` | 2.38 fps | host memory | 11.9 GiB |
+| `--relayvsr-kv-cache-dtype int8` | 0.72 fps | GPU (chosen by `auto`) | 15.6 GiB |
+| `--relayvsr-kv-cache gpu --relayvsr-kv-cache-dtype int8` | 0.73 fps | GPU | 15.6 GiB |
+| the same with `--relayvsr-window-size 32`, `--upscale-strength 0.8` | 0.86 fps | GPU | 15.5 GiB |
+
+- **The defaults are the fastest here.** The three runs with the K/V cache on the GPU hit the
+  16 GB limit and ran slower than the defaults. That includes the run with `int8` alone: the
+  smaller cache made `auto` choose the GPU. `auto` only sees the free VRAM at the start of the
+  video, so what is allocated later (jasna's encoder, for one) and a desktop that holds much VRAM
+  put its estimate off. The `fp8`, `gpu`, `int8` combination the RelayVSR README recommends for
+  16 GB cannot be recommended through jasna on this machine.
+- **A larger window is faster and drifts further from the input.** The PSNR of the output,
+  shrunk to 1080p, against the input was 34.3 dB on average (minimum 26.8 dB) with window 16 and
+  29.7 dB (minimum 20.4 dB) with window 32. The drop is where the motion is fast. These are
+  numbers of one clip; which one looks better has not been judged.
+- **Folder input.** 48 frames each of 1440x1080 (2x, 1.56 fps) and 720x540 (4x, 2.12 fps) ran
+  one after the other on the same worker, across the change of factor. Both generate 2880x2160;
+  the peak was 13.9 GiB.
+- **Startup.** Loading the checkpoints took about 7 seconds, and about 10 seconds passed from
+  spawning the worker to the start of the first video.
+- **The worker does not change a pixel.** For 33 frames of 360x270, running RelayVSR's
+  `build_stream()` directly and going through the worker gave the same value for every pixel of
+  every frame.
+- The frame count and the audio packet count of every output match the input. Compared one frame
+  off, the PSNR falls to 23.1 dB, so the frames are in the input's order.
+
+### Compared with SwiftVR
+
+On the same day and machine, both upscaled 180 frames of a restored native 1080p video to 2160p,
+both encoded with `cq=16`. RelayVSR's GPU peak is lower than in the table above because the
+desktop held about 1.75 GiB this time.
+
+| | SwiftVR (defaults) | RelayVSR (defaults) | RelayVSR window 32 | RelayVSR `bf16` |
+|---|---|---|---|---|
+| Speed (without startup) | 1.81 fps | 1.74 fps | 2.38 fps | 0.79 fps |
+| Startup (load and warmup) | 34.9 s | 7.1 s | 7.1 s | 6.4 s |
+| Whole run | 155 s | 119 s | 91 s | 244 s |
+| GPU peak | 13.3 GiB | 12.1 GiB | 12.3 GiB | 15.2 GiB |
+| Peak host memory of the worker | 19.5 GiB | 17.7 GiB | 17.7 GiB | 19.6 GiB |
+| Agreement with the input (PSNR of the shrunk output, mean / minimum) | 37.3 / 32.9 dB | 36.4 / 33.8 dB | 33.8 / 18.5 dB | 36.3 / 33.8 dB |
+| Sharpness (Laplacian variance, relative to bicubic) | 41.9 | 8.1 | 7.5 | 8.3 |
+
+- **With the defaults, speed and VRAM are about the same.** The difference is the startup:
+  RelayVSR has no torch.compile warmup and starts about 28 seconds sooner.
+- **Both use close to 20 GiB of host memory.** RelayVSR keeps the K/V cache there; SwiftVR keeps
+  the tiles of one window on the CPU.
+- **SwiftVR adds about five times the high frequencies.** This is the largest difference in the
+  numbers. The agreement with the input is about the same.
+- **With window 32 some frames drift far from the input.** The minimum fell to 18.5 dB. The
+  default of 16 is recommended.
+- **`bf16` is slow on 16 GB.** The VRAM filled up to the limit and the speed more than halved.
+  Its numbers are about those of `fp8`.
+
+The user reviewed the outputs of this comparison by eye and judged SwiftVR's and RelayVSR's
+results to be on the same level.
+
 ## Behavior and limits
 
-- `--upscale swiftvr` cannot be combined with `--frame-generation` (startup error): a 4K frame
-  generator next to the SwiftVR worker has not been measured. Run two passes when you need both.
-- There is no resume. A long `swiftvr` job that stops starts over.
+- `--upscale swiftvr` and `--upscale relayvsr` cannot be combined with `--frame-generation`
+  (startup error): a 4K frame generator next to the worker has not been measured. Run two passes
+  when you need both.
+- There is no resume. A long `swiftvr` or `relayvsr` job that stops starts over (RelayVSR's
+  `--resume` belongs to RelayVSR's own command and is not available here).
+- `relayvsr` has not been verified on Linux.
 - The output carries no settings comment tag.
 - The main CLI's output options (LUT, sharpen, frame-rate retargeting) are not available.
 - CLI only; not in the GUI.
@@ -198,5 +330,15 @@ The user reviewed this 1080p to 2160p output by eye and found no problem. Anothe
 - `jasna/restorer/swiftvr_frame_worker.py`: the worker of the SwiftVR venv (tile layout,
   blending, color correction). It loads `swiftvr_inline_worker.py` by path for the model
   handling.
+- `jasna/upscale/stream_writer.py`: the `StreamUpscaler` protocol and `StreamUpscaleWriter`
+  (frames that come out late, and their timestamps).
+- `jasna/upscale/relayvsr.py`: `RelayvsrWorker` (spawning the worker, the wire),
+  `RelayvsrStreamUpscaler`.
+- `jasna/restorer/relayvsr_frame_worker.py`: the worker of the RelayVSR venv. It hands the
+  video's frames to `stream.frames()` as a generator that reads stdin; the wire is defined at the
+  top of the file.
+- `jasna/restorer/relayvsr_common.py`: the checks of the `--relayvsr-*` paths and the pair of
+  checkpoints of each factor.
 - Tests: `tests/test_postprocess_cli_*.py`, `test_clip_upscale_writer.py`,
-  `test_swiftvr_frame_worker.py`, `test_upscale_swiftvr.py` (all CPU).
+  `test_swiftvr_frame_worker.py`, `test_upscale_swiftvr.py`, `test_stream_upscale_writer.py`,
+  `test_upscale_relayvsr.py`, `test_relayvsr_frame_worker.py` (all CPU).
