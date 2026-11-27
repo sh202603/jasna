@@ -228,6 +228,9 @@ sharpens them in the compose pass (see
 [changes_vs_upstream.md §3.7](changes_vs_upstream.md#37-sharpening-ltx-windows-in-the-run---secondary-restoration-rtx-super-res)). Example:
 `jasna --input input.mp4 --output output.mkv --restoration-model-name ltx --secondary-restoration rtx-super-res`
 
+*(+modi)* In this fork `swiftvr-inline`, `swiftvr-distill` and `relayvsr` also work with LTX without auto split (CLI only, see
+[changes_vs_upstream.md §3.10](changes_vs_upstream.md#310-redrawing-ltx-windows-with-swiftvr-in-the-run---secondary-restoration-swiftvr-inline--swiftvr-distill)).
+
 *(+modi)* This fork adds three more secondary restorers, all CLI only and all
 using diffusion models you install yourself: **FlashVSR** (`flashvsr`,
 `flashvsr-inline`; [flashvsr.md](flashvsr.md)), **SwiftVR** (`swiftvr`,

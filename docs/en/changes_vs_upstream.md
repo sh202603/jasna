@@ -46,6 +46,7 @@ Every feature has its own detailed document (design, measurements, verification 
 | Secondary restoration | RTX Super Res extras | `--rtx-strength`, `--rtx-highbitrate` | opt-in; visual check passed | [3.5](#35-rtx-super-res-extras) |
 | LTX post-processing | Sharpen an LTX output with SwiftVR or RTX Super Res | `--ltx-crop-vsr swiftvr` / `swiftvr-distill` / `rtx-super-res` | Linux and Windows verified, user visual check passed | [ltx_crop_vsr.md](ltx_crop_vsr.md), [3.6](#36-sharpening-ltx-outputs---ltx-crop-vsr) |
 | LTX in-run sharpening | RTX Super Res deblur on every LTX window in the compose pass (modi's policy on upstream's LTX super resolution) | `--secondary-restoration rtx-super-res` with an LTX model (CLI and GUI) | Linux verified on a self-trained LTX model, user visual check passed (v0.11.3 base); on the v0.12.1 base Linux and Windows verified on a self-trained LTX model, user visual check passed | [3.7](#37-sharpening-ltx-windows-in-the-run---secondary-restoration-rtx-super-res) |
+| SwiftVR / RelayVSR in the LTX run | Each LTX window redrawn x2 by SwiftVR, its distill student or RelayVSR in the compose pass (`--ltx-crop-vsr` in one pass) | `--secondary-restoration swiftvr-inline` / `swiftvr-distill` / `relayvsr` with an LTX model (CLI only, no auto split) | Linux: runs and metrics checked with kukkiri's weights (RTX 5080, 2026-11-27), RelayVSR preferred in the user's visual check. Windows not verified | [3.10](#310-redrawing-ltx-windows-with-swiftvr-in-the-run---secondary-restoration-swiftvr-inline--swiftvr-distill) |
 | LTX model training | Convert a public LTX-2.3 checkpoint and train an IC-LoRA for jasna's LTX path | `scripts/ltx_lora_training/` | Linux verified end to end (converter, training, inference); Windows and ARM64 untested | [ltx_lora_training.md](ltx_lora_training.md), [3.8](#38-training-your-own-ltx-model-scriptsltx_lora_training) |
 | kukkiri's LTX weights | Convert the published LTX-2.5 weights for mosaic restoration (`kiyo-ltx-v1`) and run them on the LTX path | `scripts/ltx_lora_training/convert_kukkiri_ltx.py`, `--restoration-model-name ltx --restoration-model-path <folder>` | Conversion and runs verified on Linux and Windows; user visual check passed on Windows | [ltx_kukkiri.md](ltx_kukkiri.md), [3.9](#39-kukkiris-ltx-weights-ltx_kukkirimd) |
 | Frame generation | On upstream's 2x RTX frame generation: 4x, the RIFE backend, the RTX quality mode, the standalone CLI | `--frame-generation 2x\|4x`, `--frame-generation-backend rtx\|rife`, `jasna-postprocess` | Linux verified on the v0.12.2 base (e2e), Linux + Windows on the v0.12.1 base | [frame_generation.md](frame_generation.md), [4](#4-frame-generation) |
@@ -166,6 +167,55 @@ This build cannot run the encrypted release weights, but jasna's LTX path loads 
 - **Status** (2026-11-27): on Linux (RTX 5080, v0.12.4 base) the conversion (error 0.0142, 15 s) and runs on the 512 px and the 768 px (`--ltx-large-canvas`) canvas completed (LTX part 40 s / 102 s for a 30 s 1080p clip, peak VRAM 13.3 GB). A self-trained model gives bit-identical output before and after this change. On Windows (RTX 5060 Ti, v0.12.3 base) eight clips completed, and by the user's eye it restored better than their own IC-LoRA model. On Windows (RTX 5060 Ti, v0.12.4 base) the conversion (error 0.0144, 40 s), runs at 512 px, at 768 px and with `rtx-super-res`, and a run from the GUI (6242 frames) completed and passed by the user's eye (denoise 2.04 s per window-step at 512 px; whole-card peak VRAM 15.5 GB at 768 px). The output of kukkiri's transformer also decodes with the diffusion VAE, 45 dB PSNR from the conv decoder's. Tests: `tests/test_ltx_position_fps_modi.py`, `test_ltx_conv_vae_modi.py`, `test_convert_kukkiri_ltx_modi.py`, `test_settings_tag_modi.py`.
 
 ---
+
+### 3.10 Redrawing LTX windows with SwiftVR in the run (`--secondary-restoration swiftvr-inline` / `swiftvr-distill`)
+
+With an LTX model and no auto split, `--secondary-restoration` also takes `swiftvr-inline` (the full SwiftVR model, in its worker), `swiftvr-distill` (the in-process distill student) and `relayvsr` (RelayVSR, in its worker). `relayvsr` exists for this use only: BasicVSR++ jobs and auto split refuse it. They use the same slot in the compose pass as RTX Super Res ([3.7](#37-sharpening-ltx-windows-in-the-run---secondary-restoration-rtx-super-res)) and do in one pass the x2 redraw `--ltx-crop-vsr` ([3.6](#36-sharpening-ltx-output---ltx-crop-vsr)) does in two: one re-encode less, and the restorer reads the LTX canvas itself. CLI only.
+
+```bash
+jasna --input in.mp4 --output out.mkv \
+      --restoration-model-name ltx --restoration-model-path model_weights/ltx-kukkiri \
+      --secondary-restoration swiftvr-inline --swiftvr-repo ~/SwiftVR --swiftvr-model-dir ~/SwiftVR/checkpoints
+
+# RelayVSR (a checkout of the fork sh202603/RelayVSR and the 2x weights, as in postprocess.md)
+jasna --input in.mp4 --output out.mkv \
+      --restoration-model-name ltx --restoration-model-path model_weights/ltx-kukkiri \
+      --secondary-restoration relayvsr --relayvsr-repo ~/RelayVSR
+```
+
+- **A window is restored whole, once** (`LtxWindowRestorer` in `jasna/ltx/window_restorer.py`). The SwiftVR models read the frames around the one they draw, so instead of one frame at a time (RTX Super Res) the decoded window's canvases (512 or 768 px, up to 121 frames) go to the x2 restorer together. The SwiftVR restorers are the ones `--ltx-crop-vsr` runs (scale 2, no view window).
+- **RelayVSR takes one window as one video** (`jasna/restorer/relayvsr_window_restorer.py`), on the worker of `jasna-postprocess --upscale relayvsr` with the 2x pair of checkpoints. RelayVSR normally keeps its K/V cache over a whole video; here it starts empty at every window, and the frames two windows share are restored in both and mixed by the compose crossfade. `--relayvsr-window-size`, `--relayvsr-wan-weights`, `--relayvsr-kv-cache` and `--relayvsr-kv-cache-dtype` mean what they mean in postprocess.
+- **Frames that never reach the output are not passed.** The first 9 frames of a later window have a compose weight of 0 and are the ones whose colour the decoder garbles (`UNFUSED_LEAD_FRAMES`), so they do not serve as temporal context either.
+- **The restorer lives for the compose pass only.** It loads when the pass starts (SwiftVR spawns its worker) and closes when it ends. The denoiser has left the GPU by then, so the LTX transformer and SwiftVR never share it.
+- **Window decodes and restores take turns.** A decode of the next window overlapping a restore puts both peaks on the card at once, so the decode cache is released before a restore and the next decode waits for it. Without this SwiftVR ran out of memory on a 16 GB card.
+- **Checks**: an explicit `--swiftvr-scale 4` is refused (LTX windows are always x2). `swiftvr-distill` refuses `--ltx-large-canvas` together with `--swiftvr-distill-stabilize`. `swiftvr-inline` / `relayvsr` with `--ltx-large-canvas` are refused on a GPU under 20 GB (on 16 GB the decode of a 768 px window and the worker do not fit together: both ran out of memory). `relayvsr` refuses `--frame-generation` and `--upscale`, like `swiftvr-inline`. The SwiftVR / RelayVSR checkout and the weights are checked before anything loads.
+- **With auto split nothing changes**: these secondaries run on the BasicVSR++ parts only, not on LTX windows.
+- **Speed profile**: the budget name gets `+swiftvr-inline` / `+swiftvr-distill` / `+relayvsr`. On the first run the speed test's compose loads the restorer once as well.
+
+Measured on Linux, RTX 5080 16 GB, 2026-11-27, kukkiri weights, two 30 s clips of 9 windows each, `--cq 14`. Compose is the time of LTX's compose pass, VRAM the whole-card peak (about 2.1 GB of desktop included), texture and flicker are relative to the output without a secondary (measured where LTX changed the source, the metrics of [ltx_crop_vsr.md](ltx_crop_vsr.md)).
+
+| Clip, canvas | Secondary | Compose | Wall clock | Peak VRAM | Texture | Flicker |
+| --- | --- | --- | --- | --- | --- | --- |
+| 720x480, 512 px | none | 9.9 s | 36 s | 13.3 GB | 100% | 0% |
+| | `rtx-super-res` (deblur `low`) | 11.8 s | 38 s | 13.2 GB | 124.0% | +4.2% |
+| | `swiftvr-distill` | 20.5 s | 47 s | 13.5 GB | 113.6% | +3.8% |
+| | `swiftvr-inline` | 38.7 s | 67 s | 14.1 to 14.8 GB | 114.4% | +3.5% |
+| | `relayvsr` | 38.2 s | 66 s | 13.6 to 14.8 GB | 127.7% | +5.7% |
+| 1080p, 512 px | none | 11.3 s | 38 s | 13.5 GB | 100% | 0% |
+| | `rtx-super-res` (deblur `low`) | 12.2 s | 39 s | 13.5 GB | 124.9% | +3.3% |
+| | `swiftvr-distill` | 21.9 s | 49 s | 13.5 GB | 109.9% | +1.0% |
+| | `swiftvr-inline` | 39.8 s | 68 s | 14.7 GB | 111.9% | +1.3% |
+| | `relayvsr` | 39.2 s | 67 s | 14.1 GB | 120.8% | +3.7% |
+| | `relayvsr`, `--relayvsr-window-size 32` | 35.5 s | 63 s | 14.1 GB | 117.8% | +3.2% |
+| 1080p, 768 px | none | 23.5 s | 81 to 88 s | 15.3 GB | 100% | 0% |
+| | `swiftvr-distill` | 48.0 s | 106 s | 15.7 GB | 105.6% | +0.4% |
+
+- Every run kept the input's frame count. `swiftvr-inline` ran twice per clip and `relayvsr` twice on the 720x480 clip, with the same metrics both times.
+- The peak without a secondary is the denoise pass's (LTX fills free VRAM with resident blocks). The `swiftvr-inline` and `relayvsr` peaks are in the compose pass; the worker alone took about 9.0 GB (SwiftVR) and 10.2 GB (RelayVSR, K/V cache on the GPU for every window).
+- The wall clock includes the worker's start (about 25 s for SwiftVR, 10 s for RelayVSR).
+- **User's visual check** (2026-11-27, the 512 px outputs of the two clips above): RelayVSR was preferred, with no visible seam between windows and no bothersome flicker. By the numbers RelayVSR and RTX Super Res add the most texture and the SwiftVR models add less flicker.
+- Not verified: Windows, models with a diffusion VAE (self-trained models), `--segments`.
+- Tests: `tests/test_ltx_window_restorer_modi.py`, `tests/test_relayvsr_window_restorer_modi.py`.
 
 ## 4. Frame generation
 

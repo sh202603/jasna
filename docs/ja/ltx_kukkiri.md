@@ -96,6 +96,8 @@ Windows:
 
 LTX の他のオプション（`--ltx-large-canvas`、`--ltx-overlap`、`--ltx-seed`、
 `--secondary-restoration rtx-super-res` など）はそのまま使えます。
+二次復元には `swiftvr-inline`、`swiftvr-distill`、`relayvsr` も選べます
+（[changes_vs_upstream.md §3.10](changes_vs_upstream.md#310-ltx-実行中の-window-を-swiftvr-で描き直す--secondary-restoration-swiftvr-inline--swiftvr-distill)。実測もそこにあります）。
 `--ltx-fast` は使えません（[既知の制限](#既知の制限)）。
 
 ### GUI で使う

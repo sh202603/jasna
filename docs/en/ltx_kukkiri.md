@@ -95,6 +95,8 @@ Windows:
 The other LTX options (`--ltx-large-canvas`, `--ltx-overlap`, `--ltx-seed`,
 `--secondary-restoration rtx-super-res` and so on) work as usual. `--ltx-fast` does not
 ([Known limits](#known-limits)).
+The secondary restoration can also be `swiftvr-inline`, `swiftvr-distill` or `relayvsr`
+([changes_vs_upstream.md §3.10](changes_vs_upstream.md#310-redrawing-ltx-windows-with-swiftvr-in-the-run---secondary-restoration-swiftvr-inline--swiftvr-distill), with measurements).
 
 ### In the GUI
 

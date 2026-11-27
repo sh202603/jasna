@@ -227,6 +227,9 @@ LTX の全 window にかけ、deblur パス（既定 `low`）で compose 段で�
 （[changes_vs_upstream.md §3.7](changes_vs_upstream.md#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res)）。例:
 `jasna --input input.mp4 --output output.mkv --restoration-model-name ltx --secondary-restoration rtx-super-res`
 
+*(+modi)* このフォークでは、auto split なしの LTX で `swiftvr-inline`、`swiftvr-distill`、`relayvsr` も使えます（CLI 専用。
+[changes_vs_upstream.md §3.10](changes_vs_upstream.md#310-ltx-実行中の-window-を-swiftvr-で描き直す--secondary-restoration-swiftvr-inline--swiftvr-distill)）。
+
 *(+modi)* このフォークは二次復元をさらに 3 つ追加しています。いずれも CLI
 専用で、拡散モデルは自分で用意します: **FlashVSR**（`flashvsr`、
 `flashvsr-inline`。[flashvsr.md](flashvsr.md)）、**SwiftVR**（`swiftvr`、
