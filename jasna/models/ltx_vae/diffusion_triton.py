@@ -214,7 +214,8 @@ NVIDIA_SPARK_LAUNCH = NvidiaLaunch(
     context_add=NVIDIA_DEFAULT_LAUNCH.context_add,
     # 99 KB of shared memory per block (vs the 164 KB the default was tuned on):
     # halve the Q/K/V rows so the slab plus the projection tile fits.
-    qkv={256: (16, 4), 512: (32, 4)})
+    qkv={256: (16, 4), 512: (32, 4)},
+    fp16_accumulate=False)
 
 
 def nvidia_launch(device: torch.device) -> NvidiaLaunch:
