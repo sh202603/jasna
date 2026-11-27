@@ -27,26 +27,30 @@ def _bare_editor() -> SegmentEditor:
 
 def test_ab_compare_button_builds_and_locks_during_scan(build_editor) -> None:  # noqa: F811
     editor = build_editor()
-    assert editor._ab_btn.cget("text") == t("segments_ab_compare")
-    assert editor._ab_btn in editor._lockable_widgets()
+    ab_button = editor._preview_card.ab_button
+    assert ab_button.cget("text") == t("segments_ab_compare")
+    assert ab_button in editor._lockable_widgets()
     assert editor._ab_window is None
 
     editor._on_scan_lock_changed(True)
-    assert editor._ab_btn.cget("state") == "disabled"
+    assert ab_button.cget("state") == "disabled"
     editor._on_scan_lock_changed(False)
-    assert editor._ab_btn.cget("state") == "normal"
+    assert ab_button.cget("state") == "normal"
 
 
 def test_open_ab_compare_is_blocked_while_gpu_is_busy() -> None:
     editor = _bare_editor()
     editor._scan_panel = SimpleNamespace(active=False)
     editor._is_gpu_busy = MagicMock(return_value=True)
-    editor._deactivate_restoration_preview = MagicMock()
+    editor._seeds = MagicMock()
+    editor._restore = MagicMock(active=True)
 
     editor._open_ab_compare()
 
     assert editor._ab_window is None
-    editor._deactivate_restoration_preview.assert_not_called()
+    editor._seeds.release.assert_not_called()
+    editor._restore.deactivate.assert_not_called()
+    editor._restore.close_worker.assert_not_called()
 
 
 def test_open_ab_compare_stops_restore_preview_and_hands_over_context(monkeypatch) -> None:
@@ -57,10 +61,8 @@ def test_open_ab_compare_stops_restore_preview_and_hands_over_context(monkeypatc
     editor = _bare_editor()
     editor._scan_panel = SimpleNamespace(active=False, detection_model="rfdetr-v6", threshold=0.4)
     editor._is_gpu_busy = MagicMock(return_value=False)
-    editor._restore_active = True
-    editor._deactivate_restoration_preview = MagicMock()
-    editor._restoration_worker = MagicMock()
-    restoration_worker = editor._restoration_worker
+    editor._seeds = MagicMock()
+    editor._restore = MagicMock(active=True)
     editor._set_playing = MagicMock()
     editor._job = MagicMock(path=Path("video.mp4"))
     editor._metadata = MagicMock()
@@ -71,9 +73,10 @@ def test_open_ab_compare_stops_restore_preview_and_hands_over_context(monkeypatc
 
     editor._open_ab_compare()
 
-    editor._deactivate_restoration_preview.assert_called_once_with()
-    restoration_worker.close.assert_called_once_with()
-    assert editor._restoration_worker is None
+    editor._seeds.release.assert_called_once_with()
+    editor._restore.deactivate.assert_called_once_with()
+    editor._restore.close_worker.assert_called_once_with()
+    editor._set_playing.assert_called_once_with(False)
     kwargs = opened.call_args.kwargs
     assert kwargs["center_seconds"] == 3.5
     assert kwargs["initial_detection_model"] == "rfdetr-v6"

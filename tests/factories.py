@@ -362,7 +362,18 @@ class FakeJobPipelines:
         self.restore = lambda pipeline: None
         self.built: list[FakeJobPipeline] = []
 
-    def build(self, _config, _session, input_path, output_path, _segment_job, *, progress_callback) -> FakeJobPipeline:
+    def build(
+        self,
+        _config,
+        _session,
+        input_path,
+        output_path,
+        _segment_job,
+        *,
+        progress_callback,
+        video_decode_backend=None,  # +modi: the GUI passes its video backend, as build_job_pipeline takes it
+        video_encode_backend=None,
+    ) -> FakeJobPipeline:
         self.built.append(FakeJobPipeline(self, input_path, output_path))
         return self.built[-1]
 

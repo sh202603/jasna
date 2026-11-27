@@ -756,7 +756,8 @@ def test_the_gpus_detection_batch_size_does_not_mark_the_preset_modified(panel_f
     assert _preset_label(panel) == "🔒 Default"
 
 
-@pytest.mark.parametrize("key", ["frame_generation", "ltx_auto_split_percent", "image_restore_download_btn"])
+# +modi: "frame_generation" is not in the list; without RTX frame generation the RIFE backend keeps it usable.
+@pytest.mark.parametrize("key", ["ltx_auto_split_percent", "image_restore_download_btn"])
 def test_finishing_a_run_keeps_locked_settings_locked(panel_factory, monkeypatch, key) -> None:
     monkeypatch.setattr("jasna.restorer.sd15_download.bundle_present", lambda _directory: True)
     panel = panel_factory()
