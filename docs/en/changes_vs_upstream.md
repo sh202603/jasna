@@ -1,9 +1,9 @@
-# Changes vs upstream: `modi` (`0.12.3+modi`)
+# Changes vs upstream: `modi` (`0.12.4+modi`)
 
 What this branch adds on top of upstream [Kruk2/jasna](https://github.com/Kruk2/jasna), organized by what differs **today**, not by when it was added.
 
 - Branch: `modi` (fork `https://github.com/sh202603/jasna.git`)
-- Version: `0.12.3+modi`, rebased onto upstream `f652800a` (the `v0.12.3` tag)
+- Version: `0.12.4+modi`, rebased onto upstream `d59f7e96` (the `v0.12.4` tag)
 - Rebase policy: **upstream wins on overlapping features.** Anything upstream has since implemented itself is removed from the branch and listed in [Appendix A](#appendix-a-absorbed-by-upstream-or-dropped), not in the body.
 
 How to read this document:
@@ -313,6 +313,12 @@ Former modi changes that are no longer a delta of this branch. They were removed
 ## Appendix B: Rebase history
 
 Upstream highlights and this fork's reconciliation notes for each rebase base, newest first.
+
+### The `v0.12.4` base (merged 2026-11-27)
+
+Upstream shipped v0.12.4 (108 commits since `4a424c58`; upstream rewrote its history, so the earlier tags have new hashes and the v0.12.3 base is `4a424c58`, formerly `f652800a`). Highlights: a **split of the large modules** with no change in behaviour (`main.py` into `cli_parser.py`, `system_requirements.py` and `cli_downloads.py`; `ltx/restore.py` and `plan.py` into `tracks`, `windows`, `spans`, `compose_pass`, `encode_pass` and `progress`; `video_encoder.py` into `encoder_options.py` and `source_streams.py`; the segment editor, the main window, the player and the settings panel into smaller modules; the vendored mmagic code that nothing used removed), **engine names that carry the GPU architecture** (`.sm120.linux`; engines named the old way are renamed on a single-GPU PC when they still load), faster LTX (the next window is decoded and sent while one encodes, NVFP4 pairs packed on Blackwell, smaller decode tiles after an out-of-memory error, sharper large mosaics on 12 GB cards), decode fixes (MPEG-TS seeking and frame count, VC-1 in software on NVIDIA, room for deeper NVDEC reorder, a freeze when closing a decoder), a smaller lookahead for 8K and larger, engine files written whole, and AMD fixes.
+
+Fork-side: 167 modi commits replayed onto `d59f7e96` in one pass (no commit skipped or emptied); 25 manual stops. Where upstream had moved the code a modi commit changed, the replay kept upstream's file and the change went into one follow-up commit, written against the new layout: this applies to `main.py`, `ltx/restore.py`, `ltx/super_res.py`, the RTX Super Res restorer, the segment editor, the two players and two settings sections. **Follow-ups**: the fork's command-line options, their checks and their `SessionConfig` fields live in the new `jasna/cli_modi.py`, which `cli_parser.py` and `main.py` call at marked places, so a later upstream change to those files meets little fork code. The RTX Super Res restorer and the LTX window sharpener sit on upstream's `SuperResChain` (`upscale/nvvfx_effects.py`), which takes `strength` and `highbitrate` with defaults that leave whole-video `--upscale` as upstream has it. TensorRT-RTX engines are tagged after the GPU architecture (`.sm120.rtx.linux`). The offline FlashVSR / SwiftVR re-blend follows the new `BlendBuffer`. BasicVSR++ checkpoints saved by the mmengine trainer (the original Lada releases, fine-tunes) are refused by upstream's weights-only loader and load here with a warning. `make_bundle.py` no longer uses the removed `JASNA_LTX_VAE_*` variables. **Verified** (Linux, RTX 5080): the suite without the Tk tests has no failure that plain v0.12.4 lacks (modi 4 failed / 4159 passed / 47 errors, plain 5 / 3341 / 47; the common ones are the LTX native-block build on this machine and tests that need the protection module); 36 CLI end-to-end cases pass (the v0.12.3 matrix, with `jasna-postprocess` frame generation and upscaling in place of `jasna-framegen`). Not checked: the GUI by eye, Windows.
 
 ### The `v0.12.3` base (merged 2026-11-15)
 

@@ -2,7 +2,7 @@
 
 How to set up Jasna on Linux and run it **from source**.
 
-> **Branch and base.** This guide covers `0.12.3+modi` (upstream `f652800a` = the v0.12.3 tag). The GPU stack follows upstream's pins in `pyproject.toml` (torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.38 / ultralytics 8.4.96+); this branch adds the `nvidia-vfx==0.2.0.0` pin (upstream leaves it unpinned), `nvidia-cudnn-frontend` as a regular dependency for FP8 restoration, the `torchcodec` extra, and the optional `nvidia-rtx` extra (torch 2.12.0 / torchvision 0.27.0 / torch-tensorrt-rtx 2.12.1). What the branch adds on top of upstream, and why, is in [changes_vs_upstream.md](changes_vs_upstream.md).
+> **Branch and base.** This guide covers `0.12.4+modi` (upstream `d59f7e96` = the v0.12.4 tag). The GPU stack follows upstream's pins in `pyproject.toml` (torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.38 / ultralytics 8.4.96+); this branch adds the `nvidia-vfx==0.2.0.0` pin (upstream leaves it unpinned), `nvidia-cudnn-frontend` as a regular dependency for FP8 restoration, the `torchcodec` extra, and the optional `nvidia-rtx` extra (torch 2.12.0 / torchvision 0.27.0 / torch-tensorrt-rtx 2.12.1). What the branch adds on top of upstream, and why, is in [changes_vs_upstream.md](changes_vs_upstream.md).
 >
 > **Verified** on Ubuntu 26.04 LTS with an RTX 5080 on 2026-10-16; what was run, and the earlier bases, are in [Appendix B](#appendix-b-history-of-this-setup). Other distributions work too, but package names and the ffmpeg install steps differ.
 >
@@ -279,7 +279,7 @@ With Sections 1–6 done, run Jasna directly from the source checkout inside the
 
 ```bash
 cd "$WORKSPACE/jasna"
-python -m jasna --version    # -> 0.12.3+modi
+python -m jasna --version    # -> 0.12.4+modi
 python -m jasna --help
 python -m jasna --input assets/test_clip1_1080p.mp4 --output /tmp/out.mp4   # process a short clip
 python -m jasna              # launch the GUI (no arguments)
@@ -373,6 +373,7 @@ The About dialog and the first-run wizard defer upstream's `grab_modal()` by 250
 
 What changed in the from-source setup at each base, newest first, and when this guide was verified. Procedures that are no longer needed are only summarized; their full text is in this file's git history.
 
+- **v0.12.4 base (Linux verified 2026-11-27, RTX 5080)**: no pin change, no native code change, no VALI rebuild (`fc39271`); an existing venv only needs `uv pip install --no-deps -e .` for the version. TensorRT engine names now carry the GPU architecture (`.sm120.linux`); existing engines are renamed on first use when they still load, so nothing recompiles on a single-GPU PC.
 - **v0.12.3 base (Linux verified 2026-11-15, RTX 5080, Ubuntu 26.04)**: no pin change, no native code change, no engine recompilation, no VALI rebuild (`fc39271`). An existing venv works as is (`uv pip install --no-deps -e .` refreshes the reported version). Of upstream's whole-video upscaling (`--upscale`), `span` and `realplksr` need their weights (`span-nomosuni-2x.safetensors`, `realplksr-nomoswebphoto-4x.safetensors`; sources in `assets/THIRD_PARTY_MODELS.md`) in `model_weights/`; `rtx-super-res` needs none. What was verified: [changes_vs_upstream.md](changes_vs_upstream.md) Appendix B.
 - **v0.12.2 base (Linux verified 2026-11-07, RTX 5080, Ubuntu 26.04)**: two new runtime dependencies, `jeepney` on Linux and `pystray` on Windows (the tray icon): `uv pip install -e .[dev,nvidia]` adds them to an existing venv. No other pin change, no native code change, no engine recompile and no VALI rebuild (`fc39271`). The optional torchcodec extra was tried at 0.17.0+cu130 (`uv pip install --no-deps --index-url https://download.pytorch.org/whl/cu130 torchcodec==0.17.0`; 0.14 and later run on torch 2.11+). modi's torchcodec flags are now `--video-decode-backend` / `--video-encode-backend`, and frame generation is `--frame-generation` with `--frame-generation-backend` (see [frame_generation.md](frame_generation.md)).
 - **v0.12.1 base (verified 2026-11-02, RTX 5080, Ubuntu 26.04)**: one new dependency floor, `safetensors>=0.6` (an existing venv with an older one needs `uv pip install 'safetensors>=0.6'`; the venv here already had 0.8.0rc0); the other pins are unchanged, so no engine recompile. The VALI fork moves to `fc39271` (Section 5.2): rebuild the wheel and reinstall it with `--reinstall`, since its version stays 4.8.8. Upstream's delta is large (437 commits; details in [changes_vs_upstream.md](changes_vs_upstream.md), Appendix B). Verified 2026-11-02: the full test suite fails where pristine upstream fails, apart from display-dependent Tk layout tests that flip either way; the CLI e2e matrix of every modi feature (23 cases, including the mid-GOP-cut MP4 through VALI and PyAV) completes; the LTX GPU tests pass.

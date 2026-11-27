@@ -2,7 +2,7 @@
 
 Linux で Jasna のセットアップを行い、**ソースから実行**する手順です。
 
-> **ブランチとベース。** 本ガイドは `0.12.3+modi`（upstream `f652800a` = v0.12.3 タグ）の手順です。GPU スタックは `pyproject.toml` の upstream のピンに追従しています（torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.38 / ultralytics 8.4.96 以上）。本ブランチが足しているのは、`nvidia-vfx==0.2.0.0` の固定（upstream は無固定）、FP8 復元用の通常依存 `nvidia-cudnn-frontend`、`torchcodec` extra、任意の `nvidia-rtx` extra（torch 2.12.0 / torchvision 0.27.0 / torch-tensorrt-rtx 2.12.1）です。ブランチが upstream に加えている変更とその理由は [changes_vs_upstream.md](changes_vs_upstream.md) にあります。
+> **ブランチとベース。** 本ガイドは `0.12.4+modi`（upstream `d59f7e96` = v0.12.4 タグ）の手順です。GPU スタックは `pyproject.toml` の upstream のピンに追従しています（torch 2.12.1+cu130 / torchvision 0.27.1+cu130 / torch-tensorrt 2.12.0 / tensorrt 10.16.1.11 / comfy-kitchen 0.2.38 / ultralytics 8.4.96 以上）。本ブランチが足しているのは、`nvidia-vfx==0.2.0.0` の固定（upstream は無固定）、FP8 復元用の通常依存 `nvidia-cudnn-frontend`、`torchcodec` extra、任意の `nvidia-rtx` extra（torch 2.12.0 / torchvision 0.27.0 / torch-tensorrt-rtx 2.12.1）です。ブランチが upstream に加えている変更とその理由は [changes_vs_upstream.md](changes_vs_upstream.md) にあります。
 >
 > **検証済み**: Ubuntu 26.04 LTS + RTX 5080、2026-10-16。実施内容と過去ベースは[付録 B](#付録-b-本セットアップの履歴)。他のディストリでも動作しますが、パッケージ名や ffmpeg の導入手順は異なります。
 >
@@ -283,7 +283,7 @@ SwiftVR（`--secondary-restoration swiftvr` / `swiftvr-inline`。`--ltx-crop-vsr
 
 ```bash
 cd "$WORKSPACE/jasna"
-python -m jasna --version    # -> 0.12.3+modi
+python -m jasna --version    # -> 0.12.4+modi
 python -m jasna --help
 python -m jasna --input assets/test_clip1_1080p.mp4 --output /tmp/out.mp4   # 短いクリップを処理
 python -m jasna              # GUI を起動（引数なし）
@@ -377,6 +377,7 @@ About ダイアログと初回ウィザードは、upstream の `grab_modal()` �
 
 ベースごとのソース実行手順の変化と、本ガイドを検証した時点（新しい順）。不要になった手順は要約だけを残し、全文は本ファイルの git 履歴にあります。
 
+- **v0.12.4 ベース（2026-11-27 Linux 検証、RTX 5080）**: ピン変更なし、ネイティブコード変更なし、VALI の再ビルドなし（`fc39271`）。既存の venv はバージョン表示のために `uv pip install --no-deps -e .` だけ必要です。TensorRT のエンジン名に GPU アーキテクチャが入りました（`.sm120.linux`）。既存のエンジンは読み込めれば初回に改名されるので、GPU が 1 枚の PC では再コンパイルは起きません。
 - **v0.12.3 ベース（2026-11-15 Linux 検証、RTX 5080、Ubuntu 26.04）**: ピン変更なし、ネイティブコード変更なし、エンジンの再コンパイルなし、VALI の再ビルドなし（`fc39271`）。既存の venv はそのまま使える（版数表示を更新するなら `uv pip install --no-deps -e .`）。upstream の動画全体アップスケール（`--upscale`）のうち `span` と `realplksr` は重み（`span-nomosuni-2x.safetensors`、`realplksr-nomoswebphoto-4x.safetensors`。出所は `assets/THIRD_PARTY_MODELS.md`）を `model_weights/` に置く必要がある。`rtx-super-res` は重み不要。検証の内容は [changes_vs_upstream.md](changes_vs_upstream.md) 付録 B。
 - **v0.12.2 ベース（2026-11-07 Linux 検証、RTX 5080、Ubuntu 26.04）**: 実行時依存が 2 つ増えた（Linux は `jeepney`、Windows は `pystray`。トレイアイコン用）。既存 venv には `uv pip install -e .[dev,nvidia]` で入る。他のピン変更なし、ネイティブコード変更なし、エンジンの再コンパイルなし、VALI の再ビルドなし（`fc39271`）。任意の torchcodec extra は 0.17.0+cu130 を試した（`uv pip install --no-deps --index-url https://download.pytorch.org/whl/cu130 torchcodec==0.17.0`。0.14 以降は torch 2.11 以上で動く）。modi の torchcodec フラグは `--video-decode-backend` / `--video-encode-backend` に、フレーム生成は `--frame-generation` と `--frame-generation-backend` になった（[frame_generation.md](frame_generation.md)）。
 - **v0.12.1 ベース（2026-11-02 検証、RTX 5080、Ubuntu 26.04）**: 依存の下限が 1 つ増えた（`safetensors>=0.6`。古い版の既存 venv は `uv pip install 'safetensors>=0.6'`。本機の venv は 0.8.0rc0 で済み）。他のピンは変わらず、エンジンの再コンパイルは不要。VALI フォークは `fc39271` へ（5.2 節）。版数が 4.8.8 のままなので wheel を作り直して `--reinstall` で入れ替える。upstream の差分は大きい（437 コミット。詳細は [changes_vs_upstream.md](changes_vs_upstream.md) 付録 B）。2026-11-02 検証: 全テストの失敗は素の upstream と同じ（どちら側にも出る表示依存の Tk レイアウトテストを除く）、modi 機能の CLI e2e 行列（GOP 途中で切った MP4 の VALI と PyAV を含む 23 ケース）が全て完走、LTX の GPU テスト合格。

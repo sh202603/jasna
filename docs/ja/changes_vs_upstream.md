@@ -1,9 +1,9 @@
-# 変更点サマリ: `modi`（`0.12.3+modi`）vs upstream
+# 変更点サマリ: `modi`（`0.12.4+modi`）vs upstream
 
 このブランチが upstream [Kruk2/jasna](https://github.com/Kruk2/jasna) に対して加えている変更を、「いつ追加したか」ではなく「**今、何が違うか**」で整理したものです。
 
 - ブランチ: `modi`（fork `https://github.com/sh202603/jasna.git`）
-- バージョン: `0.12.3+modi`。upstream `f652800a`（`v0.12.3` タグ）にリベース済み
+- バージョン: `0.12.4+modi`。upstream `d59f7e96`（`v0.12.4` タグ）にリベース済み
 - リベース方針: **重複する機能は upstream 優先。** upstream が自前で実装した項目はブランチから外し、本文ではなく[付録 A](#付録-a-upstream-に吸収されたまたは-drop-した変更)に記載します。
 
 本書の読み方:
@@ -313,6 +313,12 @@ BasicVSR++ の **upsample** サブエンジンを cuDNN graph API の FP8 畳み
 ## 付録 B: リベース履歴
 
 各ベースへのリベースで取り込んだ upstream の主変更と本フォークの対応の記録（新しい順）。
+
+### `v0.12.4` ベース（2026-11-27 取り込み）
+
+upstream は v0.12.4 をリリースした（`4a424c58` から 108 コミット。upstream が履歴を書き換えたため過去のタグのハッシュが変わり、v0.12.3 ベースは `f652800a` から `4a424c58` になった）。主要点: 動作を変えない**大きなモジュールの分割**（`main.py` を `cli_parser.py`、`system_requirements.py`、`cli_downloads.py` に。`ltx/restore.py` と `plan.py` を `tracks`、`windows`、`spans`、`compose_pass`、`encode_pass`、`progress` に。`video_encoder.py` を `encoder_options.py` と `source_streams.py` に。区間エディター、メインウィンドウ、プレイヤー、設定パネルを小さなモジュールに。使われていなかった同梱の mmagic コードを削除）、**GPU アーキテクチャを含むエンジン名**（`.sm120.linux`。GPU が 1 枚の PC では、旧名のエンジンが読み込めれば改名して使い続ける）、LTX の高速化（window のエンコード中に次の window を decode して送る、Blackwell での NVFP4 のペア詰め、メモリ不足後に decode タイルを縮小、12 GB カードで大きいモザイクを鮮明に）、デコードの修正（MPEG-TS の seek とフレーム数、NVIDIA での VC-1 のソフトウェアデコード、NVDEC の深い reorder への余裕、decoder を閉じるときのフリーズ）、8K 以上での lookahead 縮小、エンジンファイルの一括書き込み、AMD の修正。
+
+fork 側: modi の 167 コミットを `d59f7e96` に一度の rebase で再生（skip も空も無し）。手動の停止は 25 回。modi のコミットが変更していたコードを upstream が別の場所へ移していた箇所では、再生時は upstream のファイルを残し、変更は新しい構成に合わせて書いた追従コミット 1 本に入れた。対象は `main.py`、`ltx/restore.py`、`ltx/super_res.py`、RTX Super Res の復元器、区間エディター、2 つのプレイヤー、設定セクション 2 つ。**追従**: fork のコマンドラインオプション、その検査、`SessionConfig` の項目は新設の `jasna/cli_modi.py` にまとめ、`cli_parser.py` と `main.py` は印を付けた箇所からそれを呼ぶ（今後 upstream がこの 2 ファイルを変えても、fork のコードとぶつかる範囲が小さい）。RTX Super Res の復元器と LTX window の鮮明化は upstream の `SuperResChain`（`upscale/nvvfx_effects.py`）に載せ、`strength` と `highbitrate` は既定値では動画全体の `--upscale` を upstream のままにする。TensorRT-RTX のエンジンは GPU アーキテクチャの後ろにタグを付ける（`.sm120.rtx.linux`）。オフラインの FlashVSR / SwiftVR の再合成は新しい `BlendBuffer` に追従。mmengine の学習器が保存した BasicVSR++ チェックポイント（元の Lada のリリース、fine-tune）は upstream の weights-only の読み込みでは拒否されるので、ここでは警告を出して読み込む。`make_bundle.py` は、削除された `JASNA_LTX_VAE_*` を使わない。**検証**（Linux、RTX 5080）: Tk を使うテストを除いた全テストで、素の v0.12.4 に無い失敗は無し（modi 4 失敗 / 4159 合格 / 47 エラー、素 5 / 3341 / 47。共通の失敗は、この機械での LTX native block のビルドと、protection モジュールが要るテスト）。CLI の end-to-end は 36 ケース合格（v0.12.3 の行列。`jasna-framegen` の代わりに `jasna-postprocess` のフレーム生成と拡大）。未確認: GUI の目視、Windows。
 
 ### `v0.12.3` ベース（2026-11-15 取り込み）
 
