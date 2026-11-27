@@ -16,7 +16,7 @@ def _setup_trt_mocks(tmp_path, *, num_inputs=1, num_outputs=1, dynamic_shape=Fal
     onnx_path = tmp_path / "model.onnx"
     onnx_path.write_bytes(b"fake onnx")
 
-    engine_path = get_onnx_tensorrt_engine_path(onnx_path, fp16=True)
+    engine_path = get_onnx_tensorrt_engine_path(onnx_path, gpu="sm89", fp16=True)
     if engine_path.exists():
         engine_path.unlink()
 
@@ -56,6 +56,12 @@ class TestCompileOnnxToTensorrtEngineModi:
         the standard flavor so the RTX fp16 pre-conversion (which needs a real
         ONNX graph) stays out of the way in either venv."""
         monkeypatch.setattr("jasna.trt.TRT_FLAVOR", "standard")
+        # v0.12.4 caches the TensorRT logger: a mocked one must not outlive the test.
+        import jasna.trt
+
+        jasna.trt._error_only_trt_logger.cache_clear()
+        yield
+        jasna.trt._error_only_trt_logger.cache_clear()
 
     def test_fp16_flag_skipped_under_rtx(self, tmp_path):
         # TensorRT-RTX is strongly typed: BuilderFlag.FP16 must not be set,
@@ -65,6 +71,7 @@ class TestCompileOnnxToTensorrtEngineModi:
 
         with (
             patch("jasna.trt.TRT_FLAVOR", "rtx"),
+            patch("jasna.accelerator.cuda_arch_name", return_value="sm89"),
             patch("jasna.trt._convert_onnx_bytes_to_fp16", side_effect=lambda b: b),
             patch("jasna.trt.trt.Logger"),
             patch("jasna.trt.trt.Builder", return_value=mock_builder),

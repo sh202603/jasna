@@ -181,7 +181,7 @@ class TestReblend:
 
         device = torch.device("cpu")
         frame_to_tracks, loads_at = fo._plan_reblend(tmp_path)
-        bb = BlendBuffer(device=device)
+        bb = BlendBuffer(vr_projector=None)
         for f, tracks in frame_to_tracks.items():
             bb.register_frame(f, tracks)
         for key in loads_at[0]:
@@ -237,7 +237,7 @@ class TestReblend:
         assert set(frame_to_tracks) == {0, 1, 2, 3}
         assert loads_at == {0: [key_a], 2: [key_b]}
 
-        bb = BlendBuffer(device=device)
+        bb = BlendBuffer(vr_projector=None)
         for f, tracks in frame_to_tracks.items():
             bb.register_frame(f, tracks)
 

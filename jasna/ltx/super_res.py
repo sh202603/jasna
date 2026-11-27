@@ -11,6 +11,7 @@ upstream does (a 2x that compose shrinks back changes nothing then).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 import torch
@@ -37,6 +38,8 @@ def upscaled_crop(crop: CropFrame) -> CropFrame:
         pad=tuple(side * SUPER_RES_SCALE for side in crop.pad),
     )
 
+
+logger = logging.getLogger(__name__)
 
 class LtxSuperRes:
     """One RTX Super Res 2x chain per canvas size, made on first use or by ``prepare``."""
@@ -81,6 +84,13 @@ class LtxSuperRes:
                 deblur=self._deblur,
                 strength=self._strength,
                 highbitrate=self._highbitrate,
+            )
+            # +modi: one line per canvas size, so a log shows what sharpened the windows.
+            logger.info(
+                "LtxSuperRes: scale=%dx quality=%s%s denoise=%s deblur=%s strength=%.2f (%dx%d -> %dx%d)",
+                SUPER_RES_SCALE, self._quality, " (highbitrate)" if self._highbitrate else "",
+                self._denoise, self._deblur, self._strength,
+                size, size, size * SUPER_RES_SCALE, size * SUPER_RES_SCALE,
             )
         return chain
 

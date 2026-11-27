@@ -12,12 +12,12 @@ from jasna.engine_paths import engine_system_suffix
 class TestEngineSystemSuffixRtx:
     def test_linux_rtx(self):
         with patch.object(os, "name", "posix"), patch.object(engine_paths, "_trt_flavor_cache", "rtx"):
-            assert engine_system_suffix() == ".rtx.linux"
+            assert engine_system_suffix("sm89") == ".sm89.rtx.linux"
 
     def test_windows_rtx(self):
         with patch.object(os, "name", "nt"), patch.object(engine_paths, "_trt_flavor_cache", "rtx"):
-            assert engine_system_suffix() == ".rtx.win"
+            assert engine_system_suffix("sm89") == ".sm89.rtx.win"
 
     def test_standard_flavor_has_no_tag(self):
         with patch.object(os, "name", "posix"), patch.object(engine_paths, "_trt_flavor_cache", "standard"):
-            assert engine_system_suffix() == ".linux"
+            assert engine_system_suffix("sm89") == ".sm89.linux"

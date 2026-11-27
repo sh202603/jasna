@@ -764,9 +764,10 @@ class ABCompareWindow(ctk.CTkToplevel):
         settings = self._get_settings()
         if not bool(settings.compile_basicvsrpp):
             return False
+        from jasna.accelerator import cuda_arch_name
         from jasna.engine_paths import all_basicvsrpp_sub_engines_exist
 
-        return all_basicvsrpp_sub_engines_exist(str(checkpoint), bool(settings.fp16_mode))
+        return all_basicvsrpp_sub_engines_exist(str(checkpoint), bool(settings.fp16_mode), cuda_arch_name("cuda:0"))
 
     def _mark_stale(self, side: str) -> None:
         self._panes[side].stale = True

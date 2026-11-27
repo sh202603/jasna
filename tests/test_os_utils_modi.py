@@ -2,18 +2,18 @@
 
 modi 独自。上流の tests/test_os_utils.py には追記しない。
 """
-from jasna import os_utils
+from jasna import system_requirements
 
 
 def test_check_required_executables_skips_checks_when_disabled(monkeypatch) -> None:
     def fail_run(*args, **kwargs):
         raise AssertionError("subprocess.run must not run when the ffmpeg check is disabled")
 
-    def fail_find(exe):
-        raise AssertionError("find_executable must not run when the ffmpeg check is disabled")
+    def fail_status():
+        raise AssertionError("ffprobe must not be looked up when the ffmpeg check is disabled")
 
-    monkeypatch.setattr(os_utils.subprocess, "run", fail_run)
-    monkeypatch.setattr(os_utils, "find_executable", fail_find)
+    monkeypatch.setattr("subprocess.run", fail_run)
+    monkeypatch.setattr(system_requirements, "ffprobe_status", fail_status)
 
     # Returns without raising or exiting; backs jasna-postprocess --disable-ffmpeg-check.
-    os_utils.check_required_executables(disable_ffmpeg_check=True)
+    system_requirements.check_required_executables(disable_ffmpeg_check=True)

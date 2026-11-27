@@ -587,7 +587,7 @@ class TestPhase1Hook:
 
 
 class TestPhase3ViewBlend:
-    def test_bundle_blend_matches_inline_blend(self, tmp_path, monkeypatch):
+    def test_bundle_blend_matches_inline_blend(self, tmp_path, monkeypatch, whole_box_blend_mask):
         """A view bundle assembled by Phase 3 blends exactly like the same
         SecondaryRestoreResult built inline (build_secondary_result), and the
         view path is really taken (it differs from the own-grid composite)."""
@@ -608,7 +608,6 @@ class TestPhase3ViewBlend:
         restored = up.clamp(0, 255).round().to(torch.uint8)
         np.savez(fo.fvsr_npz_path(tmp_path, key), restored_u8=restored.numpy())
 
-        ones = lambda m, b, s: torch.ones((b[3] - b[1], b[2] - b[0]))  # noqa: E731
         ks, ke = pr.keep_start, pr.keep_end
 
         sr_bundle = fo._load_clip_sr(tmp_path, key, torch.device("cpu"))
@@ -617,7 +616,7 @@ class TestPhase3ViewBlend:
         assert sr_bundle.clip_keep_offset == sr_inline.clip_keep_offset == ks
 
         def blend(sr):
-            bb = BlendBuffer(device=torch.device("cpu"), blend_mask_fn=ones)
+            bb = BlendBuffer(vr_projector=None)
             for i in range(ks, ke):
                 bb.register_frame(i, {clip.track_id})
             bb.add_result(sr)

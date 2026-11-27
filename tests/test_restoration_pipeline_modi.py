@@ -13,10 +13,28 @@ from jasna.tracking.clip_tracker import TrackedClip
 from test_restoration_pipeline import (
     _IdentityRestorer,
     _Upscale2xSecondary,
-    _build_sr,
-    _make_clip_and_frames,
     _make_raw_crops,
 )
+
+
+def _build_sr(pipeline, pr):
+    """The secondary result of a primary one, as the secondary worker thread builds it."""
+    restored_frames = pipeline.run_secondary(pr.primary_raw, pr.keep_start, pr.keep_end)
+    return pipeline.build_secondary_result(pr, restored_frames)
+
+
+def _make_clip_and_frames(monkeypatch, *, t=3, frame_hw=(30, 40)):
+    """A still track cropped exactly at its box (upstream's test file no longer has this helper)."""
+    import jasna.crop_buffer as cb
+    monkeypatch.setattr(cb, "BORDER_RATIO", 0.0)
+    monkeypatch.setattr(cb, "MIN_BORDER", 0)
+    monkeypatch.setattr(cb, "MAX_EXPANSION_FACTOR", 0.0)
+    torch.manual_seed(42)
+    frames = [torch.randint(0, 256, (3, frame_hw[0], frame_hw[1]), dtype=torch.uint8) for _ in range(t)]
+    bbox = np.array([5.0, 7.0, 25.0, 17.0], dtype=np.float32)
+    mask = torch.zeros((2, 2), dtype=torch.bool)
+    clip = TrackedClip(track_id=0, start_frame=0, mask_resolution=(2, 2), bboxes=[bbox] * t, masks=[mask] * t)
+    return clip, frames, _make_raw_crops(frames, clip)
 
 
 class _ViewSecondary(_Upscale2xSecondary):
@@ -98,7 +116,7 @@ def test_build_secondary_result_slices_view_placements(monkeypatch) -> None:
     assert _build_sr(plain, pr2).view_placements is None
 
 
-def test_view_path_composites_like_legacy_when_track_is_still(monkeypatch) -> None:
+def test_view_path_composites_like_legacy_when_track_is_still(monkeypatch, whole_box_blend_mask) -> None:
     """A still track has a constant placement, so the smoothed view equals the
     own grid and the view composite must match the legacy composite."""
     from jasna.blend_buffer import BlendBuffer
@@ -108,7 +126,7 @@ def test_view_path_composites_like_legacy_when_track_is_still(monkeypatch) -> No
     view = RestorationPipeline(restorer=_IdentityRestorer(), secondary_restorer=_ViewSecondary())  # type: ignore[arg-type]
     outs = []
     for pipe in (legacy, view):
-        bb = BlendBuffer(device=torch.device("cpu"), blend_mask_fn=lambda m, b, s: torch.ones((b[3] - b[1], b[2] - b[0])))
+        bb = BlendBuffer(vr_projector=None)
         for i in range(5):
             bb.register_frame(i, {0})
         pr = pipe.prepare_and_run_primary(clip, raw_crops, (30, 40), 0, 5, None)

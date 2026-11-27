@@ -468,7 +468,7 @@ def _run_phase_reblend(cfg: dict[str, Any]) -> None:
     # Plan from the manifest (cheap), then stream each clip's crops in as decode
     # reaches it so host-RAM stays bounded to concurrent clips.
     frame_to_tracks, loads_at = _plan_reblend(bundle_dir)
-    blend_buffer = BlendBuffer(device=device)
+    blend_buffer = BlendBuffer(vr_projector=None)
     for f, tracks in frame_to_tracks.items():
         blend_buffer.register_frame(f, tracks)
 

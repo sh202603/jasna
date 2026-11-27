@@ -16,6 +16,7 @@ from jasna.engine_paths import (
 )
 
 _OS_TAG = ".win" if os.name == "nt" else ".linux"
+_GPU = "sm89"
 
 
 @pytest.fixture
@@ -63,36 +64,36 @@ class TestTrtFlavor:
 
 
 class TestFlavorTaggedNaming:
-    def test_standard_names_are_byte_identical_to_historical(self, _fresh_flavor, tmp_path):
+    def test_standard_names_are_upstreams(self, _fresh_flavor, tmp_path):
         _force(_fresh_flavor, "standard")
-        assert engine_system_suffix() == _OS_TAG
-        p = get_onnx_tensorrt_engine_path(tmp_path / "model.onnx", batch_size=4, fp16=True)
-        assert p.name == f"model.bs4.fp16{_OS_TAG}.engine"
+        assert engine_system_suffix(_GPU) == f".{_GPU}{_OS_TAG}"
+        p = get_onnx_tensorrt_engine_path(tmp_path / "model.onnx", gpu=_GPU, batch_size=4, fp16=True)
+        assert p.name == f"model.bs4.fp16.{_GPU}{_OS_TAG}.engine"
 
     def test_rtx_tag_in_system_suffix(self, _fresh_flavor):
         _force(_fresh_flavor, "rtx")
-        assert engine_system_suffix() == f".rtx{_OS_TAG}"
+        assert engine_system_suffix(_GPU) == f".{_GPU}.rtx{_OS_TAG}"
 
     def test_rtx_tag_onnx_engine_paths(self, _fresh_flavor, tmp_path):
         _force(_fresh_flavor, "rtx")
-        fixed = get_onnx_tensorrt_engine_path(tmp_path / "model.onnx", batch_size=4, fp16=True)
-        assert fixed.name == f"model.bs4.fp16.rtx{_OS_TAG}.engine"
+        fixed = get_onnx_tensorrt_engine_path(tmp_path / "model.onnx", gpu=_GPU, batch_size=4, fp16=True)
+        assert fixed.name == f"model.bs4.fp16.{_GPU}.rtx{_OS_TAG}.engine"
         dyn = get_onnx_tensorrt_engine_path(
-            tmp_path / "model.onnx", batch_size=8, fp16=True, dynamic_batch=True
+            tmp_path / "model.onnx", gpu=_GPU, batch_size=8, fp16=True, dynamic_batch=True
         )
-        assert dyn.name == f"model.bs1-8.fp16.rtx{_OS_TAG}.engine"
+        assert dyn.name == f"model.bs1-8.fp16.{_GPU}.rtx{_OS_TAG}.engine"
 
     def test_rtx_tag_basicvsrpp_sub_engines(self, _fresh_flavor, tmp_path):
         _force(_fresh_flavor, "rtx")
-        paths = get_basicvsrpp_sub_engine_paths(str(tmp_path / "weights.pth"), fp16=True)
+        paths = get_basicvsrpp_sub_engine_paths(str(tmp_path / "weights.pth"), True, _GPU)
         assert len(paths) == 6
         for p in paths.values():
-            assert p.endswith(f".rtx{_OS_TAG}.engine"), p
+            assert p.endswith(f".{_GPU}.rtx{_OS_TAG}.engine"), p
 
     def test_rtx_tag_unet4x_encrypted(self, _fresh_flavor):
         _force(_fresh_flavor, "rtx")
-        enc = get_unet4x_encrypted_engine_path(fp16=True)
-        assert enc.name == f"unet-4x.fp16.rtx{_OS_TAG}.engine.enc"
+        enc = get_unet4x_encrypted_engine_path(fp16=True, gpu=_GPU)
+        assert enc.name == f"unet-4x.fp16.{_GPU}.rtx{_OS_TAG}.engine.enc"
 
 
 def test_no_bare_tensorrt_imports_outside_backend():
