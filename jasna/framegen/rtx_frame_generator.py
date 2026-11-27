@@ -21,7 +21,10 @@ MIN_NVVFX_VERSION = "0.2.0.0"
 def _import_effect():
     """Return ``nvvfx.VideoFrameGeneration`` or raise a clear, actionable error."""
     try:
-        import nvvfx
+        # Through upstream's helper: it pins the pip TensorRT runtime before nvvfx loads.
+        from jasna.upscale.nvvfx_effects import import_nvvfx
+
+        nvvfx = import_nvvfx()
     except ImportError as e:
         raise RuntimeError(
             "RTX Video Frame Generation needs the nvidia-vfx package "

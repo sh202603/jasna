@@ -251,6 +251,7 @@ class SegmentEditor(ctk.CTkToplevel):
             on_toggle_play=self._toggle_play,
             on_suggest_mask=self._suggest_mask,
             on_toggle_restore=lambda: self._restore.toggle(),
+            on_ab_compare=self._open_ab_compare,
             on_projection_changed=self._on_vr_projection_changed,
         )
         self._preview_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
@@ -706,13 +707,12 @@ class SegmentEditor(ctk.CTkToplevel):
         self._require_state()
         if self._ab_window is not None or self._scan_panel.active or self._is_gpu_busy():
             return
-        # The A/B worker owns the GPU while its window is open; stop the
-        # editor's own restoration preview first (same flow as _start_scan).
-        if self._restore_active:
-            self._deactivate_restoration_preview()
-        if self._restoration_worker is not None:
-            self._restoration_worker.close()
-            self._restoration_worker = None
+        # The A/B worker owns the GPU while its window is open; stop the editor's own
+        # seed render and restoration preview first (same flow as _claim_gpu_for_scan).
+        self._seeds.release()
+        if self._restore.active:
+            self._restore.deactivate()
+        self._restore.close_worker()
         self._set_playing(False)
         from jasna.gui.ab_compare import ABCompareWindow
 
@@ -726,7 +726,7 @@ class SegmentEditor(ctk.CTkToplevel):
             initial_detection_model=self._scan_panel.detection_model,
             initial_threshold=self._scan_panel.threshold,
             is_gpu_busy=self._is_gpu_busy,
-            set_preview_gpu_busy=self._set_preview_gpu_busy,
+            set_preview_gpu_busy=lambda busy: self._set_preview_gpu_busy(ABCompareWindow, busy),
             on_closed=self._ab_compare_closed,
         )
 
@@ -937,6 +937,9 @@ class SegmentEditor(ctk.CTkToplevel):
         self._set_playing(False)
         self._closed.set()
         self.after_cancel(self._poll_after)
+        if self._ab_window is not None:
+            self._ab_window.close()
+            self._ab_window = None
         self._preview_worker.close()
         if self._restore is not None:
             self._restore.close()

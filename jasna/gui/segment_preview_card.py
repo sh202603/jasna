@@ -33,6 +33,7 @@ class PreviewCard(ctk.CTkFrame):
         on_suggest_mask: Callable[[], None],
         on_toggle_restore: Callable[[], None],
         on_projection_changed: Callable[[str], None],
+        on_ab_compare: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(master, fg_color=Colors.BG_CARD, corner_radius=Sizing.BORDER_RADIUS)
         self.grid_rowconfigure(0, weight=1)
@@ -50,7 +51,7 @@ class PreviewCard(ctk.CTkFrame):
         self.canvas.show_message(t("segments_loading_preview"), Colors.STATUS_PENDING)
         self._build_transport(time_text, on_step, on_toggle_play, on_suggest_mask)
         self._build_zoom_controls()
-        self._build_options(vr_resolution, vr_projection, on_toggle_restore, on_projection_changed)
+        self._build_options(vr_resolution, vr_projection, on_toggle_restore, on_projection_changed, on_ab_compare)
 
     def _build_transport(
         self,
@@ -171,10 +172,24 @@ class PreviewCard(ctk.CTkFrame):
         vr_projection: str,
         on_toggle_restore: Callable[[], None],
         on_projection_changed: Callable[[str], None],
+        on_ab_compare: Callable[[], None] | None,
     ) -> None:
-        """Restore preview switch and VR projection choice."""
+        """Restore preview switch and VR projection choice (+modi: the A/B compare button)."""
         self.options = ctk.CTkFrame(self, fg_color="transparent")
         self.options.grid(row=3, column=0, sticky="ew", padx=8, pady=(2, 8))
+        # +modi: opens the A/B model comparison window; absent when the owner gives no handler.
+        self.ab_button: ctk.CTkButton | None = None
+        if on_ab_compare is not None:
+            self.ab_button = ctk.CTkButton(
+                self.options,
+                text=t("segments_ab_compare"),
+                height=28,
+                fg_color=Colors.BG_PANEL,
+                hover_color=Colors.BORDER_LIGHT,
+                command=on_ab_compare,
+            )
+            self.ab_button.pack(side="left")
+            Tooltip(self.ab_button, t("segments_ab_compare_hint"))
         restore_control = ctk.CTkFrame(self.options, fg_color="transparent")
         restore_control.pack(side="right")
         self.restore_toggle = CompactSwitch(
@@ -240,7 +255,8 @@ class PreviewCard(ctk.CTkFrame):
         Tooltip(self._vr_projection_menu, t("segments_vr_projection_hint"))
 
     def lockable_widgets(self) -> tuple:
-        return (self._step_back, self._step_forward, self.play_button, self.restore_toggle, self.suggest_button)
+        widgets = (self._step_back, self._step_forward, self.play_button, self.restore_toggle, self.suggest_button)
+        return widgets if self.ab_button is None else (*widgets, self.ab_button)
 
     def _update_zoom_controls(self) -> None:
         view = self.canvas.view

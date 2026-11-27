@@ -167,10 +167,10 @@ def benchmark_fp8_upsample_ab(
         print(f"fp8_upsample_ab: {CAPTURE_VIDEO} missing, skipping.")
         return
 
+    from jasna.accelerator import cuda_arch_name
     from jasna.engine_paths import get_basicvsrpp_sub_engine_paths
     from jasna.models.basicvsrpp.inference import load_model
     from jasna.restorer.basicvsrpp_sub_engines import (
-        _get_inference_generator,
         _release_torchtrt_module,
         create_split_forward,
     )
@@ -178,7 +178,7 @@ def benchmark_fp8_upsample_ab(
     from jasna.trt.torch_tensorrt_export import load_torchtrt_export
 
     path = str(restoration_model_path.resolve())
-    paths = get_basicvsrpp_sub_engine_paths(path, True)
+    paths = get_basicvsrpp_sub_engine_paths(path, True, cuda_arch_name(device))
     if not all(os.path.isfile(p) for p in paths.values()):
         print(f"fp8_upsample_ab: sub-engines missing "
               f"(compile them with a normal run first), skipping.")
@@ -206,18 +206,15 @@ def benchmark_fp8_upsample_ab(
     # --- Build model + TRT split (FP8 gate must stay off here) ---
     fp8_env = os.environ.pop("JASNA_FP8_RECON", None)
     try:
-        model = load_model(None, path, device, True)
-        split = create_split_forward(
-            model=model, model_weights_path=path, device=device,
-            fp16=True,
-        )
+        # v0.12.4: load_model returns the inference generator itself.
+        generator = load_model(path, device, True)
+        split = create_split_forward(generator, model_weights_path=path, device=device, fp16=True)
     finally:
         if fp8_env is not None:
             os.environ["JASNA_FP8_RECON"] = fp8_env
     if split is None:
         print("fp8_upsample_ab: split forward unavailable, skipping.")
         return
-    generator = _get_inference_generator(model)
     trt_upsample = split._upsample_engine
 
     # --- Capture real activations: run the split on real video frames ---

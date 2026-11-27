@@ -24,7 +24,7 @@ from jasna.media.encoder_settings import encoder_cq_spec, resolve_cq
 from jasna.session_config import DEFAULT_CODEC
 
 CODEC_CANONICAL_TO_LABEL = {"hevc": "HEVC (H.265)", "h264": "H.264 (AVC)", "av1": "AV1"}
-_PATH_ENTRIES = ("lut_path", "encoder_custom_args", "working_directory")
+_PATH_ENTRIES = ("lut_path", "encoder_custom_args", "working_directory", "frame_generation_model_path")  # +modi: the last
 
 
 class EncodingSection:
@@ -121,11 +121,56 @@ class EncodingSection:
         frame_generation_row = ctk.CTkFrame(inner, fg_color="transparent")
         add_setting_label(frame_generation_row, "frame_generation")
         self._widgets["frame_generation"] = option_menu(
-            frame_generation_row, {"none": t("frame_generation_off"), "2x": "2x"}, lambda _value: self._on_modified(), width=120
+            frame_generation_row,
+            {"none": t("frame_generation_off"), "2x": "2x", "4x": "4x"},  # +modi: 4x
+            lambda _value: self._on_modified(),
+            width=120,
         )
         self._widgets["frame_generation"].pack(side="right")
-        self._frame_generation_supported = True
+        self._rtx_frame_generation_supported = True
         self._enabled = True
+
+        # +modi: the frame generation backend (RTX needs an RTX 40-series or newer GPU, RIFE runs on
+        # every GPU), the RTX quality mode and optional RIFE weights.
+        frame_generation_backend_row = ctk.CTkFrame(inner, fg_color="transparent")
+        add_setting_label(frame_generation_backend_row, "frame_generation_backend")
+        self._widgets["frame_generation_backend"] = option_menu(
+            frame_generation_backend_row, {"rtx": "RTX", "rife": "RIFE"}, lambda _value: self._on_modified(), width=120
+        )
+        self._widgets["frame_generation_backend"].pack(side="right")
+
+        frame_generation_rtx_mode_row = ctk.CTkFrame(inner, fg_color="transparent")
+        add_setting_label(frame_generation_rtx_mode_row, "frame_generation_rtx_mode")
+        self._widgets["frame_generation_rtx_mode"] = option_menu(
+            frame_generation_rtx_mode_row,
+            {"low": "Low", "medium": "Medium", "high": "High"},
+            lambda _value: self._on_modified(),
+            width=120,
+        )
+        self._widgets["frame_generation_rtx_mode"].pack(side="right")
+
+        frame_generation_model_row = ctk.CTkFrame(inner, fg_color="transparent")
+        add_setting_label(frame_generation_model_row, "frame_generation_model_path")
+        frame_generation_model_input_row = ctk.CTkFrame(inner, fg_color="transparent")
+        self._widgets["frame_generation_model_path"] = ctk.CTkEntry(
+            frame_generation_model_input_row, fg_color=Colors.BG_CARD, border_color=Colors.BORDER,
+            text_color=Colors.TEXT_PRIMARY, placeholder_text=t("frame_generation_model_path_placeholder"),
+        )
+        self._widgets["frame_generation_model_path"].pack(side="left", fill="x", expand=True, padx=(0, 4))
+        folder_button(
+            frame_generation_model_input_row, self._browse_frame_generation_model, background=Colors.BG_CARD, height=28
+        ).pack(side="right")
+
+        # +modi: the torchcodec decode / encode backend (experimental).
+        video_backend_row = ctk.CTkFrame(inner, fg_color="transparent")
+        add_setting_label(video_backend_row, "video_backend")
+        self._widgets["video_backend"] = option_menu(
+            video_backend_row,
+            {"native": "Native", "auto": "Auto", "torchcodec": "TorchCodec"},
+            lambda _value: self._on_modified(),
+            width=120,
+        )
+        self._widgets["video_backend"].pack(side="right")
 
         # Fragmented MP4: output stays playable while it is written.
         fmp4_row = ctk.CTkFrame(inner, fg_color="transparent")
@@ -180,6 +225,10 @@ class EncodingSection:
             Row(sharpen_row, row_gap, "advanced"),
             Row(retarget_row, row_gap, "advanced"),
             Row(frame_generation_row, row_gap, "advanced"),
+            Row(frame_generation_backend_row, row_gap, "advanced"),
+            Row(frame_generation_rtx_mode_row, row_gap, "expert"),
+            Row(frame_generation_model_row, label_gap, "expert"),
+            Row(frame_generation_model_input_row, input_gap, "expert"),
             Row(fmp4_row, row_gap, "advanced"),
             Row(lut_row, label_gap, "advanced"),
             Row(lut_input_row, input_gap, "advanced"),
@@ -187,6 +236,7 @@ class EncodingSection:
             Row(self._widgets["encoder_custom_args"], input_gap, "expert"),
             Row(working_dir_row, label_gap, "expert"),
             Row(working_dir_input_row, input_gap, "expert"),
+            Row(video_backend_row, row_gap, "expert"),
         ]
 
     def layout(self, level: str, *, standard: bool, ltx: bool) -> bool:
@@ -199,21 +249,27 @@ class EncodingSection:
             (self._widgets[key] for key in (
                 "file_conflict", "saved_progress_conflict", "codec", "encoder_cq", "sharpen_strength",
                 "retarget_high_fps", "fmp4", *_PATH_ENTRIES,
+                "frame_generation", "frame_generation_backend", "frame_generation_rtx_mode", "video_backend",
             )),
             enabled,
         )
-        self._lock_frame_generation()
 
     def set_frame_generation_support(self, supported: bool) -> None:
-        """Frame generation needs an RTX 40-series or newer GPU; its tooltip says so."""
-        self._frame_generation_supported = supported
+        """RTX Video Frame Generation needs an RTX 40-series or newer GPU; without one only the
+        RIFE backend is offered (+modi), frame generation itself stays available."""
+        self._rtx_frame_generation_supported = supported
+        menu = self._widgets["frame_generation_backend"]
+        menu.offer(("rtx", "rife") if supported else ("rife",))
         if not supported:
-            self._widgets["frame_generation"].set_value("none")
-        self._lock_frame_generation()
+            menu.set_value("rife")
 
-    def _lock_frame_generation(self) -> None:
-        unlocked = self._enabled and self._frame_generation_supported
-        self._widgets["frame_generation"].configure(state="normal" if unlocked else "disabled")
+    def _browse_frame_generation_model(self):
+        filepath = filedialog.askopenfilename(
+            title=t("dialog_select_frame_generation_model"),
+            filetypes=[("PyTorch checkpoint", "*.pth *.pt"), ("All files", "*.*")],
+        )
+        if filepath:
+            self._set_path("frame_generation_model_path", filepath)
 
     def _set_path(self, key: str, path: str) -> None:
         set_entry_text(self._widgets[key], path)
@@ -294,9 +350,12 @@ class EncodingSection:
             text=f"{preset.sharpen_strength:.2f}"
         )
         self._widgets["retarget_high_fps"].set(preset.retarget_high_fps)
-        self._widgets["frame_generation"].set_value(
-            preset.frame_generation if self._frame_generation_supported else "none"
+        self._widgets["frame_generation"].set_value(preset.frame_generation)
+        self._widgets["frame_generation_backend"].set_value(
+            preset.frame_generation_backend if self._rtx_frame_generation_supported else "rife"
         )
+        self._widgets["frame_generation_rtx_mode"].set_value(preset.frame_generation_rtx_mode)
+        self._widgets["video_backend"].set_value(str(preset.video_backend).lower())
         self._widgets["fmp4"].set(preset.fmp4)
 
     def collect(self) -> dict:
@@ -308,6 +367,10 @@ class EncodingSection:
             "sharpen_strength": round(float(self._widgets["sharpen_strength"].get()), 2),
             "retarget_high_fps": self._widgets["retarget_high_fps"].get() == 1,
             "frame_generation": self._widgets["frame_generation"].get_value(),
+            "frame_generation_backend": self._widgets["frame_generation_backend"].get_value(),
+            "frame_generation_rtx_mode": self._widgets["frame_generation_rtx_mode"].get_value(),
+            "frame_generation_model_path": self._widgets["frame_generation_model_path"].get().strip(),
+            "video_backend": self._widgets["video_backend"].get_value(),
             "fmp4": self._widgets["fmp4"].get() == 1,
             "lut_path": self._widgets["lut_path"].get().strip(),
             "encoder_custom_args": self._widgets["encoder_custom_args"].get(),

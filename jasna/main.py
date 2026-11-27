@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, get_args
 
+from jasna import cli_modi  # +modi: the fork's options
 from jasna.cli_activation import run_activation_options
 from jasna.cli_downloads import ensure_dlss5_runtime, ensure_ltx_model
 from jasna.cli_parser import BASICVSRPP_ONLY_ARG_DESTS, CLI_RESTORATION_MODELS, LTX_ONLY_ARG_DESTS, build_parser
@@ -107,7 +108,6 @@ def _session_config_from_args(
         rtx_scale=int(args.rtx_scale),
         rtx_quality=str(args.rtx_quality).lower(),
         rtx_denoise=str(args.rtx_denoise).lower(),
-        rtx_deblur=str(args.rtx_deblur).lower(),
         vr_mode=str(args.vr_mode),
         vr_projection="auto",
         codec=codec,
@@ -128,6 +128,7 @@ def _session_config_from_args(
         fmp4=bool(args.fmp4),
         disable_progress=bool(args.no_progress),
         working_dir=Path(args.working_directory) if args.working_directory else None,
+        **cli_modi.session_config_fields(args, CLI_RESTORATION_MODELS),  # +modi (rtx_deblur included)
     )
 
 
@@ -485,7 +486,17 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         parser.error("Image input does not support --stream")
 
     restoration_backend = CLI_RESTORATION_MODELS[args.restoration_model_name][0]
-    if not input_is_image:
+    if args.ltx_crop_vsr is not None:  # +modi: its own pass, with its own option rules
+        cli_modi.check_ltx_crop_vsr_options(
+            parser,
+            args,
+            input_video=input_video,
+            is_streaming=is_streaming,
+            input_is_image=input_is_image,
+            input_is_dir=input_is_dir,
+            segments_spec=segments_spec,
+        )
+    elif not input_is_image:
         if restoration_backend == "ltx":
             model_option = f"--restoration-model-name {args.restoration_model_name}"
             if is_streaming:
@@ -504,6 +515,7 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
                 )
             if "denoise_strength" in unsupported:
                 parser.error(f"{model_option} supports --denoise only with --ltx-auto-split")
+            cli_modi.check_ltx_rtx_scale(parser, args, CLI_RESTORATION_MODELS, model_option)  # +modi
         _reject_options_of_other_restoration_backend(parser, args, restoration_backend, auto_split=auto_split)
 
     return _CliPaths(input_video, output_video, lut_arg or None, input_is_image, input_is_dir)
@@ -540,6 +552,8 @@ def _main() -> None:
     if run_activation_options(parser, args, _configure_logging):
         return
 
+    cli_modi.apply_fp8_recon(args)  # +modi
+
     if not args.benchmark:
         from jasna.license_status import start_pc_license_refresh
 
@@ -566,12 +580,20 @@ def _main() -> None:
 
     _configure_runtime(args)
     _check_system(args)
-    if args.frame_generation != "none" and not paths.input_is_image:
+    # +modi: only the RTX backend needs an RTX 40 series GPU; RIFE runs on every GPU.
+    if args.frame_generation != "none" and args.frame_generation_backend == "rtx" and not paths.input_is_image:
         from jasna.accelerator import supports_frame_generation
         from jasna.session_factory import FRAME_GENERATION_NEEDS_RTX_40
 
         if not supports_frame_generation(args.device):
             parser.error(FRAME_GENERATION_NEEDS_RTX_40)
+
+    if cli_modi.run_offline_secondary(args):  # +modi: the offline FlashVSR / SwiftVR 3-phase pass
+        _run_post_export_action()
+        return
+    video_decode_backend, video_encode_backend = cli_modi.video_backends(  # +modi: torchcodec / native
+        args, is_streaming=bool(args.stream), segments_spec=str(args.segments).strip()
+    )
 
     folder_images: list[Path] = []
     folder_videos: list[Path] = []
@@ -609,11 +631,21 @@ def _main() -> None:
             str(args.detection_model), str(args.detection_model_path), args.detection_score_threshold
         )
 
-    restoration_model_path = Path(
-        args.restoration_model_path or default_restoration_model_path(restoration_backend)
+    if restoration_backend == "seedvr2":  # +modi: restoration_model_path carries the LoRA checkpoint
+        restoration_model_path = cli_modi.seedvr2_lora_path(args)
+    else:
+        restoration_model_path = Path(
+            args.restoration_model_path or default_restoration_model_path(restoration_backend)
+        )
+        # +modi: --ltx-crop-vsr loads no primary restorer.
+        if restoration_backend != "ltx" and args.ltx_crop_vsr is None and not restoration_model_path.exists():
+            parser.error(f"restoration model not found: {restoration_model_path}")
+    cli_modi.check_job_options(  # +modi
+        args,
+        restoration_backend=restoration_backend,
+        is_streaming=bool(args.stream),
+        videos=folder_videos if folder_videos else ([paths.input] if paths.input is not None else []),
     )
-    if restoration_backend != "ltx" and not restoration_model_path.exists():
-        parser.error(f"restoration model not found: {restoration_model_path}")
 
     codec = DEFAULT_CODEC if args.codec is None else args.codec
     from jasna.accelerator import device_context, vendor_for_device
@@ -652,7 +684,16 @@ def _main() -> None:
 
         def make_pipeline(vid_input: Path, out_path: Path):
             job = plan_job(config, session, vid_input, out_path, segment_job, progress_callback=None)
-            return build_job_pipeline(config, session, vid_input, out_path, job, progress_callback=None)
+            return build_job_pipeline(
+                config,
+                session,
+                vid_input,
+                out_path,
+                job,
+                progress_callback=None,
+                video_decode_backend=video_decode_backend,  # +modi
+                video_encode_backend=video_encode_backend,
+            )
 
         def output_path_for(vid: Path) -> Path:
             if paths.input_is_dir:

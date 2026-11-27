@@ -61,11 +61,25 @@ def cleanup_level_names(denoise: RtxLevelName, deblur: RtxLevelName) -> list[str
     return [f"{kind}_{level}" for kind, level in (("denoise", denoise), ("deblur", deblur)) if level != "none"]
 
 
-def video_super_res(level_name: str, output_size: Size, device: torch.device):
+def upscale_level_name(quality: RtxQualityName, *, highbitrate: bool = False) -> str:
+    """+modi: the ``VideoSuperRes`` upscale level for ``quality``. The standard models (LOW..ULTRA)
+    are trained on compressed video and suppress compression artifacts while upscaling; the
+    ``HIGHBITRATE_*`` family (nvidia-vfx 0.2.0.0 on) skips that for clean sources, which restored
+    crops are. Denoise and deblur have no such family."""
+    return f"highbitrate_{quality}" if highbitrate else quality
+
+
+def video_super_res(level_name: str, output_size: Size, device: torch.device, *, strength: float = 1.0):
     """A loaded ``VideoSuperRes`` effect at ``level_name`` (``"high"``, ``"denoise_low"``, ...) with
-    a ``(width, height)`` output."""
+    a ``(width, height)`` output.
+
+    +modi: ``strength`` is forwarded only when it differs from the SDK default (1.0): the keyword
+    exists from nvidia-vfx 0.2.0.0 on, so the default keeps working on a venv with 0.1.0.1."""
     VideoSuperRes = import_nvvfx().VideoSuperRes
-    effect = VideoSuperRes(device=device.index or 0, quality=getattr(VideoSuperRes.QualityLevel, level_name.upper()))
+    kwargs = {"device": device.index or 0, "quality": getattr(VideoSuperRes.QualityLevel, level_name.upper())}
+    if strength != 1.0:
+        kwargs["strength"] = float(strength)
+    effect = VideoSuperRes(**kwargs)
     effect.output_width, effect.output_height = output_size
     effect.load()
     return effect
@@ -84,7 +98,12 @@ def on_default_stream(device: torch.device) -> Iterator[torch.cuda.Stream]:
 
 
 class SuperResChain:
-    """Super resolution to ``output_size``, then denoise and deblur at that size."""
+    """Super resolution to ``output_size``, then denoise and deblur at that size.
+
+    +modi: ``strength`` (0.0 to 1.0, every pass: it is "how strong is the RTX chain", not a
+    per-pass knob) and ``highbitrate`` (the clean-source upscale models) are the secondary
+    restorer's ``--rtx-strength`` / ``--rtx-highbitrate``. Their defaults are the SDK's, which is
+    what whole-frame ``--upscale`` runs with."""
 
     def __init__(
         self,
@@ -94,10 +113,12 @@ class SuperResChain:
         quality: RtxQualityName,
         denoise: RtxLevelName,
         deblur: RtxLevelName,
+        strength: float = 1.0,
+        highbitrate: bool = False,
     ) -> None:
-        self._effects = [
-            video_super_res(level, output_size, device) for level in (quality, *cleanup_level_names(denoise, deblur))
-        ]
+        self.output_size = output_size
+        levels = (upscale_level_name(quality, highbitrate=highbitrate), *cleanup_level_names(denoise, deblur))
+        self._effects = [video_super_res(level, output_size, device, strength=strength) for level in levels]
 
     def __call__(self, image: torch.Tensor, stream_ptr: int) -> torch.Tensor:
         """Float ``[3, h, w]`` in ``[0, 1]`` to the uint8 ``[3, H, W]`` output, run on ``stream_ptr``."""

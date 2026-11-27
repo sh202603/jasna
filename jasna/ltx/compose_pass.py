@@ -23,7 +23,7 @@ from jasna.ltx.windows import Window, crossfade_weights
 from jasna.ltx.progress import StageBar
 from jasna.ltx.resume_files import LatentStore
 from jasna.ltx.spans import LtxSpan, check_cancel, segment_batches
-from jasna.ltx.super_res import LtxSuperRes, enlarged_windows, upscaled_crop
+from jasna.ltx.super_res import LtxSuperRes, upscaled_crop
 from jasna.ltx.vram_budget import DecodeBudget
 from jasna.vr_projection import RegionProjector
 
@@ -127,7 +127,8 @@ class _SegmentComposer:
         windows = sorted((w for plan in plans for w in plan.windows), key=lambda w: w.start)
         self._super_res = super_res
         self._projector = projector
-        self._upscaled = enlarged_windows(windows) if super_res is not None else set()
+        # +modi: with a deblur pass every window is upscaled, not only the enlarged ones.
+        self._upscaled = super_res.windows_to_upscale(windows) if super_res is not None else set()
         self._pending = iter(windows)
         self._upcoming = next(self._pending, None)
         self._covering: list[Window] = []

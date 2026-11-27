@@ -1089,7 +1089,8 @@ def _phase3_reblend(
     display: str = "FlashVSR",
 ) -> None:
     from jasna.accelerator import vendor_for_device
-    from jasna.main import _resolve_cli_encoder_settings, batch_size_from_args
+    from jasna.main import batch_size_from_args
+    from jasna.media.encoder_settings import resolve_custom_encoder_settings
     from jasna.session_config import DEFAULT_CODEC
 
     # --codec defaults to None, so that an explicit choice can be told from the default.
@@ -1107,7 +1108,7 @@ def _phase3_reblend(
         "output": str(output_path),
         "device": str(args.device),
         "codec": codec,
-        "encoder_settings": _resolve_cli_encoder_settings(
+        "encoder_settings": resolve_custom_encoder_settings(
             str(getattr(args, "encoder_settings", "") or ""),
             cq=getattr(args, "cq", None),
             codec=codec,

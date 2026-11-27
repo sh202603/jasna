@@ -20,12 +20,14 @@ if _HAS_TENSORRT and find_spec("tensorrt_libs") is not None:
 
     if sys.platform != "win32":
         # On Linux importing the package does not dlopen the .so's, so the line
-        # above pins nothing. Importing the restorer module runs its
-        # _preload_tensorrt_runtime(), claiming the global symbol scope for the pip
+        # above pins nothing. _preload_tensorrt_runtime() (upstream moved it to
+        # jasna.upscale.nvvfx_effects in v0.12.4) claims the global symbol scope for the pip
         # libnvinfer before anything imports nvvfx — test_e2e's collection-time
         # availability probe loads nvvfx's bundled (older) libnvinfer.so.10, which
-        # would otherwise win and break TestTensorrtLoadOrder / engine loading.
-        import jasna.restorer.rtx_superres_secondary_restorer  # noqa: F401
+        # would otherwise win and break engine loading.
+        from jasna.upscale.nvvfx_effects import _preload_tensorrt_runtime
+
+        _preload_tensorrt_runtime()
 
 collect_ignore = [] if _HAS_TENSORRT else [
     "test_rtx_superres_restorer.py",

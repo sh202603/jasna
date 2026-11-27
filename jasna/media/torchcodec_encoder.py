@@ -53,7 +53,7 @@ from torchcodec.encoders import Encoder
 
 from jasna.media.probe import VideoMetadata
 from jasna.media.audio_utils import needs_audio_reencode
-from jasna.media.lut import GpuLutApplier, parse_cube_file
+from jasna.media.lut import CubeLut, GpuLutApplier
 from jasna.os_utils import resolve_executable, subprocess_no_window_kwargs
 
 logger = logging.getLogger(__name__)
@@ -157,7 +157,7 @@ class TorchcodecVideoEncoder:
         *,
         codec: str,
         encoder_settings: dict[str, object],
-        lut_path: str | Path | None = None,
+        lut: CubeLut | None = None,
         output_fps=None,
         mux_audio: bool = True,
         settings=None,
@@ -191,8 +191,7 @@ class TorchcodecVideoEncoder:
         self._preset, self._extra_options = self._build_encode_params(dict(encoder_settings))
 
         self._lut_applier: GpuLutApplier | None = None
-        if lut_path:
-            lut = parse_cube_file(lut_path)
+        if lut is not None:
             self._lut_applier = GpuLutApplier(lut, device)
 
         # Intermediate container torchcodec writes to; mkv carries both HEVC and AV1.

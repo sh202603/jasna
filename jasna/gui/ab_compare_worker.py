@@ -24,9 +24,9 @@ from pathlib import Path
 from PIL import Image
 
 from jasna.gui.models import AppSettings
+from jasna.gui.preview_frames import preview_image
 from jasna.gui.restoration_preview import (
     RestoredClipFrame,
-    frame_image,
     run_preview_pass,
 )
 from jasna.gui.video_session import (
@@ -162,6 +162,7 @@ class _SessionSlot:
         self.detector_key: tuple | None = None
         self.session = None
         self.session_settings: AppSettings | None = None
+        self.projection: str = "auto"
         self.checkpoint: Path | None = None
         self.session_key: tuple | None = None
         self.tensorrt = False
@@ -386,8 +387,10 @@ class ABCompareWorker:
         # The cached session key carries the engines-disabled flag, so the next
         # run of a side using this checkpoint rebuilds on the TRT path without
         # any explicit slot invalidation here.
+        from jasna.accelerator import cuda_arch_name
+
         ok = all_basicvsrpp_sub_engines_exist(
-            str(request.checkpoint), bool(settings.fp16_mode)
+            str(request.checkpoint), bool(settings.fp16_mode), cuda_arch_name("cuda:0")
         )
         if not self._closed.is_set():
             self.events.put(
@@ -529,8 +532,10 @@ class ABCompareWorker:
             # A checkpoint without current-generation sub-engines runs on PyTorch
             # instead of triggering a 15-60 min compile subprocess; the resulting
             # ABSessionInfo(tensorrt=False) drives the warning badge.
+            from jasna.accelerator import cuda_arch_name
+
             engines_disabled = not all_basicvsrpp_sub_engines_exist(
-                str(checkpoint), bool(settings.fp16_mode)
+                str(checkpoint), bool(settings.fp16_mode), cuda_arch_name("cuda:0")
             )
         key = video_session_key(settings) + (
             config.restoration_model_name,
@@ -559,18 +564,20 @@ class ABCompareWorker:
 
     def _build_pass_pipeline(self, slot: _SessionSlot):
         """The pipeline one restoration pass runs on: this side's session with
-        the settings and checkpoint it was built for."""
+        the settings and checkpoint it was built for, and the VR projection of
+        the request (upstream reads it from the config, not from the pass)."""
         from jasna.gui.video_session import video_session_config
         from jasna.session_factory import build_pipeline
 
+        settings = replace(slot.session_settings, vr_projection=slot.projection)
         config = video_session_config(
-            slot.session_settings,
-            codec=slot.session_settings.codec,
+            settings,
+            codec=settings.codec,
             encoder_settings={},
             restoration_model_path=slot.checkpoint,
         )
         pipeline = build_pipeline(config, slot.session, self.path, self.path)
-        pipeline.validate_metadata(self.metadata)
+        pipeline.prepare(self.metadata)
         return pipeline
 
     def _run_restoration_view(
@@ -585,12 +592,12 @@ class ABCompareWorker:
         cancel_event = threading.Event()
         with self._cancel_lock:
             self._active_cancel = cancel_event
+        slot.projection = request.projection
         try:
             result = run_preview_pass(
                 pipeline=self._build_pass_pipeline(slot),
                 metadata=self.metadata,
                 settings=settings,
-                projection=request.projection,
                 center_seconds=request.center_seconds,
                 playback=(request.view == "clip"),
                 max_size=AB_PREVIEW_MAX_SIZE,
@@ -655,9 +662,10 @@ class ABCompareWorker:
                 0.0,
                 (pts_list[0] - reader.start_pts) * float(metadata.time_base),
             )
-            original = frame_image(
+            original = preview_image(
                 batch[0],
                 AB_PREVIEW_MAX_SIZE,
+                lut_applier=None,
                 stereo=vr_resolution.resolved,
             )
             mask = masks[0].to(torch.uint8).cpu()

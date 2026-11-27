@@ -360,7 +360,7 @@ def test_compile_streams_status_and_reports_success(monkeypatch) -> None:
 
     monkeypatch.setattr(engine_compiler, "ensure_engines_compiled", fake_ensure)
     monkeypatch.setattr(
-        engine_paths, "all_basicvsrpp_sub_engines_exist", lambda _path, _fp16: True
+        engine_paths, "all_basicvsrpp_sub_engines_exist", lambda *_args: True
     )
     worker = ABCompareWorker("unused.mp4", _metadata())
 

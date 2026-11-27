@@ -13,7 +13,10 @@ import torch.nn.functional as F
 
 from jasna.ltx import camera, plan as plan_module, refine
 from jasna.ltx.compose import Candidate, composite_frame, crop_to_canvas
-from jasna.ltx.plan import MAX_GAP, WINDOW_HOP, Region, feather_pixels, plan_video
+from jasna.ltx.camera import feather_pixels
+from jasna.ltx.plan import plan_video
+from jasna.ltx.tracks import MAX_GAP, Region
+from jasna.ltx.windows import WINDOW_HOP
 from jasna.media.probe import UnsupportedVideoError
 
 FPS = Fraction(30000, 1001)
@@ -262,7 +265,7 @@ def test_scan_source_hands_the_window_hop_to_ltx_scan(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace
 
-    from jasna.ltx.restore import FrameNumbers
+    from jasna.ltx.spans import FrameNumbers
 
     seen = {}
     plan_a = SimpleNamespace(windows=(SimpleNamespace(canvas=512),))

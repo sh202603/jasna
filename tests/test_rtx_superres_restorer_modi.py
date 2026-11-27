@@ -55,18 +55,19 @@ class _MockVideoSuperRes:
         pass
 
 
-sys.modules.setdefault("nvvfx", ModuleType("nvvfx"))
-
-from jasna.restorer.rtx_superres_secondary_restorer import RtxSuperresSecondaryRestorer, _resolve_quality  # noqa: E402
+from jasna.restorer.rtx_superres_secondary_restorer import RtxSuperresSecondaryRestorer  # noqa: E402
+from jasna.upscale.nvvfx_effects import upscale_level_name  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def _modi_fake_nvvfx(monkeypatch):
     """The fake SDK of these tests, whatever nvvfx (real or upstream's fake) is installed."""
-    monkeypatch.setattr(sys.modules["nvvfx"], "VideoSuperRes", _MockVideoSuperRes, raising=False)
+    module = ModuleType("nvvfx")
+    module.VideoSuperRes = _MockVideoSuperRes
+    monkeypatch.setitem(sys.modules, "nvvfx", module)
 
 
-def _make_restorer(*, scale=4, quality="high", denoise="medium", deblur=None, **kwargs):
+def _make_restorer(*, scale=4, quality="high", denoise="medium", deblur="none", **kwargs):
     with patch("torch.cuda.current_stream") as mock_stream:
         mock_stream.return_value.cuda_stream = 12345
         return RtxSuperresSecondaryRestorer(
@@ -74,35 +75,34 @@ def _make_restorer(*, scale=4, quality="high", denoise="medium", deblur=None, **
         )
 
 
+def _passes(restorer, size=None):
+    """The loaded effects of one input side, in run order: upscale, then denoise, then deblur."""
+    return restorer._chains[restorer.input_size if size is None else size]._effects
+
+
 class TestStrengthAndHighBitrate:
-    def test_resolve_quality_highbitrate_family(self):
-        q = _Quality
-        assert _resolve_quality("low", highbitrate=True) == q.HIGHBITRATE_LOW
-        assert _resolve_quality("medium", highbitrate=True) == q.HIGHBITRATE_MEDIUM
-        assert _resolve_quality("HIGH", highbitrate=True) == q.HIGHBITRATE_HIGH
-        assert _resolve_quality("ultra", highbitrate=True) == q.HIGHBITRATE_ULTRA
+    def test_upscale_level_highbitrate_family(self):
+        assert [upscale_level_name(q, highbitrate=True) for q in ("low", "medium", "high", "ultra")] == [
+            "highbitrate_low", "highbitrate_medium", "highbitrate_high", "highbitrate_ultra",
+        ]
         # The flag only switches the upscale family; off keeps the standard models.
-        assert _resolve_quality("high", highbitrate=False) == q.HIGH
+        assert upscale_level_name("high", highbitrate=False) == "high"
+        assert upscale_level_name("high") == "high"
 
     def test_defaults_do_not_pass_strength_to_sdk(self):
         # strength=1.0 is the SDK default and the keyword only exists from
         # nvidia-vfx 0.2.0.0 on, so the default config must not forward it.
-        from jasna.restorer import rtx_superres_secondary_restorer as mod
-
-        with patch.object(mod, "_make_effect", wraps=mod._make_effect) as spy, \
-                patch.object(sys.modules["nvvfx"], "VideoSuperRes") as cls:
+        with patch.object(sys.modules["nvvfx"], "VideoSuperRes") as cls:
             cls.QualityLevel = _Quality
             _make_restorer()
+            assert cls.call_count == 2  # upscale + denoise
             for call in cls.call_args_list:
                 assert "strength" not in call.kwargs
-            assert spy.call_count == 2  # upscale + denoise
 
     def test_strength_applies_to_every_pass(self):
         restorer = _make_restorer(denoise="medium", deblur="low", strength=0.4)
         assert restorer.strength == 0.4
-        assert restorer._sr.strength == 0.4
-        assert restorer._denoise.strength == 0.4
-        assert restorer._deblur.strength == 0.4
+        assert [effect.strength for effect in _passes(restorer)] == [0.4, 0.4, 0.4]
 
     @pytest.mark.parametrize("bad", [-0.1, 1.5])
     def test_strength_out_of_range_rejected(self, bad):
@@ -113,9 +113,7 @@ class TestStrengthAndHighBitrate:
         q = _Quality
         restorer = _make_restorer(quality="high", denoise="medium", deblur="low", highbitrate=True)
         assert restorer.highbitrate is True
-        assert restorer._sr.quality == q.HIGHBITRATE_HIGH
-        assert restorer._denoise.quality == q.DENOISE_MEDIUM
-        assert restorer._deblur.quality == q.DEBLUR_LOW
+        assert [effect.quality for effect in _passes(restorer)] == [q.HIGHBITRATE_HIGH, q.DENOISE_MEDIUM, q.DEBLUR_LOW]
 
 
 class TestSizedFromFrames:
@@ -124,37 +122,39 @@ class TestSizedFromFrames:
     512 and 768 px canvases of one video never reload an effect."""
 
     @staticmethod
-    def _fake_effect(VideoSuperRes, *, gpu, quality, strength, output_size):
-        effect = MagicMock(output_width=output_size, output_height=output_size, quality=quality)
+    def _fake_effect(level_name, output_size, device, *, strength=1.0):
+        effect = MagicMock(output_width=output_size[0], output_height=output_size[1], quality=level_name)
         effect.run.side_effect = lambda frame, stream_ptr=None: MagicMock(
-            image=torch.rand((3, output_size, output_size), dtype=torch.float32)
+            image=torch.rand((3, output_size[1], output_size[0]), dtype=torch.float32)
         )
         return effect
 
-    def _restorer(self, monkeypatch, **kwargs):
-        from jasna.restorer import rtx_superres_secondary_restorer as mod
+    def _restorer(self, monkeypatch, *, denoise="medium", deblur="none"):
+        from jasna.upscale import nvvfx_effects
 
-        monkeypatch.setattr(mod, "_make_effect", self._fake_effect)
+        monkeypatch.setattr(nvvfx_effects, "video_super_res", self._fake_effect)
         with patch("torch.cuda.current_stream") as mock_stream:
             mock_stream.return_value.cuda_stream = 12345
-            return RtxSuperresSecondaryRestorer(device=torch.device("cuda:0"), scale=2, input_size=None, **kwargs)
+            return RtxSuperresSecondaryRestorer(
+                device=torch.device("cuda:0"), scale=2, quality="high", denoise=denoise, deblur=deblur, input_size=None,
+            )
 
     def test_loads_nothing_until_the_first_frames(self, monkeypatch):
         restorer = self._restorer(monkeypatch)
         assert restorer.input_size is None and restorer.output_size is None
-        assert restorer._chains == {} and restorer._sr is None
+        assert restorer._chains == {}
 
     def test_one_chain_per_input_side_at_twice_the_side(self, monkeypatch):
-        restorer = self._restorer(monkeypatch, denoise="medium", deblur=None)
+        restorer = self._restorer(monkeypatch, denoise="medium", deblur="none")
         out = restorer.restore(torch.rand((2, 3, 8, 8)), keep_start=0, keep_end=2)
         restorer.restore(torch.rand((1, 3, 12, 12)), keep_start=0, keep_end=1)
         restorer.restore(torch.rand((1, 3, 8, 8)), keep_start=0, keep_end=1)
         assert sorted(restorer._chains) == [8, 12]
         assert [tuple(frame.shape) for frame in out] == [(3, 16, 16), (3, 16, 16)] and out[0].dtype == torch.uint8
-        chain = restorer._chains[12]
-        assert (chain.sr.output_width, chain.sr.output_height) == (24, 24)
-        assert chain.denoise.output_width == 24 and chain.deblur is None
-        assert restorer._chains[8].sr.run.call_count == 3
+        upscale, denoise = _passes(restorer, 12)  # no deblur pass
+        assert (upscale.output_width, upscale.output_height) == (24, 24)
+        assert denoise.output_width == 24 and denoise.quality == "denoise_medium"
+        assert _passes(restorer, 8)[0].run.call_count == 3
 
     def test_rejects_frames_that_are_not_square(self, monkeypatch):
         restorer = self._restorer(monkeypatch)
@@ -165,7 +165,7 @@ class TestSizedFromFrames:
         restorer = self._restorer(monkeypatch, denoise="low", deblur="low")
         restorer.restore(torch.rand((1, 3, 8, 8)), keep_start=0, keep_end=1)
         restorer.restore(torch.rand((1, 3, 12, 12)), keep_start=0, keep_end=1)
-        effects = [e for chain in restorer._chains.values() for e in (chain.sr, chain.denoise, chain.deblur)]
+        effects = [effect for chain in restorer._chains.values() for effect in chain._effects]
         assert len(effects) == 6
         restorer.close()
         assert restorer._chains == {} and all(effect.close.call_count == 1 for effect in effects)

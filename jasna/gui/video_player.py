@@ -487,6 +487,8 @@ class VideoPlayerDialog(ctk.CTkToplevel):
             if isinstance(event, PlayerStatus):
                 if event.message == "loading_models":
                     message = t("player_loading_models")
+                elif event.message == "restoring_no_tensorrt":  # +modi
+                    message = t("player_restoring_no_tensorrt")
                 else:
                     message = t("player_restoring")
                 self._set_status(message, Colors.STATUS_PENDING)

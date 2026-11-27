@@ -147,9 +147,38 @@ class SecondarySection:
             self._card_menu_row(rtx_inner, "rtx_denoise", "rtx_denoise", _rtx_levels(get_args(RtxLevelName)), width=100),
             self._card_menu_row(rtx_inner, "rtx_deblur", "rtx_deblur", _rtx_levels(get_args(RtxLevelName)), width=100),
         )
-        for row in rtx_rows[:-1]:
+        for row in rtx_rows:
             row.pack(fill="x", pady=(0, 8))
-        rtx_rows[-1].pack(fill="x")
+
+        # +modi: RTX clean-source (HIGHBITRATE_*) upscale models, nvidia-vfx >= 0.2.0.0
+        rtx_hb_row = ctk.CTkFrame(rtx_inner, fg_color="transparent")
+        rtx_hb_row.pack(fill="x", pady=(0, 8))
+        add_setting_label(rtx_hb_row, "rtx_highbitrate")
+        self._widgets["rtx_highbitrate"] = ctk.CTkSwitch(
+            rtx_hb_row,
+            text="",
+            fg_color=Colors.BG_PANEL,
+            progress_color=Colors.PRIMARY,
+            button_color=Colors.TEXT_PRIMARY,
+            width=42,
+            command=self._on_modified,
+        )
+        self._widgets["rtx_highbitrate"].pack(side="right")
+
+        # +modi: RTX strength (applies to every RTX pass)
+        rtx_strength_row = ctk.CTkFrame(rtx_inner, fg_color="transparent")
+        rtx_strength_row.pack(fill="x")
+        add_setting_label(rtx_strength_row, "rtx_strength")
+        self._widgets["rtx_strength_val"] = create_slider_value_label(rtx_strength_row, Colors.BG_CARD)
+        self._widgets["rtx_strength_val"].configure(text="1.00")
+        self._widgets["rtx_strength_val"].pack(side="right")
+        self._widgets["rtx_strength"] = ctk.CTkSlider(
+            rtx_strength_row, from_=0.0, to=1.0, number_of_steps=20,
+            fg_color=Colors.BG_PANEL, progress_color=Colors.PRIMARY, button_color=Colors.PRIMARY,
+            width=160, command=self._on_rtx_strength_slider,
+        )
+        self._widgets["rtx_strength"].pack(side="right", padx=(0, 8))
+        self._widgets["rtx_strength"].set(1.0)
 
     def _card_menu_row(self, master, key: str, label_key: str, options: dict[str, str], *, width: int):
         row = ctk.CTkFrame(master, fg_color="transparent")
@@ -172,6 +201,10 @@ class SecondarySection:
 
     def _on_workers_slider(self, value: float) -> None:
         self._widgets["tvai_workers_val"].configure(text=str(int(value)))
+        self._on_modified()
+
+    def _on_rtx_strength_slider(self, value: float) -> None:
+        self._widgets["rtx_strength_val"].configure(text=f"{value:.2f}")
         self._on_modified()
 
     def _on_engine_picked(self) -> None:
@@ -206,7 +239,8 @@ class SecondarySection:
         self._tvai_denoise_switch.configure(state=state)
         set_widgets_enabled(
             (self._widgets[key] for key in (
-                "tvai_ffmpeg_path", "tvai_model", "tvai_scale", "tvai_workers", "rtx_quality", "rtx_denoise", "rtx_deblur"
+                "tvai_ffmpeg_path", "tvai_model", "tvai_scale", "tvai_workers", "rtx_quality", "rtx_denoise", "rtx_deblur",
+                "rtx_highbitrate", "rtx_strength",
             )),
             enabled,
         )
@@ -244,6 +278,13 @@ class SecondarySection:
         self._widgets["rtx_scale"].set_value(str(preset.rtx_scale))
         for key in ("rtx_quality", "rtx_denoise", "rtx_deblur"):
             self._widgets[key].set_value(getattr(preset, key))
+        if getattr(preset, "rtx_highbitrate", False):
+            self._widgets["rtx_highbitrate"].select()
+        else:
+            self._widgets["rtx_highbitrate"].deselect()
+        rtx_strength = float(getattr(preset, "rtx_strength", 1.0))
+        self._widgets["rtx_strength"].set(rtx_strength)
+        self._widgets["rtx_strength_val"].configure(text=f"{rtx_strength:.2f}")
         self._show_engine_options()
         self.set_enabled(self._enabled)
 
@@ -257,4 +298,6 @@ class SecondarySection:
             "tvai_denoise": self._tvai_denoise_switch.get() == 1,
             "rtx_scale": int(self._widgets["rtx_scale"].get_value()),
             **{key: self._widgets[key].get_value() for key in ("rtx_quality", "rtx_denoise", "rtx_deblur")},
+            "rtx_strength": round(float(self._widgets["rtx_strength"].get()), 2),
+            "rtx_highbitrate": self._widgets["rtx_highbitrate"].get() == 1,
         }

@@ -25,9 +25,10 @@ import numpy as np
 import torch
 
 from jasna.ltx.camera import PLAN_CANVAS, WINDOW_FRAMES
-from jasna.ltx.inference import ModelRuntime
+from jasna.ltx.compose_pass import _decode_window
+from jasna.ltx.inference import ModelRuntime, vae_pixels
 from jasna.ltx.model_files import LtxModelFiles
-from jasna.ltx.restore import _decode_window, _vae_pixels, free_vram_budget
+from jasna.ltx.vram_budget import free_vram_budget
 from jasna.session_config import LTX_DEFAULT_SEED
 
 
@@ -71,7 +72,7 @@ def main() -> None:
         refs = []
         with torch.inference_mode():
             for pixels in clips:
-                refs.append(encoder(_vae_pixels(pixels, device)).to("cpu", torch.bfloat16).contiguous())
+                refs.append(encoder(vae_pixels(pixels, device).unsqueeze(0)).to("cpu", torch.bfloat16).contiguous())
         runtime.unload_encoder()
         print(f"encoded: latent {tuple(refs[0].shape)} {refs[0].dtype}, {time.time() - t0:.1f} s", flush=True)
         transformer = runtime.load_transformer()

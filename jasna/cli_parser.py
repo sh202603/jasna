@@ -4,6 +4,7 @@ import argparse
 from typing import get_args
 
 from jasna import __version__
+from jasna import cli_modi  # +modi: the fork's options
 from jasna.cli_help import CLI_HELP
 from jasna.session_config import (
     DEFAULT_DETECTION_MODEL_NAME,
@@ -17,7 +18,6 @@ from jasna.session_config import (
     LTX_DEFAULT_OVERLAP,
     LTX_DEFAULT_SEED,
     LTX_OVERLAP_CHOICES,
-    RTX_DEFAULT_DEBLUR,
     RTX_DEFAULT_DENOISE,
     RTX_DEFAULT_QUALITY,
     RTX_DEFAULT_SCALE,
@@ -56,6 +56,7 @@ CLI_RESTORATION_MODELS: dict[str, tuple[RestorationModelName, LtxModelName]] = {
     "ltx-4step": ("ltx", "distilled4"),
     "ltx-8step": ("ltx", "distilled"),
     "ltx-undistilled": ("ltx", "undistilled"),
+    **cli_modi.RESTORATION_MODELS,  # +modi
 }
 
 class _ShortErrorParser(argparse.ArgumentParser):
@@ -174,6 +175,7 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         help=CLI_HELP["compile_basicvsrpp"],
     )
+    cli_modi.add_restoration_arguments(restoration)  # +modi
     restoration.add_argument(
         "--max-clip-size",
         type=int,
@@ -199,9 +201,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--secondary-restoration",
         type=str,
         default="none",
-        choices=["none", "unet-4x", "tvai", "rtx-super-res"],
-        help=CLI_HELP["secondary_restoration"],
+        choices=["none", "unet-4x", "tvai", "rtx-super-res", *cli_modi.SECONDARY_RESTORATION_CHOICES],  # +modi
+        help=CLI_HELP["secondary_restoration"] + cli_modi.SECONDARY_RESTORATION_HELP,
     )
+    cli_modi.add_seedvr2_group(parser)  # +modi
 
     sd15 = parser.add_argument_group("SD 1.5 image restoration")
     sd15.add_argument(
@@ -283,10 +286,11 @@ def build_parser() -> argparse.ArgumentParser:
     rtx.add_argument(
         "--rtx-deblur",
         type=str,
-        default=RTX_DEFAULT_DEBLUR,
+        default=None,  # +modi: resolved by cli_modi.rtx_deblur (LTX windows sharpen through this pass)
         choices=["none", "low", "medium", "high", "ultra"],
-        help=CLI_HELP["rtx_deblur"],
+        help=cli_modi.RTX_DEBLUR_HELP,
     )
+    cli_modi.add_rtx_arguments(rtx)  # +modi
 
     upscale = parser.add_argument_group("Upscale whole video")
     upscale.add_argument(
@@ -389,6 +393,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=CLI_HELP["tvai_denoise"],
     )
+    cli_modi.add_secondary_groups(parser)  # +modi
 
     detection = parser.add_argument_group("Detection")
     detection.add_argument(
@@ -404,7 +409,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default="",
         help=(
-            CLI_HELP["detection_model_path"]
+            CLI_HELP["detection_model_path"] + cli_modi.DETECTION_MODEL_PATH_HELP  # +modi
         ),
     )
     detection.add_argument(
@@ -485,6 +490,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help=CLI_HELP["encoder_settings"],
     )
+    cli_modi.add_video_backend_arguments(encoding)  # +modi
     encoding.add_argument(
         "--lut",
         type=str,
@@ -510,9 +516,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--frame-generation",
         type=str,
         default="none",
-        choices=["none", "2x"],
+        choices=["none", "2x", *cli_modi.FRAME_GENERATION_CHOICES],  # +modi
         help=CLI_HELP["frame_generation"],
     )
+    cli_modi.add_frame_generation_arguments(encoding)  # +modi
     encoding.add_argument(
         "--fmp4",
         action="store_true",

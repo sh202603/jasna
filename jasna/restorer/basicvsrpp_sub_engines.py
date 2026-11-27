@@ -769,7 +769,6 @@ def create_split_forward(
     device: torch.device,
     fp16: bool,
 ) -> BasicVSRPlusPlusNetSplit | None:
-    generator = _get_inference_generator(model)
     # Built before the TRT engines load so the FP8 warmup/inductor compiles run
     # before the TRT arenas are allocated.
     fp8_upsample = _try_create_fp8_upsample(generator, device, fp16)

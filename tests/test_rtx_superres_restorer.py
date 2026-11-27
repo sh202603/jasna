@@ -1,6 +1,7 @@
 """Tests for jasna.restorer.rtx_superres_secondary_restorer covering init, restore, and close."""
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -95,6 +96,9 @@ print(imported_by_modules, nvvfx.global_tensorrt == pip_tensorrt)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="RTLD_GLOBAL symbol-scope check is POSIX-specific")
+@pytest.mark.skipif(  # +modi: the TensorRT-RTX flavour has no tensorrt_libs, so there is nothing to pin
+    importlib.util.find_spec("tensorrt_libs") is None, reason="standard tensorrt_libs not installed (RTX flavour venv)"
+)
 def test_nvvfx_imports_after_the_pip_tensorrt_runtime_holds_the_global_scope():
     """nvvfx bundles its own libnvinfer under the same SONAME as the pip tensorrt our BasicVSR++
     engines are serialized against and loads it with RTLD_GLOBAL; if it loads first, engine

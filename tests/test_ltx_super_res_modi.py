@@ -19,14 +19,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from jasna.ltx import restore
-from jasna.ltx.camera import CropFrame, letterbox
+from factories import NullProgressBar, track_plan
+from jasna.ltx import compose_pass, inference, restore, speed
+from jasna.ltx.camera import PLAN_CANVAS, CropFrame, letterbox
 from jasna.ltx.compose import Candidate, canvas_to_source, composite_frame, crop_to_canvas
-from jasna.ltx.plan import Window
+from jasna.ltx.spans import WHOLE_VIDEO_PTS, LtxSegment, LtxSpan
 from jasna.ltx.super_res import LtxSuperRes, enlarged_windows, upscaled_crop
+from jasna.ltx.windows import WINDOW_HOP, Window
 from test_ltx_compose import _frame
 from test_ltx_restore import (  # noqa: F401
-    FILES, MAX_GAP, TEN_PTS_PER_FRAME, _Bar, _Detector, _render, _runtime, _source, _video, _Writer, fakes,
+    FILES, MAX_GAP, TEN_PTS_PER_FRAME, _Detector, _progress, _render, _runtime, _source, _video, _Writer, fakes,
 )
 
 
@@ -65,15 +67,14 @@ def _compose_one_window(monkeypatch, crop: CropFrame, canvas: int, super_res: _F
         candidates_seen.append([(tuple(c.canvas.shape), c.crop) for c in candidates])
         return source
 
-    windows = (Window(0, canvas, 0, 5, (crop,) * 5, 0),)
-    plan = restore.TrackPlan(0, 0, ((),) * 5, (1.0,) * 5, windows, 3)
-    monkeypatch.setattr(restore, "_decode_window", decode)
-    monkeypatch.setattr(restore, "composite_frame", composite)
+    plan = track_plan([Window(0, canvas, 0, 5, (crop,) * 5, 0)])
+    monkeypatch.setattr(compose_pass, "_decode_window", decode)
+    monkeypatch.setattr(compose_pass, "composite_frame", composite)
     decodes = ThreadPoolExecutor(max_workers=1)
-    composer = restore._SegmentComposer(
+    composer = compose_pass._SegmentComposer(
         [plan], None, SimpleNamespace(get=lambda index: index), seed=0, feather=1, budget=lambda side: 0,
-        device=torch.device("cpu"), bar=_Bar(), decodes=decodes, latent_reads=decodes, stream=None,
-        super_res=super_res, projector=None,
+        device=torch.device("cpu"), bar=NullProgressBar(), decodes=decodes, receives=decodes, latent_reads=decodes,
+        stream=None, super_res=super_res, projector=None,
     )
     try:
         for _ in range(5):
@@ -104,32 +105,30 @@ def test_without_a_deblur_pass_only_the_windows_compose_enlarges_are_upscaled(mo
 
 def _render_with_super_res(tmp_path, super_res):
     for budget in ("segment+rtx", "free VRAM+rtx"):
-        restore.speed.save_rates(
-            tmp_path / "speed.json", restore.speed.profile_key("Test GPU", "t", budget), {"denoise/window512": 4.0}
-        )
+        speed.save_rates(tmp_path / "speed.json", speed.profile_key("Test GPU", "t", budget), {"denoise/window512": 4.0})
     return replace(_render(tmp_path), super_res=super_res)
 
 
 def _restore_spans(tmp_path, spans, render):
     restore.restore_spans(
         spans, render, work_dir=tmp_path, resume_dir=tmp_path / "saved",
-        progress=restore.Progress(0, disable=True, report=None), cancel=threading.Event(), runtime=_runtime(),
+        progress=_progress(0), cancel=threading.Event(), runtime=_runtime(),
     )
 
 
 def test_compose_spans_prepares_every_canvas_of_the_run_once_and_releases_it(fakes, monkeypatch, tmp_path):
     video = _video(30, range(3, 28))
     writer = _Writer()
-    segments = (restore.LtxSegment(50, 150, seed=100), restore.LtxSegment(200, 260, seed=7))
+    segments = (LtxSegment(50, 150, seed=100), LtxSegment(200, 260, seed=7))
     super_res = _FakeSuperRes()
     render = _render_with_super_res(tmp_path, super_res)
     saved = []
-    monkeypatch.setattr(restore.speed, "save_rates", lambda path, key, rates: saved.append(key))
-    _restore_spans(tmp_path, [restore.LtxSpan(_source(video), segments, lambda: writer)], render)
-    assert super_res.prepared == [[restore.PLAN_CANVAS]]
+    monkeypatch.setattr(speed, "save_rates", lambda path, key, rates: saved.append(key))
+    _restore_spans(tmp_path, [LtxSpan(_source(video), segments, lambda: writer)], render)
+    assert super_res.prepared == [[PLAN_CANVAS]]
     assert super_res.released == 1 and writer.closed
     # The run's profile is kept apart from runs without super resolution (its compose rate holds the x2).
-    assert saved == [restore.speed.profile_key("Test GPU", "t", "segment+rtx")]
+    assert saved == [speed.profile_key("Test GPU", "t", "segment+rtx")]
     assert restore._profile_key(_render(tmp_path)).endswith("decode segment")
 
 
@@ -137,67 +136,65 @@ def test_compose_spans_releases_the_upscalers_when_a_window_decode_fails(fakes, 
     def decode(decoder, latent, free_bytes, generator):
         raise RuntimeError("decode failed")
 
-    monkeypatch.setattr(restore, "decode_latent", decode)
+    monkeypatch.setattr(inference, "decode_latent", decode)
     super_res = _FakeSuperRes()
     video = _video(12, range(2, 10))
     with pytest.raises(RuntimeError, match="decode failed"):
         _restore_spans(
             tmp_path,
-            [restore.LtxSpan(_source(video), (restore.LtxSegment(*restore.WHOLE_VIDEO_PTS, 0),), _Writer)],
+            [LtxSpan(_source(video), (LtxSegment(*WHOLE_VIDEO_PTS, 0),), _Writer)],
             _render_with_super_res(tmp_path, super_res),
         )
-    assert super_res.prepared == [[restore.PLAN_CANVAS]] and super_res.released == 1
+    assert super_res.prepared == [[PLAN_CANVAS]] and super_res.released == 1
 
 
 def test_a_run_without_windows_prepares_nothing(fakes, tmp_path):
     super_res = _FakeSuperRes()
     _restore_spans(
         tmp_path,
-        [restore.LtxSpan(_source(_video(12, range(0))), (restore.LtxSegment(*restore.WHOLE_VIDEO_PTS, 0),), _Writer)],
+        [LtxSpan(_source(_video(12, range(0))), (LtxSegment(*WHOLE_VIDEO_PTS, 0),), _Writer)],
         _render_with_super_res(tmp_path, super_res),
     )
     assert super_res.prepared == [] and super_res.upscaled == []
 
 
 def test_restore_video_hands_super_res_to_the_compose_pass(fakes, tmp_path):
-    restore.speed.save_rates(
-        tmp_path / "speed.json", restore.speed.profile_key("Test GPU", "t", "free VRAM+rtx"), {"denoise/window512": 4.0}
-    )
+    speed.save_rates(tmp_path / "speed.json", speed.profile_key("Test GPU", "t", "free VRAM+rtx"), {"denoise/window512": 4.0})
     super_res = _FakeSuperRes()
     restore.restore_video(
         _source(_video(12, range(2, 10))), lambda: _Writer(), detector=_Detector(), files=FILES, frame_h=64, frame_w=64,
         stereo=None, vr_projector=None,
-        batch_size=4, large_canvas=False, window_hop=restore.WINDOW_HOP, seed=5, device=torch.device("cpu"),
-        work_dir=tmp_path, speed_profile=tmp_path / "speed.json", progress=restore.Progress(12, disable=True, report=None),
+        batch_size=4, large_canvas=False, window_hop=WINDOW_HOP, seed=5, device=torch.device("cpu"),
+        work_dir=tmp_path, speed_profile=tmp_path / "speed.json", progress=_progress(12),
         resume_dir=tmp_path / "saved", cancel=threading.Event(), max_gap=MAX_GAP, min_duration=0, super_res=super_res,
         frame_numbers=TEN_PTS_PER_FRAME, runtime=_runtime(),
     )
-    assert super_res.prepared == [[restore.PLAN_CANVAS]] and super_res.released == 1
+    assert super_res.prepared == [[PLAN_CANVAS]] and super_res.released == 1
     assert super_res.upscaled
 
 
-def test_ltx_super_res_loads_one_upscaler_per_size_with_the_rtx_options_and_releases_them():
+def test_ltx_super_res_loads_one_chain_per_size_with_the_rtx_options_and_releases_them():
     windows = [Window(0, 512, 0, 1, (CropFrame((0, 0, 400, 400), (512, 512), (0, 0, 0, 0)),), 0)]
     with (
-        patch("jasna.restorer.rtx_superres_secondary_restorer.RtxSuperresSecondaryRestorer") as rtx_cls,
+        patch("jasna.ltx.super_res.SuperResChain") as chain_cls,
         patch("torch.cuda.default_stream"),
         patch("torch.cuda.stream", return_value=nullcontext()),
     ):
-        rtx_cls.side_effect = lambda **kwargs: MagicMock(kwargs=kwargs)
+        chain_cls.side_effect = lambda device, **kwargs: MagicMock(kwargs=kwargs)
         super_res = LtxSuperRes(
             device=torch.device("cuda:0"), quality="high", denoise="none", deblur="low", strength=0.75, highbitrate=True
         )
         assert super_res.sharpens and super_res.windows_to_upscale(windows) == {0}
         super_res.prepare([512, 768, 512])
-        upscalers = dict(super_res._upscalers)
-        assert sorted(upscalers) == [512, 768]
-        kwargs = upscalers[768].kwargs
-        assert kwargs["scale"] == 2 and kwargs["input_size"] == 768 and kwargs["denoise"] is None
+        chains = dict(super_res._chains)
+        assert sorted(chains) == [512, 768]
+        kwargs = chains[768].kwargs
+        assert kwargs["output_size"] == (1536, 1536) and kwargs["quality"] == "high" and kwargs["denoise"] == "none"
         assert kwargs["deblur"] == "low" and kwargs["strength"] == 0.75 and kwargs["highbitrate"] is True
         super_res.release()
-        assert super_res._upscalers == {} and all(u.close.called for u in upscalers.values())
+        assert super_res._chains == {} and all(chain.close.called for chain in chains.values())
         super_res.prepare([512])  # made again for the next compose pass
-        assert sorted(super_res._upscalers) == [512]
+        assert sorted(super_res._chains) == [512]
 
     plain = LtxSuperRes(device=torch.device("cuda:0"), quality="high", denoise="medium", deblur="none")
     assert not plain.sharpens and plain.windows_to_upscale(windows) == enlarged_windows(windows) == set()

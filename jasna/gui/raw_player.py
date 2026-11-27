@@ -10,7 +10,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -226,6 +226,7 @@ class RawPlayerWorker(PreviewPipelineWorker):
         self.events: queue.Queue[PlayerEvent] = queue.Queue()
         self._max_size = max_size
         self._active_writer: RawFrameWriter | None = None
+        self._tensorrt_disabled = False  # +modi
 
     def play_from(self, seconds: float) -> int:
         self._generation += 1
@@ -255,7 +256,29 @@ class RawPlayerWorker(PreviewPipelineWorker):
         from jasna.gui.video_session import build_video_session
 
         self.events.put(PlayerStatus("loading_models", command.generation))
-        return build_video_session(command.settings, log=logger.info)
+        settings = command.settings
+        if settings.restoration_model == "basicvsrpp" and getattr(settings, "restoration_checkpoint", ""):
+            # +modi: the player's checkpoint choice (the default checkpoint is upstream's own). A checkpoint without EMA weights would
+            # silently load with random weights, so refuse it here (this loads the checkpoint:
+            # worker thread only, never Tk); one without sub-engines runs on PyTorch instead
+            # of compiling.
+            from jasna.accelerator import cuda_arch_name
+            from jasna.engine_paths import all_basicvsrpp_sub_engines_exist
+            from jasna.restorer.checkpoint_info import checkpoint_has_ema_weights, resolve_restoration_checkpoint
+
+            checkpoint = resolve_restoration_checkpoint(getattr(settings, "restoration_checkpoint", ""))
+            if not checkpoint_has_ema_weights(checkpoint):
+                from jasna.gui.locales import t
+
+                raise RuntimeError(t("ab_checkpoint_missing_ema", name=checkpoint.name))
+            self._tensorrt_disabled = not all_basicvsrpp_sub_engines_exist(
+                str(checkpoint), bool(settings.fp16_mode), cuda_arch_name("cuda:0")
+            )
+            if self._tensorrt_disabled:
+                settings = replace(settings, compile_basicvsrpp=False)
+        else:
+            self._tensorrt_disabled = False
+        return build_video_session(settings, log=logger.info)
 
     def _build_pipeline(self, command: _Play, session):
         try:
@@ -265,7 +288,9 @@ class RawPlayerWorker(PreviewPipelineWorker):
             raise
 
     def _run_command(self, command: _Play, pipeline, session) -> None:
-        self.events.put(PlayerStatus("restoring", command.generation))
+        self.events.put(PlayerStatus(
+            "restoring_no_tensorrt" if self._tensorrt_disabled else "restoring", command.generation
+        ))
         completed = self._run_pass(command, pipeline, session)
         if completed and not self._superseded():
             self.frame_buffer.mark_eof(command.generation)

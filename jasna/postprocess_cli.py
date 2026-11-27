@@ -58,7 +58,7 @@ import logging
 from dataclasses import dataclass
 from typing import get_args
 
-from jasna.os_utils import (
+from jasna.system_requirements import (
     check_ascii_install_path,
     check_gpu_driver_version,
     check_required_executables,
@@ -813,9 +813,9 @@ def main() -> None:
             upscale_dlss5_intensity=float(args.upscale_dlss5_intensity),
         )
         if upscale_model == "dlss5":
-            from jasna.main import _ensure_dlss5_runtime
+            from jasna.cli_downloads import ensure_dlss5_runtime
 
-            _ensure_dlss5_runtime(upscale)
+            ensure_dlss5_runtime(upscale)
         reason = _upscale_unavailable_reason(upscale)
         if reason:
             print(f"Error: {reason}")
@@ -823,8 +823,8 @@ def main() -> None:
 
     codec = str(args.codec).lower()
     from jasna.accelerator import vendor_for_device
-    from jasna.main import _resolve_cli_encoder_settings
-    encoder_settings = _resolve_cli_encoder_settings(
+    from jasna.media.encoder_settings import resolve_custom_encoder_settings
+    encoder_settings = resolve_custom_encoder_settings(
         str(args.encoder_settings), cq=None, codec=codec, vendor=vendor_for_device(str(args.device))
     )
 

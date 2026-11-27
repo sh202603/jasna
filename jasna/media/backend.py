@@ -327,6 +327,7 @@ def make_video_encoder(
     metadata: "VideoMetadata",
     codec: str,
     encoder_settings: "dict[str, object]",
+    lut=None,
     lut_path=None,
     sharpen_strength: float = 0.0,
     output_fps=None,
@@ -342,6 +343,8 @@ def make_video_encoder(
 ):
     """Construct a video encoder for ``backend``.
 
+    ``lut`` is the parsed 3D LUT (``CubeLut``), as upstream's ``VideoEncoder`` takes it since
+    v0.12.4; ``lut_path`` is parsed here for the callers that still hold a path.
     ``settings`` (the job's ``settings_tag.job_settings``) become the output's comment tag and
     ``frame_generation`` (upstream's bool or the multiplier) the frame-rate factor, on both backends.
 
@@ -352,6 +355,11 @@ def make_video_encoder(
     ``jasna.media.video_encoder.VideoEncoder``); callers pass their own module's
     name for it so tests patching that name apply.
     """
+
+    if lut is None and lut_path:
+        from jasna.media.lut import parse_cube_file
+
+        lut = parse_cube_file(lut_path)
 
     b = coerce_backend(backend)
     selected = select_encoder_backend(
@@ -380,7 +388,7 @@ def make_video_encoder(
             metadata=metadata,
             codec=codec,
             encoder_settings=encoder_settings,
-            lut_path=lut_path,
+            lut=lut,
             output_fps=output_fps,
             mux_audio=mux_audio,
             settings=settings,
@@ -395,7 +403,7 @@ def make_video_encoder(
         metadata=metadata,
         codec=codec,
         encoder_settings=encoder_settings,
-        lut_path=lut_path,
+        lut=lut,
         sharpen_strength=sharpen_strength,
         output_fps=output_fps,
         pts_origin=pts_origin,

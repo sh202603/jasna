@@ -216,7 +216,6 @@ class Pipeline:
         self.ltx_super_res = session.ltx_super_res if config.secondary_restoration == "rtx-super-res" else None
         self.ltx_crop_vsr = config.ltx_crop_vsr
         self.ltx_crop_vsr_source = config.ltx_crop_vsr_source
-        self._config = config
         self._session = session
         self.progress_callback = progress_callback
         self.segments = tuple(segments) if segments else None
@@ -548,9 +547,9 @@ class Pipeline:
     def _run_ltx_refine(self, metadata) -> None:
         """``--ltx-crop-vsr``: the input is an LTX output; sharpen its mosaic areas with
         SwiftVR along the plan scanned from the source video (``jasna.ltx.refine``)."""
-        from jasna.ltx.plan import track_max_gap
+        from jasna.ltx.inference import Cancelled
         from jasna.ltx.refine import run_refine
-        from jasna.ltx.restore import Cancelled
+        from jasna.ltx.tracks import track_max_gap
         from jasna.session_factory import build_ltx_crop_vsr_restorer
 
         if self.vr_resolution.resolved != "off":
@@ -564,7 +563,7 @@ class Pipeline:
         # No restoration model runs here: the tag records the detection, the output and the refine itself.
         settings = {**self._job_settings(frozenset(), ltx_large_canvas=None), "ltx_crop_vsr": self.ltx_crop_vsr}
         writer = _OfflineFrameWriter(self._video_encoder(metadata, frame_rate, settings), [time.monotonic()])
-        config, session = self._config, self._session
+        config, session = self.config, self._session
 
         def release_detector() -> None:
             self.detection_model = self.job_detection_model = None
@@ -574,7 +573,7 @@ class Pipeline:
         try:
             run_refine(
                 ltx_video=self.input_video,
-                decode_backend=self.decode_backend,
+                decode_backend=config.decode_backend,
                 ltx_metadata=metadata,
                 source_video=source_video,
                 source_metadata=source_metadata,
@@ -582,13 +581,13 @@ class Pipeline:
                 detector=self.job_detection_model,
                 release_detector=release_detector,
                 make_restorer=lambda: build_ltx_crop_vsr_restorer(config, self.device),
-                batch_size=self.batch_size,
+                batch_size=config.batch_size,
                 device=self.device,
-                large_canvas=self.ltx_large_canvas,
-                window_hop=self.ltx_window_hop,
-                max_gap=track_max_gap(self.max_detection_gap),
-                min_duration=self.min_detection_duration,
-                disable_progress=self.disable_progress,
+                large_canvas=config.ltx_large_canvas,
+                window_hop=config.ltx_window_hop,
+                max_gap=track_max_gap(config.max_detection_gap),
+                min_duration=config.min_detection_duration,
+                disable_progress=config.disable_progress,
                 progress_callback=self.progress_callback,
                 cancel=self._cancel_event,
             )

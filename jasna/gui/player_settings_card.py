@@ -7,11 +7,13 @@ import customtkinter as ctk
 from jasna.gui.locales import t
 from jasna.gui.models import AppSettings
 from jasna.gui.settings_sections.widgets import option_menu, set_widgets_enabled
+from jasna.engine_paths import default_restoration_model_path
 from jasna.gui.theme import Colors, Sizing
 from jasna.mosaic.detection_registry import (
     detection_model_choices,
     recommended_score_threshold,
 )
+from jasna.restorer.checkpoint_info import discover_restoration_checkpoints
 from jasna.session_factory import secondary_restorations_for
 
 
@@ -29,8 +31,8 @@ def available_player_secondary_restorations() -> tuple[str, ...]:
 
 
 class PlayerSettingsCard(ctk.CTkFrame):
-    """The player's detection model, secondary restoration and detection threshold;
-    ``on_changed()`` runs when a choice needs the pipeline reloaded."""
+    """The player's detection model, secondary restoration, restoration checkpoint (+modi) and
+    detection threshold; ``on_changed()`` runs when a choice needs the pipeline reloaded."""
 
     def __init__(self, master, settings: AppSettings, on_changed) -> None:
         super().__init__(master, fg_color=Colors.BG_CARD, corner_radius=Sizing.BORDER_RADIUS)
@@ -74,14 +76,38 @@ class PlayerSettingsCard(ctk.CTkFrame):
         self._secondary.set_value(settings.secondary_restoration)
         self._secondary.grid(row=0, column=3, padx=(0, 14), pady=10, sticky="w")
 
+        # +modi: the BasicVSR++ checkpoint the player restores with.
+        ctk.CTkLabel(
+            self,
+            text=t("player_restoration_model"),
+            text_color=Colors.TEXT_PRIMARY,
+        ).grid(row=1, column=0, padx=(12, 6), pady=(0, 10), sticky="w")
+        default_stem = default_restoration_model_path("basicvsrpp").stem
+        stems = [path.stem for path in discover_restoration_checkpoints()] or [default_stem]
+        self._restoration_checkpoint_menu = option_menu(
+            self,
+            {stem: stem for stem in stems},
+            lambda _value: on_changed(),
+            width=340,
+            background=Colors.BG_PANEL,
+        )
+        self._restoration_checkpoint_menu.set_value(
+            settings.restoration_checkpoint
+            if settings.restoration_checkpoint in stems
+            else (default_stem if default_stem in stems else stems[0])
+        )
+        self._restoration_checkpoint_menu.grid(
+            row=1, column=1, columnspan=3, padx=(0, 14), pady=(0, 10), sticky="w"
+        )
+
         ctk.CTkLabel(
             self,
             text=t("player_detection_threshold"),
             text_color=Colors.TEXT_PRIMARY,
-        ).grid(row=1, column=0, padx=(12, 6), pady=(0, 10), sticky="w")
+        ).grid(row=2, column=0, padx=(12, 6), pady=(0, 10), sticky="w")
         threshold_row = ctk.CTkFrame(self, fg_color="transparent")
         threshold_row.grid(
-            row=1,
+            row=2,
             column=1,
             columnspan=3,
             padx=(0, 14),
@@ -121,7 +147,10 @@ class PlayerSettingsCard(ctk.CTkFrame):
             detection_model=self._model.get_value(),
             detection_score_threshold=float(self._threshold.get()),
             secondary_restoration=self._secondary.get_value(),
+            restoration_checkpoint=self._restoration_checkpoint_menu.get_value(),
         )
 
     def set_enabled(self, enabled: bool) -> None:
-        set_widgets_enabled((self._model, self._threshold, self._secondary), enabled)
+        set_widgets_enabled(
+            (self._model, self._threshold, self._secondary, self._restoration_checkpoint_menu), enabled
+        )

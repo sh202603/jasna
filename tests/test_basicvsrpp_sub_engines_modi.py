@@ -19,7 +19,8 @@ def test_load_sub_engines_skip_upsample(
     import jasna.restorer.basicvsrpp_sub_engines as se
 
     model_path = str(tmp_path / "model.pth")
-    paths = get_sub_engine_paths(model_path, fp16=True)
+    monkeypatch.setattr(se, "cuda_arch_name", lambda device: "sm89")  # v0.12.4: engine names carry the GPU arch
+    paths = get_sub_engine_paths(model_path, True, "sm89")
     for p in paths.values():
         Path(p).parent.mkdir(parents=True, exist_ok=True)
         Path(p).write_text("x", encoding="utf-8")
