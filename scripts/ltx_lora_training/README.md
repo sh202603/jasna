@@ -19,3 +19,4 @@ header comment that states what it does and how to run it.
 | Checkpoint, LoRA fused, to jasna's transformer file | `convert_ltx_to_jasna.py` (`st_writer.py` is its helper) | jasna venv |
 | Model folder with the public LTX-2.5 VAE | `make_bundle.py` | jasna venv |
 | Checking a LoRA on dataset clips without the pipeline | `ltx_window_infer.py` | jasna venv |
+| Published kukkiri weights (`kiyo-ltx-v1`) to a jasna model folder ([guide](../../docs/en/ltx_kukkiri.md)) | `convert_kukkiri_ltx.py` | jasna venv |
