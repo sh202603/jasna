@@ -4,9 +4,9 @@ The folder gets the transformer under the chosen slot's file name (``--model dis
 8-step slot, ``distilled4`` = 4-step, ``undistilled`` = 15-step with STG), the public LTX-2.5
 DiffVAE as ``vae.safetensors`` (checked against jasna's recorded tensor names, shapes and
 config) and an empty full-size decoder file, ``vae-decoder-full.safetensors`` (no tuned-decoder
-overlay, so the stock 2.5 diffusion decoder runs). The public VAE is the full one: the 2-step slot
-(``--model distilled2``) defaults to the half encoder and max decoder of the release, so run it
-with ``JASNA_LTX_VAE_ENCODER=full JASNA_LTX_VAE_DECODER=full``. The transformer and VAE are hard-linked when possible and symlinked
+overlay, so the stock 2.5 diffusion decoder runs). The public VAE is the full one: a slot whose
+release default differs (``ltx-basic``) needs ``--ltx-vae-encoder full --ltx-vae-decoder full``.
+The transformer and VAE are hard-linked when possible and symlinked
 otherwise, so the folder costs no extra disk.
 
 Run with jasna's venv. Use the folder with ``--restoration-model-name ltx-8step
@@ -27,7 +27,7 @@ from safetensors import safe_open
 from safetensors.torch import save_file
 
 from jasna.ltx import trial_shapes as S
-from jasna.ltx.model_files import DEFAULT_VAES, VAE_DECODER_ENV, VAE_ENCODER_ENV, bundle_names
+from jasna.ltx.model_files import DEFAULT_VAES, bundle_names
 
 
 def link(src: Path, dst: Path) -> None:
@@ -72,15 +72,14 @@ def main() -> None:
     args.model_dir.mkdir(parents=True, exist_ok=True)
     # The public DiffVAE is the full encoder and decoder; name the files for those, whatever
     # the slot's release default is.
-    os.environ[VAE_ENCODER_ENV] = os.environ[VAE_DECODER_ENV] = "full"
-    transformer_name, vae_name, decoder_name = bundle_names(args.model, fast=False)
+    transformer_name, vae_name, decoder_name = bundle_names(args.model, fast=False, encoder="full", decoder="full")
     link(args.transformer, args.model_dir / transformer_name)
     link(args.vae, args.model_dir / vae_name)
     save_file({}, str(args.model_dir / decoder_name))
     for p in sorted(args.model_dir.iterdir()):
         print(f"  {p.name}: {p.stat().st_size / 1e9:.3f} GB")
     if DEFAULT_VAES[args.model] != ("full", "full"):
-        print(f"  note: run this slot with {VAE_ENCODER_ENV}=full {VAE_DECODER_ENV}=full")
+        print("  note: run this slot with --ltx-vae-encoder full --ltx-vae-decoder full")
 
 
 if __name__ == "__main__":
