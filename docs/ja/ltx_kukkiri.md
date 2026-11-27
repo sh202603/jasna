@@ -103,6 +103,7 @@ jasna はこれをモデルファイルのメタデータから読むので、�
 ランタイムの変更は次の 2 つで、upstream のモデルファイルを読むときの動作は変えません。
 
 - **`position_fps`**（`jasna/ltx/sampler.py`、`jasna/ltx/transformer.py`）: モデルファイルのメタデータに `position_fps` があれば、時間位置をそのフレームレートで計算します。無ければ upstream と同じ 24 です。このキーはこのフォーク独自のものです。
+- **設定タグ**（`jasna/settings_tag.py`、`jasna/ltx/model_files.py`）: 変換後のファイルは upstream の 2-step モデルのファイル名で置くので、出力に書く設定タグの `weights` だけでは upstream の重みと区別できません。変換器はメタデータ `converted_from` に出所を書き、ランタイムはそれがあればタグの `weights_release`（upstream のリリース名）の代わりに `weights_source` として書きます。例: `"weights_source":"kukkiri kiyo-ltx-v1-transformer.safetensors (plain int8 -> ConvRot int8)"`。
 - **conv VAE**（`jasna/models/ltx_vae/conv_video_decoder.py`、`loader.py`）: VAE の config が `CausalVideoAutoencoder` のとき、encoder は既存のものを使い、decoder は ltx-core から移植した畳み込み decoder を使います。window 全体を 1 回で decode します。
 
 ## 状態
@@ -111,7 +112,7 @@ jasna はこれをモデルファイルのメタデータから読むので、�
 - **upstream 形式のモデルへの影響なし**: 自前学習のモデル（diffusion VAE）を、この変更の前後のコードで同じ条件で実行した出力は、ビット単位で一致しました。
 - **Windows**（RTX 5060 Ti、2026-11-27、v0.12.3 ベース）: 480p から 1080p、24 から 59.94 fps の 8 本（10 秒から 355 秒）が完走し、フレーム数と長さは入力と一致しました。denoise は 1 step 約 2.05 秒でした。利用者の目視では、自前の IC-LoRA モデルよりよく復元できていました。
 - **diffusion VAE との互換**: kukkiri の transformer の出力は、LTX-2.5 の diffusion VAE でも decode できました。同じクリップで conv decoder の出力との PSNR は 45 dB、所要時間は同じでした。モデルフォルダーの `vae.safetensors` と `vae-decoder-full.safetensors` を diffusion VAE のものに置き換えると、この経路になります。画質の優劣は比べていません。
-- テスト: `tests/test_ltx_position_fps_modi.py`, `test_ltx_conv_vae_modi.py`, `test_convert_kukkiri_ltx_modi.py`。
+- テスト: `tests/test_ltx_position_fps_modi.py`, `test_ltx_conv_vae_modi.py`, `test_convert_kukkiri_ltx_modi.py`, `test_settings_tag_modi.py`。
 
 ## 既知の制限
 

@@ -329,7 +329,7 @@ def test_frame_generation_doubles_the_frames_and_rate_before_the_encoder():
 def test_ltx_loads_frame_generation_only_when_compose_opens_the_writer(tmp_path):
     from jasna.frame_generation import FrameGenerationWriter
 
-    pipeline = _pipeline(frame_generation="2x", restoration_model_name="ltx", ltx_files=MagicMock(transformer_name="t"))
+    pipeline = _pipeline(frame_generation="2x", restoration_model_name="ltx", ltx_files=MagicMock(transformer_name="t", transformer_source=None))
     pipeline.resume = MagicMock(directory=tmp_path)
     pipeline.configure_vr(_fake_metadata())
     with (

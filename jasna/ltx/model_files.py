@@ -22,6 +22,7 @@ LTX_MODELS: tuple[LtxModelName, ...] = get_args(LtxModelName)
 
 # The Hugging Face branch holding the files of LTX_DOWNLOADS; bump both together.
 LTX_MODEL_BRANCH = "0.12.1"
+CONVERTED_FROM_KEY = "converted_from"  # +modi: metadata key a conversion script writes
 
 
 @dataclass(frozen=True)
@@ -346,6 +347,17 @@ class LtxModelFiles:
         if isinstance(self.transformer, PlaceholderTensors):
             return _TRANSFORMER_NAMES[(self.transformer.model, self.transformer.part == "nvfp4")]
         return self.transformer.name.removesuffix(".enc")
+
+    @property
+    def transformer_source(self) -> str | None:
+        """+modi: what a converted transformer was made from (its ``converted_from`` metadata).
+        Such a file sits under a published file's name, so the name alone would say the
+        output came from upstream's weights. ``None`` for the published files and the trial."""
+        path = self.transformer
+        if isinstance(path, PlaceholderTensors) or is_frozen() or path.suffix == ".enc" or not path.is_file():
+            return None
+        with open_tensors(path) as reader:
+            return (reader.metadata() or {}).get(CONVERTED_FROM_KEY)
 
     @classmethod
     def placeholder(

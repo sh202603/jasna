@@ -11,6 +11,7 @@ from safetensors import safe_open
 from safetensors.torch import save_file
 
 from jasna.ltx import sampler
+from jasna.ltx.model_files import LtxModelFiles
 from jasna.ltx import transformer as T
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ltx_lora_training"))
@@ -65,6 +66,9 @@ def test_converted_layer_matches_the_plain_int8_layer(tmp_path: Path) -> None:
     assert json.loads(metadata["sigmas"]) == convert.SIGMAS
     assert float(json.loads(metadata["stg_scale"])) == 0.0
     assert sampler.position_fps(metadata) == 30.0
+    assert LtxModelFiles(target, target, target).transformer_source == (
+        "kukkiri kiyo-ltx-v1-transformer.safetensors (plain int8 -> ConvRot int8)"
+    )
     assert tensors["blocks.0.attn1.to_q.qdata"].dtype == torch.int8
     assert tensors["prompt_context"].dtype == torch.bfloat16
     assert torch.equal(tensors["blocks.0.attn1.to_q.bias"], bias)

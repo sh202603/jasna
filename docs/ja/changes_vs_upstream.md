@@ -161,9 +161,9 @@ upstream 0.12.1 が LTX window 向けの RTX Super Res を入れました（`b50
 [kukkiri](https://github.com/treehog2/kukkiri) は、モザイク復元用に fine-tune した LTX-2.5 の重み `kiyo-ltx-v1` を平文の safetensors で公開しています。テンソルの構成は jasna の LTX モデルファイルと同じなので、変換すれば `--restoration-model-name ltx` で動きます。重みは jasna に含めません（LTX-2.x Community License の派生物）。
 
 - **変換** `scripts/ltx_lora_training/convert_kukkiri_ltx.py`: テンソルの改名、素の INT8 から ConvRot W8A8 への再量子化（[3.8](#38-自前-ltx-モデルの学習scriptsltx_lora_training) の変換器と同じ `quantize_convrot`）、プロンプト埋め込みの同梱、サンプラー設定（2 step、STG なし）と `position_fps` のメタデータ。出力は 2-step スロットのファイル名のモデルフォルダー。
-- **ランタイム**: `position_fps`（モデルファイルのメタデータ。無ければ upstream の 24。`jasna/ltx/sampler.py`、`transformer.py`）と、LTX-2.5 の conv VAE（`CausalVideoAutoencoder`）の decoder（`jasna/models/ltx_vae/conv_video_decoder.py`、`loader.py` の分岐。ltx-core からの移植）。upstream のモデルファイルを読むときの動作は変えません。
+- **ランタイム**: `position_fps`（モデルファイルのメタデータ。無ければ upstream の 24。`jasna/ltx/sampler.py`、`transformer.py`）と、LTX-2.5 の conv VAE（`CausalVideoAutoencoder`）の decoder（`jasna/models/ltx_vae/conv_video_decoder.py`、`loader.py` の分岐。ltx-core からの移植）。upstream のモデルファイルを読むときの動作は変えません。 出力の設定タグは、変換したファイル（メタデータ `converted_from` を持つ）のとき `weights_release` の代わりに `weights_source` で出所を書きます（ファイル名は upstream のものと同じため）。
 - **制限**: frozen build では使えない（平文のモデルを読むのは開発インストールだけ）。`--ltx-fast` は不可（INT8 のみ）。conv decoder は window を分割せず、メモリ不足時の再試行の対象外。
-- **状態**（2026-11-27）: Linux（RTX 5080、v0.12.4 ベース）で変換（誤差 0.0142、15 秒）と、512 px と 768 px（`--ltx-large-canvas`）の canvas での実行が完走（1080p の 30 秒素材で LTX 部分 40 秒 / 102 秒、VRAM 最大 13.3 GB）。自前学習のモデルの出力は、この変更の前後でビット単位に一致。Windows（RTX 5060 Ti、v0.12.3 ベース）で 8 本が完走し、ユーザー目視で自前の IC-LoRA モデルよりよく復元。kukkiri の transformer の出力は diffusion VAE でも decode でき、conv decoder との PSNR は 45 dB。テスト: `tests/test_ltx_position_fps_modi.py`, `test_ltx_conv_vae_modi.py`, `test_convert_kukkiri_ltx_modi.py`。
+- **状態**（2026-11-27）: Linux（RTX 5080、v0.12.4 ベース）で変換（誤差 0.0142、15 秒）と、512 px と 768 px（`--ltx-large-canvas`）の canvas での実行が完走（1080p の 30 秒素材で LTX 部分 40 秒 / 102 秒、VRAM 最大 13.3 GB）。自前学習のモデルの出力は、この変更の前後でビット単位に一致。Windows（RTX 5060 Ti、v0.12.3 ベース）で 8 本が完走し、ユーザー目視で自前の IC-LoRA モデルよりよく復元。kukkiri の transformer の出力は diffusion VAE でも decode でき、conv decoder との PSNR は 45 dB。テスト: `tests/test_ltx_position_fps_modi.py`, `test_ltx_conv_vae_modi.py`, `test_convert_kukkiri_ltx_modi.py`, `test_settings_tag_modi.py`。
 
 ---
 

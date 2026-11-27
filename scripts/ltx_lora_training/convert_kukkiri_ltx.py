@@ -41,7 +41,7 @@ from convert_ltx_to_jasna import quantize_convrot  # noqa: E402
 from st_writer import StreamingSafetensorsWriter  # noqa: E402
 
 from jasna.ltx import transformer as T  # noqa: E402
-from jasna.ltx.model_files import bundle_names  # noqa: E402
+from jasna.ltx.model_files import CONVERTED_FROM_KEY, bundle_names  # noqa: E402
 
 SOURCE_PREFIX = "model.diffusion_model."
 SOURCE_FILES = {name: f"kiyo-ltx-v1-{name}.safetensors" for name in ("transformer", "vae", "prompt")}
@@ -109,7 +109,7 @@ def convert_transformer(source: Path, prompt: Path, target: Path, device: torch.
                 "sigmas": json.dumps(SIGMAS),
                 "stg_scale": "0.0",
                 "position_fps": json.dumps(POSITION_FPS),
-                "converted_from": f"kukkiri {SOURCE_FILES['transformer']} (plain int8 -> ConvRot int8)",
+                CONVERTED_FROM_KEY: f"kukkiri {SOURCE_FILES['transformer']} (plain int8 -> ConvRot int8)",
                 "license": "LTX-2.x Community License (a derivative of LTX-2.x; see the source file's metadata)",
             },
         )

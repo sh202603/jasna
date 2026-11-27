@@ -88,10 +88,13 @@ def job_settings(
     vr: VrModeResolution,
     ltx_weights: str | None,
     ltx_large_canvas: bool | None,
+    ltx_weights_source: str | None = None,
 ) -> dict[str, object]:
     """Everything that shapes the restored picture, except the encoder options, which
     ``settings_comment`` adds. ``segments`` carry their resolved restorations;
-    ``ltx_large_canvas`` is the 768 px decision the run made, not the request."""
+    ``ltx_large_canvas`` is the 768 px decision the run made, not the request.
+    ``ltx_weights_source`` (+modi) is what a converted transformer was made from; it replaces
+    ``weights_release``, which names upstream's release and would be false for such a file."""
     settings: dict[str, object] = {
         "jasna": __version__,
         "schema": SETTINGS_TAG_SCHEMA,
@@ -123,7 +126,11 @@ def job_settings(
         vae_encoder, vae_decoder = resolved_vaes(config.ltx_model, config.ltx_vae_encoder, config.ltx_vae_decoder)
         ltx: dict[str, object] = {
             "weights": ltx_weights,
-            "weights_release": LTX_MODEL_BRANCH,
+            **(
+                {"weights_release": LTX_MODEL_BRANCH}
+                if ltx_weights_source is None
+                else {"weights_source": ltx_weights_source}
+            ),
             "vae_encoder": vae_encoder,
             "vae_decoder": vae_decoder,
             "window_hop": config.ltx_window_hop,

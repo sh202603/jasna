@@ -399,6 +399,7 @@ class Pipeline:
             segments=resolve_restorations(self.segments, default) if self.segments else None,
             vr=self.vr_resolution,
             ltx_weights=self.ltx_files.transformer_name if "ltx" in models else None,
+            ltx_weights_source=self.ltx_files.transformer_source if "ltx" in models else None,
             ltx_large_canvas=ltx_large_canvas,
         )
 

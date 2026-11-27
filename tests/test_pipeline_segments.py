@@ -50,7 +50,9 @@ def _segment_pipeline(tmp_path, segments, spans, *, max_b_frames=0, **overrides)
             spans=spans,
             segments=segments,
         ),
-        ltx_files=MagicMock(transformer_name="ltx-restore-alpha1-distill2-int8.safetensors"),
+        ltx_files=MagicMock(
+            transformer_name="ltx-restore-alpha1-distill2-int8.safetensors", transformer_source=None
+        ),
         **settings,
     )
     pipeline.configure_vr(METADATA)

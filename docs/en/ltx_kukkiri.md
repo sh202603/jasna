@@ -101,6 +101,7 @@ no STG. jasna reads them from the model file's metadata, so the converter only w
 The two runtime changes leave the behaviour with upstream's model files as it was.
 
 - **`position_fps`** (`jasna/ltx/sampler.py`, `jasna/ltx/transformer.py`): when the model file's metadata has `position_fps`, the temporal positions use that frame rate; without it they use upstream's 24. The key is this fork's own.
+- **Settings tag** (`jasna/settings_tag.py`, `jasna/ltx/model_files.py`): the converted file sits under the file name of upstream's 2-step model, so the `weights` key of the settings tag in the output cannot tell it from upstream's weights. The converter writes where the file came from as the `converted_from` metadata; when the runtime finds it, the tag carries it as `weights_source` in place of `weights_release` (the name of upstream's release). Example: `"weights_source":"kukkiri kiyo-ltx-v1-transformer.safetensors (plain int8 -> ConvRot int8)"`.
 - **Conv VAE** (`jasna/models/ltx_vae/conv_video_decoder.py`, `loader.py`): for a `CausalVideoAutoencoder` config the existing encoder is used, and the decoder is a convolutional one ported from ltx-core. It decodes a whole window in one pass.
 
 ## Status
@@ -109,7 +110,7 @@ The two runtime changes leave the behaviour with upstream's model files as it wa
 - **No effect on upstream-format models**: a self-trained model (diffusion VAE) run under the same conditions with the code before and after this change gave bit-identical output.
 - **Windows** (RTX 5060 Ti, 2026-11-27, v0.12.3 base): eight clips from 480p to 1080p and 24 to 59.94 fps (10 to 355 s) ran to the end with the input's frame count and duration. Denoising took about 2.05 s per step. By the user's eye it restored better than their own IC-LoRA model.
 - **Works with the diffusion VAE too**: the output of kukkiri's transformer also decodes with LTX-2.5's diffusion VAE. On the same clip the result is 45 dB PSNR from the conv decoder's, in the same time. Replacing `vae.safetensors` and `vae-decoder-full.safetensors` in the model folder with the diffusion VAE's files selects that path. Which looks better has not been compared.
-- Tests: `tests/test_ltx_position_fps_modi.py`, `test_ltx_conv_vae_modi.py`, `test_convert_kukkiri_ltx_modi.py`.
+- Tests: `tests/test_ltx_position_fps_modi.py`, `test_ltx_conv_vae_modi.py`, `test_convert_kukkiri_ltx_modi.py`, `test_settings_tag_modi.py`.
 
 ## Known limits
 
