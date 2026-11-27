@@ -16,6 +16,7 @@ from jasna.accelerator import KernelBackend, kernel_backend
 from jasna.ltx.host_tensors import read_host_tensors, zero_tensors
 from jasna.ltx.kernel_policy import gpu_architecture
 from jasna.ltx.model_files import open_tensors
+from jasna.models.ltx_vae.conv_video_decoder import ConvVideoDecoder
 from jasna.models.ltx_vae.diffusion_video_decoder import DiffusionVideoDecoder
 from jasna.models.ltx_vae.tiling import TileSizeConfig
 from jasna.models.ltx_vae.transformer import compile_diffusion_blocks, decoder_kernels, use_kernels
@@ -28,6 +29,8 @@ from jasna.models.ltx_vae.video_encoder import (
 from jasna.tensor_utils import half_dtype
 
 _VAE_CLASS_NAME = "CausalDiffusionVAE"
+_CONV_VAE_CLASS_NAME = "CausalVideoAutoencoder"
+"""modi: LTX-2.5's conv VAE (``ltx-2.5-video-vae-conv``): the same encoder layout, a convolutional decoder."""
 _DECODER_CLASS_NAME = "NADiffusionDecoder"
 STAGE5_KERNEL = (9, 9, 9)
 """Stage-5 neighborhood-attention window, in place of the checkpoint's 11x11x11 (the weights do not depend on
@@ -43,6 +46,8 @@ logger = logging.getLogger(__name__)
 
 def read_vae_config(reader) -> dict:
     config = json.loads(reader.metadata()["config"])["vae"]
+    if config.get("_class_name") == _CONV_VAE_CLASS_NAME:
+        return config
     if config.get("_class_name") != _VAE_CLASS_NAME:
         raise ValueError(f"VAE class {config.get('_class_name')!r} is not supported")
     return config
@@ -55,6 +60,16 @@ def _require(config: dict, key: str, expected: object, section: str) -> None:
 
 def encoder_kwargs(config: dict) -> dict:
     """``VideoEncoder`` kwargs from a ``CausalDiffusionVAE`` config; rejects unported variants."""
+    if config.get("_class_name") == _CONV_VAE_CLASS_NAME:
+        _require(config, "dims", 3, "conv VAE")
+        _require(config, "norm_layer", "pixel_norm", "conv VAE")
+        _require(config, "spatial_padding_mode", "zeros", "conv VAE")
+        return {
+            "in_channels": config["in_channels"],
+            "out_channels": config["latent_channels"],
+            "encoder_blocks": config["encoder_blocks"],
+            "patch_size": config["patch_size"],
+        }
     encoder = config["encoder"]
     _require(encoder, "dims", 3, "encoder")
     _require(encoder, "norm_layer", "pixel_norm", "encoder")
@@ -221,6 +236,32 @@ def load_video_encoder(vae_path: Path, device: torch.device, encoder_path: Path 
         zero_tensors(checkpoint.values(), encoder)
 
 
+def conv_decoder_kwargs(config: dict) -> dict:
+    """``ConvVideoDecoder`` kwargs from a ``CausalVideoAutoencoder`` config; rejects unported variants."""
+    _require(config, "dims", 3, "conv VAE")
+    _require(config, "norm_layer", "pixel_norm", "conv VAE")
+    _require(config, "spatial_padding_mode", "zeros", "conv VAE")
+    _require(config, "causal_decoder", False, "conv VAE")
+    _require(config, "timestep_conditioning", False, "conv VAE")
+    return {
+        "in_channels": config["latent_channels"],
+        "out_channels": config["out_channels"],
+        "decoder_blocks": config["decoder_blocks"],
+        "patch_size": config["patch_size"],
+        "base_channels": config["decoder_base_channels"],
+    }
+
+
+def _load_conv_video_decoder(config: dict, checkpoint: dict[str, torch.Tensor], device: torch.device) -> ConvVideoDecoder:
+    """Eval ``ConvVideoDecoder`` in bf16 (fp32 before SM 8.0: its activations are not checked against
+    fp16's range). It runs eagerly and takes no fine-tuned overlay."""
+    kwargs = conv_decoder_kwargs(config)
+    state = {key.removeprefix("decoder."): value for key, value in checkpoint.items()}
+    dtype = torch.bfloat16 if half_dtype(device) == torch.bfloat16 else torch.float32
+    decoder = _build(lambda: ConvVideoDecoder(**kwargs), state, device, dtype)
+    return decoder.to(memory_format=torch.channels_last_3d)
+
+
 def _diffusion_block_count(tensors: Iterable[str]) -> int:
     return len({name.split(".")[1] for name in tensors if name.startswith("diff_blocks.")})
 
@@ -233,8 +274,13 @@ def load_video_decoder(vae_path: Path, tuned_decoder_path: Path, device: torch.d
     checkpoint, tuned, overlay = {}, {}, {}
     try:
         with open_tensors(vae_path) as reader:
-            kwargs = decoder_kwargs(read_vae_config(reader))
+            config = read_vae_config(reader)
             checkpoint = _read_tensors(reader, ("decoder.", "per_channel_statistics."))
+        if config.get("_class_name") == _CONV_VAE_CLASS_NAME:
+            decoder = _load_conv_video_decoder(config, checkpoint, device)
+            complete = True
+            return decoder
+        kwargs = decoder_kwargs(config)
         with open_tensors(tuned_decoder_path) as reader:
             tuned = _read_tensors(reader, ("",))
         depth = _diffusion_block_count(tuned) or kwargs["stage_depths"][-1]
@@ -282,6 +328,10 @@ def decode_latent(
     part of what it reports free), the window decodes again with the same noise in the tiles
     of a quarter less budget, until even the smallest tile does not fit (#839).
     """
+    if isinstance(decoder, ConvVideoDecoder):
+        weight = decoder.conv_in.conv.weight
+        sample = latent.to(dtype=weight.dtype, memory_format=torch.channels_last_3d)
+        return decoder(sample).to(latent.dtype)
     _b, _c, frames, height, width = latent.shape
     scale = decoder.video_downscale_factors
     pixels = (frames - 1) * scale.time + 1, height * scale.height, width * scale.width
