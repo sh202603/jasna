@@ -71,6 +71,19 @@ LTX の他のオプション（`--ltx-large-canvas`、`--ltx-overlap`、`--ltx-s
 `--secondary-restoration rtx-super-res` など）はそのまま使えます。
 `--ltx-fast` は使えません（[既知の制限](#既知の制限)）。
 
+### GUI で使う
+
+GUI にはモデルフォルダーを選ぶ欄がなく、LTX のモデルは `model_weights/ltx-restore/` から読みます。
+変換の出力先をそこにするか、できた 3 ファイルをそこへ置いてください。
+
+```bash
+.venv/bin/python scripts/ltx_lora_training/convert_kukkiri_ltx.py ~/kukkiri-ltx-v1 model_weights/ltx-restore
+```
+
+復元モデルで「LTX（標準画質）」（2-step）を選びます。
+ほかの LTX の画質と「高速モード」（NVFP4）は、対応するファイルが無いので選んでも開始できません。
+VAE の encoder と decoder は「自動」のままにします。
+
 ## 変換の中身
 
 kukkiri の transformer は、テンソルの構成が jasna の LTX モデルファイルと同じです（48 ブロックと top の層）。
@@ -107,7 +120,7 @@ jasna はこれをモデルファイルのメタデータから読むので、�
 - **conv decoder は window を分割しません。** diffusion decoder にあるタイル分割と、メモリ不足時の再試行の対象外です。16 GB の GPU では 768 px の canvas でも足りましたが、それより小さい GPU では確認していません。
 - **学習時と window の長さが違います。** kukkiri は 97 フレームのクリップで学習していますが、jasna は 121 フレームの window で処理します。静止画では破綻が見えませんでしたが、時間方向への影響は調べていません。
 - **再量子化の誤差が乗ります。** 配布されている重みがすでに INT8 なので、変換後の重みは 2 回分の丸めを含みます。
-- GUI からの利用は確認していません。
+- GUI は、モデルの検出と開始前の検査が通ること、GUI と同じフォルダーからの実行が完走することまで確認しました。画面を操作しての実行は確認していません。
 
 ## ライセンスと配布
 

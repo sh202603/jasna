@@ -69,6 +69,19 @@ The other LTX options (`--ltx-large-canvas`, `--ltx-overlap`, `--ltx-seed`,
 `--secondary-restoration rtx-super-res` and so on) work as usual. `--ltx-fast` does not
 ([Known limits](#known-limits)).
 
+### In the GUI
+
+The GUI has no field for a model folder: it reads the LTX model from `model_weights/ltx-restore/`.
+Convert into that folder, or put the three files there.
+
+```bash
+.venv/bin/python scripts/ltx_lora_training/convert_kukkiri_ltx.py ~/kukkiri-ltx-v1 model_weights/ltx-restore
+```
+
+Pick "LTX (Standard Quality)" (the 2-step model) as the restoration model. The other LTX
+qualities and "fast" (NVFP4) have no files here, so a run with them does not start. Leave the VAE
+encoder and decoder on "auto".
+
 ## What the conversion does
 
 kukkiri's transformer has the tensors of jasna's LTX model files (48 blocks and the top layers).
@@ -105,7 +118,7 @@ The two runtime changes leave the behaviour with upstream's model files as it wa
 - **The conv decoder does not split a window.** It has neither the tiling nor the retry after an out-of-memory error that the diffusion decoder has. A 16 GB GPU had room for the 768 px canvas; smaller GPUs have not been checked.
 - **The window is longer than in training.** kukkiri trains on 97-frame clips, jasna runs 121-frame windows. Stills showed no defects; the effect over time has not been examined.
 - **A second quantization error.** The published weights are INT8 already, so the converted ones carry the rounding of both.
-- Use from the GUI has not been checked.
+- For the GUI, the model detection, the checks before a start and a run from the folder the GUI reads were verified. A run driven from the window has not been.
 
 ## License and distribution
 
