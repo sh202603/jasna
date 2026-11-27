@@ -12,7 +12,7 @@
 | --- | --- |
 | [1. この公開ビルドの範囲](#1-この公開ビルドの範囲) | 公開ソースではできないこと（支援者モデル、リリース版の LTX 重み） |
 | [2. 機能一覧](#2-機能一覧) | modi の全機能・切り替え方・状態・詳細ドキュメントを 1 表に |
-| [3. 復元モデル](#3-復元モデル) | SeedVR2 一次復元、FlashVSR / SwiftVR / SwiftVR distill 二次復元、RTX Super Res の追加オプション、LTX 出力の鮮明化、自前 LTX モデルの学習 |
+| [3. 復元モデル](#3-復元モデル) | SeedVR2 一次復元、FlashVSR / SwiftVR / SwiftVR distill 二次復元、RTX Super Res の追加オプション、LTX 出力の鮮明化、自前 LTX モデルの学習、kukkiri の LTX 重み |
 | [4. フレーム生成](#4-フレーム生成) | `--frame-generation`、`rife` / `rtx` バックエンド、後処理 CLI `jasna-postprocess`（全画面アップスケールを含む） |
 | [5. メディアとエンジンのバックエンド](#5-メディアとエンジンのバックエンド) | torchcodec、cuDNN FP8 upsample、TensorRT-RTX フレーバー |
 | [6. GUI](#6-gui) | A/B モデル比較、動画プレーヤーのチェックポイント選択、modi 機能の設定項目 |
@@ -29,7 +29,7 @@
 ## 1. この公開ビルドの範囲
 
 - **支援者モデルは不活性（inert）。** `unet-4x`、SD 1.5 画像復元、有効化フローは非公開の `jasna/protection` サブモジュールを要し、この公開フォークには含まれません。upstream のコードは同梱されますが動作しません。これらのモデルは upstream の公式リリースを使ってください。
-- **LTX による復元は自前モデルでのみ可能です。** リリース版の LTX 重みは暗号化（`.enc`）されて配布され、復号できるのは公式リリースだけなので、その重みでは `--restoration-model-name ltx` / `ltx-4step` / `ltx-8step` / `ltx-undistilled` と GUI の LTX モードは動かず、`--ltx-trial` はランダム重みで速度を測るだけです。推論経路そのものは公開コードで平文の safetensors を読み込みます。[ltx_lora_training.md](ltx_lora_training.md) は、公開の LTX-2.3 チェックポイントとモザイク/原画ペアで学習した IC-LoRA からその経路向けのモデルを作る手順です（[3.8](#38-自前-ltx-モデルの学習scriptsltx_lora_training)）。LTX の公開部分（モザイクのスキャンと合成）を、公式リリースが復元した動画の鮮明化 [`--ltx-crop-vsr`](#36-ltx-出力の鮮明化--ltx-crop-vsr) が再利用しています。
+- **LTX による復元は、自前モデルか、変換した公開重みでのみ可能です。** リリース版の LTX 重みは暗号化（`.enc`）されて配布され、復号できるのは公式リリースだけなので、その重みでは `--restoration-model-name ltx` / `ltx-4step` / `ltx-8step` / `ltx-undistilled` と GUI の LTX モードは動かず、`--ltx-trial` はランダム重みで速度を測るだけです。推論経路そのものは公開コードで平文の safetensors を読み込みます。[ltx_lora_training.md](ltx_lora_training.md) は、公開の LTX-2.3 チェックポイントとモザイク/原画ペアで学習した IC-LoRA からその経路向けのモデルを作る手順です（[3.8](#38-自前-ltx-モデルの学習scriptsltx_lora_training)）。[ltx_kukkiri.md](ltx_kukkiri.md) は、kukkiri が平文で公開しているモザイク復元用の LTX-2.5 重みを変換して使う手順です（[3.9](#39-kukkiri-の-ltx-重みltx_kukkirimd)）。LTX の公開部分（モザイクのスキャンと合成）を、公式リリースが復元した動画の鮮明化 [`--ltx-crop-vsr`](#36-ltx-出力の鮮明化--ltx-crop-vsr) が再利用しています。
 - **それ以外は動作します**: 検出、BasicVSR++ 復元、RTX Super Res と TVAI の二次復元、区間エディター、VR180、ストリーミング、エクスポート後アクション、そして以下の modi 機能。
 - **ソースから実行します。** セットアップはビルドガイド（[Linux](building_linux.md)、[Windows](building_windows.md)）に従います。Windows 向けには `scripts/build_nuitka.py` で実験的なバンドルを作れます（[frozen_build.md](frozen_build.md)）。
 
@@ -47,6 +47,7 @@
 | LTX 後処理 | LTX 出力を SwiftVR か RTX Super Res で鮮明化 | `--ltx-crop-vsr swiftvr` / `swiftvr-distill` / `rtx-super-res` | Linux・Windows 検証済み、ユーザー目視合格 | [ltx_crop_vsr.md](ltx_crop_vsr.md)、[3.6](#36-ltx-出力の鮮明化--ltx-crop-vsr) |
 | LTX 実行中の鮮明化 | compose 段で各 LTX window に RTX Super Res の deblur（upstream の LTX super resolution の上に modi の方針） | LTX モデル + `--secondary-restoration rtx-super-res`（CLI と GUI） | 自前学習の LTX モデルで Linux 検証済み、ユーザー目視合格（v0.11.3 ベース）。v0.12.1 ベースでは自前学習の LTX モデルで Linux と Windows を検証済み、ユーザー目視合格 | [3.7](#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res) |
 | LTX モデルの学習 | 公開の LTX-2.3 チェックポイントの変換と、jasna の LTX 経路向け IC-LoRA の学習 | `scripts/ltx_lora_training/` | Linux で変換・学習・推論まで検証済み、Windows と ARM64 は未検証 | [ltx_lora_training.md](ltx_lora_training.md)、[3.8](#38-自前-ltx-モデルの学習scriptsltx_lora_training) |
+| kukkiri の LTX 重み | 公開されているモザイク復元用の LTX-2.5 重み（`kiyo-ltx-v1`）を変換して LTX 経路で使う | `scripts/ltx_lora_training/convert_kukkiri_ltx.py`、`--restoration-model-name ltx --restoration-model-path <フォルダー>` | Linux と Windows で変換と実行を検証済み、Windows でユーザー目視合格 | [ltx_kukkiri.md](ltx_kukkiri.md)、[3.9](#39-kukkiri-の-ltx-重みltx_kukkirimd) |
 | フレーム生成 | upstream の 2x RTX フレーム生成の上に 4x、RIFE バックエンド、RTX 品質モード、スタンドアロン CLI | `--frame-generation 2x\|4x`、`--frame-generation-backend rtx\|rife`、`jasna-postprocess` | v0.12.2 ベースで Linux 検証済み（e2e）、v0.12.1 ベースで Linux・Windows 検証済み | [frame_generation.md](frame_generation.md)、[4](#4-フレーム生成) |
 | 後処理 CLI | 復元を通さない全画面アップスケール（本体の 4 モデルと、SwiftVR、RelayVSR の全画面適用）とフレーム生成。`jasna-framegen` を改名して拡張 | `jasna-postprocess --upscale ...\|swiftvr\|relayvsr`、`--frame-generation` | `rtx-super-res`（フレーム生成の併用を含む）、`swiftvr`、`relayvsr` を Windows で e2e 検証済み（RTX 5060 Ti）、`swiftvr` と `relayvsr` は利用者の目視も合格。Linux と frozen build は未検証 | [postprocess.md](postprocess.md)、[4](#4-フレーム生成) |
 | メディアバックエンド | torchcodec のデコード/エンコード | `--video-backend`、`--video-decode-backend`、`--video-encode-backend` | 実験的。Linux・Windows 検証済み（v0.12.2 ベースでは torchcodec 0.17 を Linux で） | [torchcodec_backend.md](torchcodec_backend.md)、[5.1](#51-torchcodec-動画バックエンド) |
@@ -154,6 +155,15 @@ upstream 0.12.1 が LTX window 向けの RTX Super Res を入れました（`b50
 
 - **コード**: `scripts/ltx_lora_training/` のみで、ランタイムは変更なし。素のチェックポイントも変換して動きますが参照を写すだけで、復元能力を足すのは IC-LoRA です。
 - **状態**（Linux、RTX 5080、2026-10-30）: 公開した変換器は作者の既存モデルをビット一致で再現。rank 32 の IC-LoRA は 11〜12 s/step、VRAM 12.6 GB、RAM 32 GB で学習。INT8 と bf16 のモデルがどちらも jasna で動く（bf16 は torch.compile 経路で大半のブロックをホスト RAM からストリーミングし、window あたり約 2 倍遅い）。モデルはモザイクを復元するがリリース版より柔らかい。学習済みの重みは公開しない。Windows と ARM64 は未検証。
+
+### 3.9 kukkiri の LTX 重み（[ltx_kukkiri.md](ltx_kukkiri.md)）
+
+[kukkiri](https://github.com/treehog2/kukkiri) は、モザイク復元用に fine-tune した LTX-2.5 の重み `kiyo-ltx-v1` を平文の safetensors で公開しています。テンソルの構成は jasna の LTX モデルファイルと同じなので、変換すれば `--restoration-model-name ltx` で動きます。重みは jasna に含めません（LTX-2.x Community License の派生物）。
+
+- **変換** `scripts/ltx_lora_training/convert_kukkiri_ltx.py`: テンソルの改名、素の INT8 から ConvRot W8A8 への再量子化（[3.8](#38-自前-ltx-モデルの学習scriptsltx_lora_training) の変換器と同じ `quantize_convrot`）、プロンプト埋め込みの同梱、サンプラー設定（2 step、STG なし）と `position_fps` のメタデータ。出力は 2-step スロットのファイル名のモデルフォルダー。
+- **ランタイム**: `position_fps`（モデルファイルのメタデータ。無ければ upstream の 24。`jasna/ltx/sampler.py`、`transformer.py`）と、LTX-2.5 の conv VAE（`CausalVideoAutoencoder`）の decoder（`jasna/models/ltx_vae/conv_video_decoder.py`、`loader.py` の分岐。ltx-core からの移植）。upstream のモデルファイルを読むときの動作は変えません。
+- **制限**: frozen build では使えない（平文のモデルを読むのは開発インストールだけ）。`--ltx-fast` は不可（INT8 のみ）。conv decoder は window を分割せず、メモリ不足時の再試行の対象外。
+- **状態**（2026-11-27）: Linux（RTX 5080、v0.12.4 ベース）で変換（誤差 0.0142、15 秒）と、512 px と 768 px（`--ltx-large-canvas`）の canvas での実行が完走（1080p の 30 秒素材で LTX 部分 40 秒 / 102 秒、VRAM 最大 13.3 GB）。自前学習のモデルの出力は、この変更の前後でビット単位に一致。Windows（RTX 5060 Ti、v0.12.3 ベース）で 8 本が完走し、ユーザー目視で自前の IC-LoRA モデルよりよく復元。kukkiri の transformer の出力は diffusion VAE でも decode でき、conv decoder との PSNR は 45 dB。テスト: `tests/test_ltx_position_fps_modi.py`, `test_ltx_conv_vae_modi.py`, `test_convert_kukkiri_ltx_modi.py`。
 
 ---
 

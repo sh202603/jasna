@@ -11,7 +11,7 @@ Jasna は動画と画像のモザイクを復元します。無料で、シン�
 >
 > ## ⚠️ パブリックソースのみで構築。LTX による復元は自前モデルでのみ可能です。
 >
-> **このフォークは Jasna のソースのうち公開されている部分だけで作られています。** 非公開のサブモジュール `jasna/protection`（ライセンス有効化と、暗号化された支援者モデルの復号）は**含まれていない**ため、**UNet 4x・SD 1.5 はこのビルドでは動かず、LTX は自前モデルでのみ動きます**。LTX の重みは暗号化（`.enc`）されて配布され、復号できるのは公式リリースだけです。リリース版の重みでは `--restoration-model-name ltx` と GUI の LTX モードはここでは失敗し、`--ltx-trial` は何も復元せず速度を測るだけです。リリース版の LTX 重みや支援者モデルが必要な場合は公式の [**Kruk2/jasna**](https://github.com/Kruk2/jasna) リリースを使ってください。一方、jasna の LTX 推論経路そのものは公開コードで、平文の safetensors を読み込めます。[docs/ja/ltx_lora_training.md](docs/ja/ltx_lora_training.md) は、公開の LTX-2.3 チェックポイントと、モザイク/原画ペアで学習した IC-LoRA から、その経路向けのモデルを作る手順です。公式リリースが LTX で復元した動画は、ここで `--ltx-crop-vsr` を使って鮮明化できます（[docs/ja/ltx_crop_vsr.md](docs/ja/ltx_crop_vsr.md)）。それ以外（検出、BasicVSR++ 復元、RTX/TVAI の二次復元、区間エディター、VR180、ストリーミング、エクスポート後アクション）は通常どおり動作します。
+> **このフォークは Jasna のソースのうち公開されている部分だけで作られています。** 非公開のサブモジュール `jasna/protection`（ライセンス有効化と、暗号化された支援者モデルの復号）は**含まれていない**ため、**UNet 4x・SD 1.5 はこのビルドでは動かず、LTX は自前モデルか変換した公開重みでのみ動きます**。LTX の重みは暗号化（`.enc`）されて配布され、復号できるのは公式リリースだけです。リリース版の重みでは `--restoration-model-name ltx` と GUI の LTX モードはここでは失敗し、`--ltx-trial` は何も復元せず速度を測るだけです。リリース版の LTX 重みや支援者モデルが必要な場合は公式の [**Kruk2/jasna**](https://github.com/Kruk2/jasna) リリースを使ってください。一方、jasna の LTX 推論経路そのものは公開コードで、平文の safetensors を読み込めます。[docs/ja/ltx_lora_training.md](docs/ja/ltx_lora_training.md) は、公開の LTX-2.3 チェックポイントと、モザイク/原画ペアで学習した IC-LoRA から、その経路向けのモデルを作る手順です。公式リリースが LTX で復元した動画は、ここで `--ltx-crop-vsr` を使って鮮明化できます（[docs/ja/ltx_crop_vsr.md](docs/ja/ltx_crop_vsr.md)）。それ以外（検出、BasicVSR++ 復元、RTX/TVAI の二次復元、区間エディター、VR180、ストリーミング、エクスポート後アクション）は通常どおり動作します。
 >
 > 上流 [Kruk2/jasna](https://github.com/Kruk2/jasna) **v0.12.4** をベースにした改変ビルドで、次を追加しています。
 >
@@ -19,6 +19,7 @@ Jasna は動画と画像のモザイクを復元します。無料で、シン�
 > - **LTX 出力の鮮明化**（`--ltx-crop-vsr`）: 公式リリースが LTX で復元した動画とその元動画を受け取り、LTX の公開部分であるモザイクスキャンを再実行し、モザイク領域を SwiftVR、SwiftVR distill または RTX Super Res で 2 倍に拡大して LTX 自身の合成処理で戻します。特に低解像度の入力で LTX の復元 crop がぼやけるケースの鮮明化を狙ったものです。このビルドで LTX の結果を扱える唯一の経路です。[docs/ja/ltx_crop_vsr.md](docs/ja/ltx_crop_vsr.md) をご覧ください。
 > - **LTX 実行中の window の鮮明化**（LTX モデル + `--secondary-restoration rtx-super-res`）: 同じ RTX Super Res の deblur を、LTX の compose 段で合成前の各 window canvas に掛けます。upstream 0.12.1 にも同じオプションがありますが、拡大される window だけで既定は deblur なしです。このフォークは全 window・deblur `low` を保ちます。このビルドで読み込める LTX の重み（平文 safetensors。暗号化されたリリース版の重みは不可）でだけ使えます。[docs/ja/changes_vs_upstream.md §3.7](docs/ja/changes_vs_upstream.md#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res) をご覧ください。
 > - **自前 LTX モデルの学習**（`scripts/ltx_lora_training/`）: 公開の LTX-2.3 チェックポイント（例: Sulphur-2-base）を jasna の LTX ファイル形式に変換し、Musubi Tuner の LTX-2 fork でモザイク/原画の window ペアから IC-LoRA を学習して、このビルドで読み込める LTX モデルを作ります。モザイクは復元できますが、リリース版モデルより柔らかい仕上がりです。[docs/ja/ltx_lora_training.md](docs/ja/ltx_lora_training.md) をご覧ください。
+> - **kukkiri の LTX 重み**（`scripts/ltx_lora_training/convert_kukkiri_ltx.py`）: [kukkiri](https://github.com/treehog2/kukkiri) が平文で公開しているモザイク復元用の LTX-2.5 重みを、LTX 経路が読み込めるモデルフォルダーに変換します（`--restoration-model-name ltx --restoration-model-path <フォルダー>`）。重みは jasna に含まれません。[docs/ja/ltx_kukkiri.md](docs/ja/ltx_kukkiri.md) をご覧ください。
 > - **フレーム生成**（`--frame-generation` 2x/4x、RIFE または RTX Video Frame Generation）と、復元済み動画向けのスタンドアロン `jasna-postprocess`。
 > - **復元を通さない後処理**（`jasna-postprocess`、旧 `jasna-framegen`）: 完成済みの動画に全画面アップスケール（`--upscale`。jasna の upscaler か、SwiftVR / RelayVSR の全画面適用）とフレーム生成を掛けます。[docs/ja/postprocess.md](docs/ja/postprocess.md) を参照。
 > - **バックエンド**: 実験的な **torchcodec 動画バックエンド**、実験的な **cuDNN FP8 復元バックエンド**、エンジンを数秒でビルドする **TensorRT-RTX** フレーバー。
@@ -242,6 +243,8 @@ jasna --input input_folder --output output_folder
   動画向けの `--ltx-crop-vsr`。
 - [自前 LTX モデルの学習](docs/ja/ltx_lora_training.md): 公開の LTX-2.3
   チェックポイントの変換と、jasna の LTX 経路向け IC-LoRA の学習（Linux 検証済み）。
+- [kukkiri の LTX 重みを使う](docs/ja/ltx_kukkiri.md): 公開されているモザイク復元用の
+  LTX-2.5 重みを変換して jasna の LTX 経路で使う手順。
 - [フレーム生成](docs/ja/frame_generation.md): `--frame-generation`、RIFE と RTX の
   バックエンド、`jasna-postprocess`。
 - [後処理 CLI](docs/ja/postprocess.md): `jasna-postprocess`、復元済み動画への全画面
