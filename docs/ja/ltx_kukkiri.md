@@ -32,6 +32,20 @@ done
 sha256sum kiyo-ltx-v1-*.safetensors
 ```
 
+Windows（PowerShell）では次のとおりです。
+以下、Windows の例は重みを `D:\kukkiri-ltx-v1` に置いたものとして書きます。
+
+```powershell
+New-Item -ItemType Directory -Force D:\kukkiri-ltx-v1; cd D:\kukkiri-ltx-v1
+foreach ($n in "transformer", "vae", "prompt") {
+    curl.exe -L -O "https://huggingface.co/treehog/kukkiri/resolve/main/ltx-v1/kiyo-ltx-v1-$n.safetensors"
+}
+Get-FileHash kiyo-ltx-v1-*.safetensors -Algorithm SHA256
+```
+
+`curl` ではなく `curl.exe` と書きます（Windows PowerShell 5.1 の `curl` は別のコマンドの別名です）。
+`Get-FileHash` は SHA-256 を大文字で表示します。
+
 | ファイル | サイズ（バイト） | SHA-256 |
 | --- | --- | --- |
 | `kiyo-ltx-v1-transformer.safetensors` | 13,364,075,432 | `9712079e1b0ee20a9a47efbd0278cc4fb0eb7b88f9571e9d4d9fdfec70ccc94e` |
@@ -48,23 +62,36 @@ jasna の checkout で、jasna の venv から実行します。
 .venv/bin/python scripts/ltx_lora_training/convert_kukkiri_ltx.py ~/kukkiri-ltx-v1 model_weights/ltx-kukkiri
 ```
 
+Windows:
+
+```powershell
+.venv\Scripts\python scripts\ltx_lora_training\convert_kukkiri_ltx.py D:\kukkiri-ltx-v1 model_weights\ltx-kukkiri
+```
+
 出力フォルダーには、jasna の 2-step モデル（`--restoration-model-name ltx`）のファイル名で次の 3 つができます。
 
 | ファイル | 内容 |
 | --- | --- |
 | `ltx-restore-alpha1-distill2-int8.safetensors` | 変換した transformer。kukkiri のプロンプト埋め込みを `prompt_context` として持ち、サンプラーの設定をメタデータに持つ |
-| `vae.safetensors` | kukkiri の VAE。ハードリンク、できなければコピー |
+| `vae.safetensors` | kukkiri の VAE。ハードリンク、できなければコピー（Windows では、元の重みと出力先が別のドライブだとコピーになり、1.5 GB 増えます） |
 | `vae-decoder-full.safetensors` | テンソルのない空のファイル。この VAE は調整済み decoder を使わないが、モデルフォルダーがこの名前を要求する |
 
 スクリプトは最後に、変換が各層の出力に加える相対誤差の最大値を表示します。
 0.014 前後なら正常です（Linux で 0.0142、Windows で 0.0144）。
-RTX 5080 では 15 秒で終わります。
+RTX 5080 では 15 秒、RTX 5060 Ti では 40 秒で終わります。
 
 ## 3. 実行する
 
 ```bash
 .venv/bin/python -m jasna --input in.mp4 --output out.mp4 \
     --restoration-model-name ltx --restoration-model-path model_weights/ltx-kukkiri
+```
+
+Windows:
+
+```powershell
+.venv\Scripts\python -m jasna --input in.mp4 --output out.mp4 `
+    --restoration-model-name ltx --restoration-model-path model_weights\ltx-kukkiri
 ```
 
 LTX の他のオプション（`--ltx-large-canvas`、`--ltx-overlap`、`--ltx-seed`、
@@ -80,9 +107,34 @@ GUI にはモデルフォルダーを選ぶ欄がなく、LTX のモデルは `m
 .venv/bin/python scripts/ltx_lora_training/convert_kukkiri_ltx.py ~/kukkiri-ltx-v1 model_weights/ltx-restore
 ```
 
+Windows:
+
+```powershell
+.venv\Scripts\python scripts\ltx_lora_training\convert_kukkiri_ltx.py D:\kukkiri-ltx-v1 model_weights\ltx-restore
+```
+
+Windows で、すでに `model_weights\ltx-kukkiri` へ変換してある場合は、変換し直さずに junction を張れます。
+junction は管理者権限なしで作れます。
+
+```powershell
+cmd /c mklink /J model_weights\ltx-restore model_weights\ltx-kukkiri
+```
+
+外すときは `cmd /c rmdir model_weights\ltx-restore` です。junction だけが消え、変換したファイルは残ります。
+`model_weights\ltx-restore` に別のモデルがすでにある場合は、消さずに改名して退避してから張ります。
+
+GUI は、jasna の checkout で起動します（`.venv\Scripts\python -m jasna`、Linux は `.venv/bin/python -m jasna`）。
+`model_weights` は起動したフォルダーのものが先に使われるので、別のフォルダーから起動すると、そこに `model_weights` があればそちらを読みます。
+
 復元モデルで「LTX（標準画質）」（2-step）を選びます。
 ほかの LTX の画質と「高速モード」（NVFP4）は、対応するファイルが無いので選んでも開始できません。
 VAE の encoder と decoder は「自動」のままにします。
+
+開始する前に、「お試しモード（速度テスト）」がオフになっていることを確かめます。
+`model_weights/ltx-restore/` にモデルのファイルが無いと、GUI はお試しモードをオンに固定します。
+その実行は重みなしの速度テストで、出力は復元されません。
+このとき、進捗の表示の末尾に `(trial)` が付きます。
+kukkiri の重みで走っているときは `(trial)` が付かず、ログの `settings:` の行に `"weights_source":"kukkiri ..."` が出ます。
 
 ## 変換の中身
 
@@ -111,6 +163,7 @@ jasna はこれをモデルファイルのメタデータから読むので、�
 - **Linux**（RTX 5080、2026-11-27、v0.12.4 ベース）: 同梱のテストクリップ（1080p、30 fps、10 秒）と、crop が 512 px を超える 1080p の 30 秒素材（899 フレーム、9 window）が完走し、フレーム数は入力と一致しました。30 秒素材の LTX 部分は、既定の 512 px canvas で 40 秒（denoise 0.85 秒 / window-step、decode 0.99 秒 / window）、`--ltx-large-canvas` の 768 px で 102 秒（同 2.37 秒、2.35 秒）でした。VRAM の最大はどちらも 13.3 GB です。LTX は空いている VRAM をブロックの常駐に使うので（48 ブロック中 37）、この値は必要量ではありません。
 - **upstream 形式のモデルへの影響なし**: 自前学習のモデル（diffusion VAE）を、この変更の前後のコードで同じ条件で実行した出力は、ビット単位で一致しました。
 - **Windows**（RTX 5060 Ti、2026-11-27、v0.12.3 ベース）: 480p から 1080p、24 から 59.94 fps の 8 本（10 秒から 355 秒）が完走し、フレーム数と長さは入力と一致しました。denoise は 1 step 約 2.05 秒でした。利用者の目視では、自前の IC-LoRA モデルよりよく復元できていました。
+- **Windows**（RTX 5060 Ti、2026-11-27、v0.12.4 ベース）: 変換は誤差 0.0144、40 秒。同梱のテストクリップが 512 px、768 px（`--ltx-large-canvas`）、`--secondary-restoration rtx-super-res` 併用の 3 通りで完走しました（300 フレーム）。denoise は 512 px で 2.04 秒 / window-step、768 px で 5.65 秒、decode は 2.43 秒 / window と 5.72 秒です。カード全体の VRAM の最大は 512 px で 13.3 GB、768 px で 15.5 GB でした（ほかのアプリの約 2.5 GB を含みます）。GUI では、画面を操作して 1080p の 6242 フレーム（56 window）を RTX Super Res 併用で処理し、LTX 部分は 541 秒でした。出力の設定タグに `weights_source` が入り、利用者の目視で合格しました。
 - **diffusion VAE との互換**: kukkiri の transformer の出力は、LTX-2.5 の diffusion VAE でも decode できました。同じクリップで conv decoder の出力との PSNR は 45 dB、所要時間は同じでした。モデルフォルダーの `vae.safetensors` と `vae-decoder-full.safetensors` を diffusion VAE のものに置き換えると、この経路になります。画質の優劣は比べていません。
 - テスト: `tests/test_ltx_position_fps_modi.py`, `test_ltx_conv_vae_modi.py`, `test_convert_kukkiri_ltx_modi.py`, `test_settings_tag_modi.py`。
 
@@ -121,7 +174,6 @@ jasna はこれをモデルファイルのメタデータから読むので、�
 - **conv decoder は window を分割しません。** diffusion decoder にあるタイル分割と、メモリ不足時の再試行の対象外です。16 GB の GPU では 768 px の canvas でも足りましたが、それより小さい GPU では確認していません。
 - **学習時と window の長さが違います。** kukkiri は 97 フレームのクリップで学習していますが、jasna は 121 フレームの window で処理します。静止画では破綻が見えませんでしたが、時間方向への影響は調べていません。
 - **再量子化の誤差が乗ります。** 配布されている重みがすでに INT8 なので、変換後の重みは 2 回分の丸めを含みます。
-- GUI は、モデルの検出と開始前の検査が通ること、GUI と同じフォルダーからの実行が完走することまで確認しました。画面を操作しての実行は確認していません。
 
 ## ライセンスと配布
 

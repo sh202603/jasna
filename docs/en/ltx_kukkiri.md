@@ -31,6 +31,20 @@ done
 sha256sum kiyo-ltx-v1-*.safetensors
 ```
 
+On Windows (PowerShell), as below. The Windows examples from here on keep the weights in
+`D:\kukkiri-ltx-v1`.
+
+```powershell
+New-Item -ItemType Directory -Force D:\kukkiri-ltx-v1; cd D:\kukkiri-ltx-v1
+foreach ($n in "transformer", "vae", "prompt") {
+    curl.exe -L -O "https://huggingface.co/treehog/kukkiri/resolve/main/ltx-v1/kiyo-ltx-v1-$n.safetensors"
+}
+Get-FileHash kiyo-ltx-v1-*.safetensors -Algorithm SHA256
+```
+
+Write `curl.exe`, not `curl` (in Windows PowerShell 5.1 `curl` is an alias of another command).
+`Get-FileHash` prints the SHA-256 in upper case.
+
 | File | Size (bytes) | SHA-256 |
 | --- | --- | --- |
 | `kiyo-ltx-v1-transformer.safetensors` | 13,364,075,432 | `9712079e1b0ee20a9a47efbd0278cc4fb0eb7b88f9571e9d4d9fdfec70ccc94e` |
@@ -47,22 +61,35 @@ Run from the jasna checkout with jasna's venv.
 .venv/bin/python scripts/ltx_lora_training/convert_kukkiri_ltx.py ~/kukkiri-ltx-v1 model_weights/ltx-kukkiri
 ```
 
+Windows:
+
+```powershell
+.venv\Scripts\python scripts\ltx_lora_training\convert_kukkiri_ltx.py D:\kukkiri-ltx-v1 model_weights\ltx-kukkiri
+```
+
 The output folder gets three files, named like jasna's 2-step model (`--restoration-model-name ltx`).
 
 | File | Contents |
 | --- | --- |
 | `ltx-restore-alpha1-distill2-int8.safetensors` | The converted transformer, with kukkiri's prompt embedding as `prompt_context` and the sampler settings as metadata |
-| `vae.safetensors` | kukkiri's VAE: a hard link, or a copy where linking fails |
+| `vae.safetensors` | kukkiri's VAE: a hard link, or a copy where linking fails (on Windows, a copy of 1.5 GB when the weights and the output folder are on different drives) |
 | `vae-decoder-full.safetensors` | An empty file. This VAE takes no tuned decoder, but the model folder needs the name |
 
 The script ends by printing the largest relative error the conversion adds to a layer's output.
-About 0.014 is normal (0.0142 on Linux, 0.0144 on Windows). It takes 15 seconds on an RTX 5080.
+About 0.014 is normal (0.0142 on Linux, 0.0144 on Windows). It takes 15 seconds on an RTX 5080 and 40 seconds on an RTX 5060 Ti.
 
 ## 3. Run
 
 ```bash
 .venv/bin/python -m jasna --input in.mp4 --output out.mp4 \
     --restoration-model-name ltx --restoration-model-path model_weights/ltx-kukkiri
+```
+
+Windows:
+
+```powershell
+.venv\Scripts\python -m jasna --input in.mp4 --output out.mp4 `
+    --restoration-model-name ltx --restoration-model-path model_weights\ltx-kukkiri
 ```
 
 The other LTX options (`--ltx-large-canvas`, `--ltx-overlap`, `--ltx-seed`,
@@ -78,9 +105,35 @@ Convert into that folder, or put the three files there.
 .venv/bin/python scripts/ltx_lora_training/convert_kukkiri_ltx.py ~/kukkiri-ltx-v1 model_weights/ltx-restore
 ```
 
+Windows:
+
+```powershell
+.venv\Scripts\python scripts\ltx_lora_training\convert_kukkiri_ltx.py D:\kukkiri-ltx-v1 model_weights\ltx-restore
+```
+
+On Windows, if you have already converted into `model_weights\ltx-kukkiri`, a junction saves
+converting again. Creating one needs no administrator rights.
+
+```powershell
+cmd /c mklink /J model_weights\ltx-restore model_weights\ltx-kukkiri
+```
+
+Remove it with `cmd /c rmdir model_weights\ltx-restore`: only the junction goes, the converted
+files stay. If `model_weights\ltx-restore` already holds another model, rename that folder out of
+the way first instead of deleting it.
+
+Start the GUI from the jasna checkout (`.venv\Scripts\python -m jasna`, on Linux
+`.venv/bin/python -m jasna`). The `model_weights` of the folder you start in comes first, so
+starting elsewhere reads that folder's `model_weights` if it has one.
+
 Pick "LTX (Standard Quality)" (the 2-step model) as the restoration model. The other LTX
 qualities and "fast" (NVFP4) have no files here, so a run with them does not start. Leave the VAE
 encoder and decoder on "auto".
+
+Before starting, check that "Trial mode (speed test)" is off. With no model files in
+`model_weights/ltx-restore/` the GUI locks trial mode on, and that run is a speed test without
+weights: its output is not restored, and the progress line ends in `(trial)`. A run on kukkiri's
+weights shows no `(trial)`, and the `settings:` line of the log has `"weights_source":"kukkiri ..."`.
 
 ## What the conversion does
 
@@ -109,6 +162,7 @@ The two runtime changes leave the behaviour with upstream's model files as it wa
 - **Linux** (RTX 5080, 2026-11-27, v0.12.4 base): the bundled test clip (1080p, 30 fps, 10 s) and a 30 s 1080p clip whose crops exceed 512 px (899 frames, 9 windows) ran to the end with the input's frame count. The LTX part of the 30 s clip took 40 s on the default 512 px canvas (denoise 0.85 s per window-step, decode 0.99 s per window) and 102 s at 768 px with `--ltx-large-canvas` (2.37 s and 2.35 s). Peak VRAM was 13.3 GB in both. LTX keeps blocks resident in whatever VRAM is free (37 of 48 here), so that figure is not what the model needs.
 - **No effect on upstream-format models**: a self-trained model (diffusion VAE) run under the same conditions with the code before and after this change gave bit-identical output.
 - **Windows** (RTX 5060 Ti, 2026-11-27, v0.12.3 base): eight clips from 480p to 1080p and 24 to 59.94 fps (10 to 355 s) ran to the end with the input's frame count and duration. Denoising took about 2.05 s per step. By the user's eye it restored better than their own IC-LoRA model.
+- **Windows** (RTX 5060 Ti, 2026-11-27, v0.12.4 base): the conversion gave an error of 0.0144 in 40 s. The bundled test clip ran to the end three ways (300 frames): at 512 px, at 768 px (`--ltx-large-canvas`) and with `--secondary-restoration rtx-super-res`. Denoising took 2.04 s per window-step at 512 px and 5.65 s at 768 px; decoding 2.43 s and 5.72 s per window. Peak VRAM of the whole card was 13.3 GB at 512 px and 15.5 GB at 768 px (about 2.5 GB of that is other applications). In the GUI, driven from the window, a 1080p video of 6242 frames (56 windows) with RTX Super Res took 541 s for the LTX part. The output's settings tag carries `weights_source`, and the result passed by the user's eye.
 - **Works with the diffusion VAE too**: the output of kukkiri's transformer also decodes with LTX-2.5's diffusion VAE. On the same clip the result is 45 dB PSNR from the conv decoder's, in the same time. Replacing `vae.safetensors` and `vae-decoder-full.safetensors` in the model folder with the diffusion VAE's files selects that path. Which looks better has not been compared.
 - Tests: `tests/test_ltx_position_fps_modi.py`, `test_ltx_conv_vae_modi.py`, `test_convert_kukkiri_ltx_modi.py`, `test_settings_tag_modi.py`.
 
@@ -119,7 +173,6 @@ The two runtime changes leave the behaviour with upstream's model files as it wa
 - **The conv decoder does not split a window.** It has neither the tiling nor the retry after an out-of-memory error that the diffusion decoder has. A 16 GB GPU had room for the 768 px canvas; smaller GPUs have not been checked.
 - **The window is longer than in training.** kukkiri trains on 97-frame clips, jasna runs 121-frame windows. Stills showed no defects; the effect over time has not been examined.
 - **A second quantization error.** The published weights are INT8 already, so the converted ones carry the rounding of both.
-- For the GUI, the model detection, the checks before a start and a run from the folder the GUI reads were verified. A run driven from the window has not been.
 
 ## License and distribution
 
