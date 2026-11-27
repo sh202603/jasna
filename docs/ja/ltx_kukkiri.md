@@ -166,6 +166,7 @@ jasna はこれをモデルファイルのメタデータから読むので、�
 - **upstream 形式のモデルへの影響なし**: 自前学習のモデル（diffusion VAE）を、この変更の前後のコードで同じ条件で実行した出力は、ビット単位で一致しました。
 - **Windows**（RTX 5060 Ti、2026-11-27、v0.12.3 ベース）: 480p から 1080p、24 から 59.94 fps の 8 本（10 秒から 355 秒）が完走し、フレーム数と長さは入力と一致しました。denoise は 1 step 約 2.05 秒でした。利用者の目視では、自前の IC-LoRA モデルよりよく復元できていました。
 - **Windows**（RTX 5060 Ti、2026-11-27、v0.12.4 ベース）: 変換は誤差 0.0144、40 秒。同梱のテストクリップが 512 px、768 px（`--ltx-large-canvas`）、`--secondary-restoration rtx-super-res` 併用の 3 通りで完走しました（300 フレーム）。denoise は 512 px で 2.04 秒 / window-step、768 px で 5.65 秒、decode は 2.43 秒 / window と 5.72 秒です。カード全体の VRAM の最大は 512 px で 13.3 GB、768 px で 15.5 GB でした（ほかのアプリの約 2.5 GB を含みます）。GUI では、画面を操作して 1080p の 6242 フレーム（56 window）を RTX Super Res 併用で処理し、LTX 部分は 541 秒でした。出力の設定タグに `weights_source` が入り、利用者の目視で合格しました。
+- **Windows**（RTX 5060 Ti、2026-11-28）: `--secondary-restoration swiftvr-inline` / `swiftvr-distill` / `relayvsr` を併用した実行も 512 px で完走しました（30 秒素材 2 本）。`swiftvr-distill` は 768 px でも完走しました。実測は [changes_vs_upstream.md の 3.10](changes_vs_upstream.md#310-ltx-実行中の-window-を-swiftvr-で描き直す--secondary-restoration-swiftvr-inline--swiftvr-distill) にあります。
 - **diffusion VAE との互換**: kukkiri の transformer の出力は、LTX-2.5 の diffusion VAE でも decode できました。同じクリップで conv decoder の出力との PSNR は 45 dB、所要時間は同じでした。モデルフォルダーの `vae.safetensors` と `vae-decoder-full.safetensors` を diffusion VAE のものに置き換えると、この経路になります。画質の優劣は比べていません。
 - テスト: `tests/test_ltx_position_fps_modi.py`, `test_ltx_conv_vae_modi.py`, `test_convert_kukkiri_ltx_modi.py`, `test_settings_tag_modi.py`。
 

@@ -46,7 +46,7 @@ Every feature has its own detailed document (design, measurements, verification 
 | Secondary restoration | RTX Super Res extras | `--rtx-strength`, `--rtx-highbitrate` | opt-in; visual check passed | [3.5](#35-rtx-super-res-extras) |
 | LTX post-processing | Sharpen an LTX output with SwiftVR or RTX Super Res | `--ltx-crop-vsr swiftvr` / `swiftvr-distill` / `rtx-super-res` | Linux and Windows verified, user visual check passed | [ltx_crop_vsr.md](ltx_crop_vsr.md), [3.6](#36-sharpening-ltx-outputs---ltx-crop-vsr) |
 | LTX in-run sharpening | RTX Super Res deblur on every LTX window in the compose pass (modi's policy on upstream's LTX super resolution) | `--secondary-restoration rtx-super-res` with an LTX model (CLI and GUI) | Linux verified on a self-trained LTX model, user visual check passed (v0.11.3 base); on the v0.12.1 base Linux and Windows verified on a self-trained LTX model, user visual check passed | [3.7](#37-sharpening-ltx-windows-in-the-run---secondary-restoration-rtx-super-res) |
-| SwiftVR / RelayVSR in the LTX run | Each LTX window redrawn x2 by SwiftVR, its distill student or RelayVSR in the compose pass (`--ltx-crop-vsr` in one pass) | `--secondary-restoration swiftvr-inline` / `swiftvr-distill` / `relayvsr` with an LTX model (CLI only, no auto split) | Linux: runs and metrics checked with kukkiri's weights (RTX 5080, 2026-11-27), RelayVSR preferred in the user's visual check. Windows not verified | [3.10](#310-redrawing-ltx-windows-with-swiftvr-in-the-run---secondary-restoration-swiftvr-inline--swiftvr-distill) |
+| SwiftVR / RelayVSR in the LTX run | Each LTX window redrawn x2 by SwiftVR, its distill student or RelayVSR in the compose pass (`--ltx-crop-vsr` in one pass) | `--secondary-restoration swiftvr-inline` / `swiftvr-distill` / `relayvsr` with an LTX model (CLI only, no auto split) | Linux: runs and metrics checked with kukkiri's weights (RTX 5080, 2026-11-27), RelayVSR preferred in the user's visual check. Windows: runs and metrics checked with the same weights (RTX 5060 Ti, 2026-11-28), matching Linux in the user's visual check | [3.10](#310-redrawing-ltx-windows-with-swiftvr-in-the-run---secondary-restoration-swiftvr-inline--swiftvr-distill) |
 | LTX model training | Convert a public LTX-2.3 checkpoint and train an IC-LoRA for jasna's LTX path | `scripts/ltx_lora_training/` | Linux verified end to end (converter, training, inference); Windows and ARM64 untested | [ltx_lora_training.md](ltx_lora_training.md), [3.8](#38-training-your-own-ltx-model-scriptsltx_lora_training) |
 | kukkiri's LTX weights | Convert the published LTX-2.5 weights for mosaic restoration (`kiyo-ltx-v1`) and run them on the LTX path | `scripts/ltx_lora_training/convert_kukkiri_ltx.py`, `--restoration-model-name ltx --restoration-model-path <folder>` | Conversion and runs verified on Linux and Windows; user visual check passed on Windows | [ltx_kukkiri.md](ltx_kukkiri.md), [3.9](#39-kukkiris-ltx-weights-ltx_kukkirimd) |
 | Frame generation | On upstream's 2x RTX frame generation: 4x, the RIFE backend, the RTX quality mode, the standalone CLI | `--frame-generation 2x\|4x`, `--frame-generation-backend rtx\|rife`, `jasna-postprocess` | Linux verified on the v0.12.2 base (e2e), Linux + Windows on the v0.12.1 base | [frame_generation.md](frame_generation.md), [4](#4-frame-generation) |
@@ -214,7 +214,25 @@ Measured on Linux, RTX 5080 16 GB, 2026-11-27, kukkiri weights, two 30 s clips o
 - The peak without a secondary is the denoise pass's (LTX fills free VRAM with resident blocks). The `swiftvr-inline` and `relayvsr` peaks are in the compose pass; the worker alone took about 9.0 GB (SwiftVR) and 10.2 GB (RelayVSR, K/V cache on the GPU for every window).
 - The wall clock includes the worker's start (about 25 s for SwiftVR, 10 s for RelayVSR).
 - **User's visual check** (2026-11-27, the 512 px outputs of the two clips above): RelayVSR was preferred, with no visible seam between windows and no bothersome flicker. By the numbers RelayVSR and RTX Super Res add the most texture and the SwiftVR models add less flicker.
-- Not verified: Windows, models with a diffusion VAE (self-trained models), `--segments`.
+- **Windows** (RTX 5060 Ti 16 GB, 2026-11-28, the same weights and clips): every run finished with the input's frame count. Nothing ran out of VRAM, SwiftVR never retried and RelayVSR's K/V cache never moved to host memory. VRAM is the whole card's peak and includes 1.7 to 3.0 GB of other applications. `swiftvr-inline` came within about 0.5 GB of the 16 GB card's limit. Texture and flicker rank as on Linux, within 1.2 points of its values. Two runs of the same case differed by at most 0.1 points. By the user's eye the outputs matched the Linux ones.
+
+| Clip, canvas | Secondary | Compose | Wall clock | Peak VRAM | Texture | Flicker |
+| --- | --- | --- | --- | --- | --- | --- |
+| 720x480, 512 px | none | 29.6 s | 111 s | 12.7 GB | 100% | 0% |
+| | `rtx-super-res` (deblur `low`) | 30.3 s | 102 s | 12.9 GB | 124.3% | +4.2% |
+| | `swiftvr-distill` | 48.1 s | 171 s (with the speed test) | 13.0 GB | 113.6% | +3.9% |
+| | `swiftvr-inline` | 95.6 s | 176 s | 14.5 to 15.0 GB | 114.3% | +3.5% |
+| | `relayvsr` | 104.0 s | 180 s | 13.3 to 13.6 GB | 128.9% | +6.1% |
+| 1080p, 512 px | none | 25.2 s | 100 s | 13.1 GB | 100% | 0% |
+| | `rtx-super-res` (deblur `low`) | 33.5 s | 107 s | 13.1 GB | 125.2% | +3.4% |
+| | `swiftvr-distill` | 51.9 s | 123 s | 13.1 GB | 110.0% | +1.0% |
+| | `swiftvr-inline` | 107.5 s | 180 s | 15.5 GB | 111.5% | +1.3% |
+| | `relayvsr` | 112.4 s | 187 s | 12.8 GB | 120.5% | +3.5% |
+| | `relayvsr`, `--relayvsr-window-size 32` | 86.7 s | 159 s | 13.0 GB | 117.6% | +3.2% |
+| 1080p, 768 px | none | 54.8 s | 202 s | 14.4 GB | 100% | 0% |
+| | `swiftvr-distill` | 114.0 s | 261 s | 14.7 GB | 105.6% | +0.5% |
+
+- Not verified: models with a diffusion VAE (self-trained models), `--segments`, long videos, folder input.
 - Tests: `tests/test_ltx_window_restorer_modi.py`, `tests/test_relayvsr_window_restorer_modi.py`.
 
 ## 4. Frame generation

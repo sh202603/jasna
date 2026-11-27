@@ -46,7 +46,7 @@
 | 二次復元 | RTX Super Res の追加オプション | `--rtx-strength`、`--rtx-highbitrate` | オプトイン。目視確認済み | [3.5](#35-rtx-super-res-の追加オプション) |
 | LTX 後処理 | LTX 出力を SwiftVR か RTX Super Res で鮮明化 | `--ltx-crop-vsr swiftvr` / `swiftvr-distill` / `rtx-super-res` | Linux・Windows 検証済み、ユーザー目視合格 | [ltx_crop_vsr.md](ltx_crop_vsr.md)、[3.6](#36-ltx-出力の鮮明化--ltx-crop-vsr) |
 | LTX 実行中の鮮明化 | compose 段で各 LTX window に RTX Super Res の deblur（upstream の LTX super resolution の上に modi の方針） | LTX モデル + `--secondary-restoration rtx-super-res`（CLI と GUI） | 自前学習の LTX モデルで Linux 検証済み、ユーザー目視合格（v0.11.3 ベース）。v0.12.1 ベースでは自前学習の LTX モデルで Linux と Windows を検証済み、ユーザー目視合格 | [3.7](#37-ltx-実行中の-window-の鮮明化--secondary-restoration-rtx-super-res) |
-| LTX 実行中の SwiftVR / RelayVSR | compose 段で各 LTX window を SwiftVR、distill、RelayVSR のどれかで ×2 に描き直す（`--ltx-crop-vsr` の 1 パス版） | LTX モデル + `--secondary-restoration swiftvr-inline` / `swiftvr-distill` / `relayvsr`（CLI 専用、auto split なし） | Linux で kukkiri の重みで完走と指標を確認（RTX 5080、2026-11-27）、ユーザー目視で RelayVSR が最良。Windows は未検証 | [3.10](#310-ltx-実行中の-window-を-swiftvr-で描き直す--secondary-restoration-swiftvr-inline--swiftvr-distill) |
+| LTX 実行中の SwiftVR / RelayVSR | compose 段で各 LTX window を SwiftVR、distill、RelayVSR のどれかで ×2 に描き直す（`--ltx-crop-vsr` の 1 パス版） | LTX モデル + `--secondary-restoration swiftvr-inline` / `swiftvr-distill` / `relayvsr`（CLI 専用、auto split なし） | Linux で kukkiri の重みで完走と指標を確認（RTX 5080、2026-11-27）、ユーザー目視で RelayVSR が最良。Windows でも同じ重みで完走と指標を確認（RTX 5060 Ti、2026-11-28）、ユーザー目視で Linux と同等 | [3.10](#310-ltx-実行中の-window-を-swiftvr-で描き直す--secondary-restoration-swiftvr-inline--swiftvr-distill) |
 | LTX モデルの学習 | 公開の LTX-2.3 チェックポイントの変換と、jasna の LTX 経路向け IC-LoRA の学習 | `scripts/ltx_lora_training/` | Linux で変換・学習・推論まで検証済み、Windows と ARM64 は未検証 | [ltx_lora_training.md](ltx_lora_training.md)、[3.8](#38-自前-ltx-モデルの学習scriptsltx_lora_training) |
 | kukkiri の LTX 重み | 公開されているモザイク復元用の LTX-2.5 重み（`kiyo-ltx-v1`）を変換して LTX 経路で使う | `scripts/ltx_lora_training/convert_kukkiri_ltx.py`、`--restoration-model-name ltx --restoration-model-path <フォルダー>` | Linux と Windows で変換と実行を検証済み、Windows でユーザー目視合格 | [ltx_kukkiri.md](ltx_kukkiri.md)、[3.9](#39-kukkiri-の-ltx-重みltx_kukkirimd) |
 | フレーム生成 | upstream の 2x RTX フレーム生成の上に 4x、RIFE バックエンド、RTX 品質モード、スタンドアロン CLI | `--frame-generation 2x\|4x`、`--frame-generation-backend rtx\|rife`、`jasna-postprocess` | v0.12.2 ベースで Linux 検証済み（e2e）、v0.12.1 ベースで Linux・Windows 検証済み | [frame_generation.md](frame_generation.md)、[4](#4-フレーム生成) |
@@ -214,7 +214,25 @@ jasna --input in.mp4 --output out.mkv \
 - 二次復元なしの VRAM 最大は denoise 段の値です（LTX は空きをブロックの常駐に使います）。`swiftvr-inline` と `relayvsr` の最大は compose 段で、worker 単体は SwiftVR が約 9.0 GB、RelayVSR が約 10.2 GB でした（K/V キャッシュは全 window で GPU 上）。
 - 壁時計には worker の起動を含みます（SwiftVR 約 25 秒、RelayVSR 約 10 秒）。
 - **ユーザー目視**（2026-11-27、上の 2 素材の 512 px の出力）: RelayVSR が最も好ましく、window の継ぎ目に違和感はなく、揺れやちらつきも気になりませんでした。数値では RelayVSR と RTX Super Res が texture を多く足し、SwiftVR 系は揺れの増加が小さい側です。
-- 未検証: Windows、diffusion VAE のモデル（自前学習モデル）、`--segments` との併用。
+- **Windows**（RTX 5060 Ti 16 GB、2026-11-28、同じ重みと素材）: 全実行が完走し、フレーム数は入力と一致しました。VRAM 不足、SwiftVR の再試行、RelayVSR の K/V キャッシュのホスト退避はどれも起きていません。VRAM はカード全体の最大で、ほかのアプリの 1.7〜3.0 GB を含みます。`swiftvr-inline` は 16 GB カードの上限まで約 0.5 GB でした。texture と揺れは Linux と同じ順位で、値の差は 1.2 ポイント以内でした。同じ条件の 2 回の指標の差は 0.1 ポイント以内でした。ユーザー目視でも Linux の出力と同等でした。
+
+| 素材、canvas | 二次復元 | compose | 壁時計 | VRAM 最大 | texture | 揺れ |
+| --- | --- | --- | --- | --- | --- | --- |
+| 720x480、512 px | なし | 29.6 秒 | 111 秒 | 12.7 GB | 100% | 0% |
+| | `rtx-super-res`（deblur `low`） | 30.3 秒 | 102 秒 | 12.9 GB | 124.3% | +4.2% |
+| | `swiftvr-distill` | 48.1 秒 | 171 秒（speed test を含む） | 13.0 GB | 113.6% | +3.9% |
+| | `swiftvr-inline` | 95.6 秒 | 176 秒 | 14.5〜15.0 GB | 114.3% | +3.5% |
+| | `relayvsr` | 104.0 秒 | 180 秒 | 13.3〜13.6 GB | 128.9% | +6.1% |
+| 1080p、512 px | なし | 25.2 秒 | 100 秒 | 13.1 GB | 100% | 0% |
+| | `rtx-super-res`（deblur `low`） | 33.5 秒 | 107 秒 | 13.1 GB | 125.2% | +3.4% |
+| | `swiftvr-distill` | 51.9 秒 | 123 秒 | 13.1 GB | 110.0% | +1.0% |
+| | `swiftvr-inline` | 107.5 秒 | 180 秒 | 15.5 GB | 111.5% | +1.3% |
+| | `relayvsr` | 112.4 秒 | 187 秒 | 12.8 GB | 120.5% | +3.5% |
+| | `relayvsr`、`--relayvsr-window-size 32` | 86.7 秒 | 159 秒 | 13.0 GB | 117.6% | +3.2% |
+| 1080p、768 px | なし | 54.8 秒 | 202 秒 | 14.4 GB | 100% | 0% |
+| | `swiftvr-distill` | 114.0 秒 | 261 秒 | 14.7 GB | 105.6% | +0.5% |
+
+- 未検証: diffusion VAE のモデル（自前学習モデル）、`--segments` との併用、長尺、フォルダ入力。
 - テスト: `tests/test_ltx_window_restorer_modi.py`、`tests/test_relayvsr_window_restorer_modi.py`。
 
 ## 4. フレーム生成
