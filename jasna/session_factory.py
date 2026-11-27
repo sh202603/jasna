@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, get_args
 
 from jasna.session_config import (
+    LTX_WINDOW_RESTORERS,
     RestorationModelName,
     SecondaryRestorationName,
     SessionConfig,
@@ -284,7 +285,34 @@ def _build_secondary_restorer(config: SessionConfig, device: "torch.device", *, 
             strength=float(config.swiftvr_distill_strength),
             stabilize_radius=int(config.swiftvr_distill_stabilize),
         )
+    if config.secondary_restoration == "relayvsr":
+        from jasna.restorer.relayvsr_window_restorer import RelayvsrWindowRestorer
+
+        _, rv_python, weights_dir = _relayvsr_paths(config)
+        return RelayvsrWindowRestorer(
+            rv_python=rv_python,
+            weights_dir=weights_dir,
+            device=config.device,
+            window_size=int(config.relayvsr_window_size),
+            wan_weights=config.relayvsr_wan_weights,
+            kv_cache=config.relayvsr_kv_cache,
+            kv_cache_dtype=config.relayvsr_kv_cache_dtype,
+        )
     raise ValueError(f"Unsupported secondary restoration: {config.secondary_restoration}")
+
+
+def _relayvsr_paths(config: SessionConfig) -> tuple[Path, Path, Path]:
+    """``(repo, python, weights_dir)`` of ``--secondary-restoration relayvsr``, with the 2x pair
+    of checkpoints an LTX window needs in place."""
+    from jasna.restorer.relayvsr_common import relayvsr_checkpoints, resolve_relayvsr_paths
+    from jasna.restorer.relayvsr_window_restorer import RELAYVSR_WINDOW_SCALE
+
+    paths = resolve_relayvsr_paths(
+        config.relayvsr_repo, config.relayvsr_python, config.relayvsr_weights_dir,
+        option="--secondary-restoration relayvsr",
+    )
+    relayvsr_checkpoints(paths[2], RELAYVSR_WINDOW_SCALE)
+    return paths
 
 
 def frame_upscale_size(config: SessionConfig, width: int, height: int) -> "Size | None":
@@ -464,6 +492,10 @@ def build_restoration_session(
             "--secondary-restoration rtx-super-res with LTX needs the RTX Video Effects runtime (the "
             "nvidia-vfx package of the nvidia extra), which is not installed"
         )
+    if restores_ltx_windows(config):
+        # +modi: a wrong path fails here, not when the compose pass starts.
+        _validate_window_restorer(ltx_window_restorer_config(config))
+        _check_worker_beside_large_canvas(config, device)
     session = RestorationSession(device=device, restoration_pipeline=None, log_callback=log_callback)
     if config.ltx_crop_vsr is not None:
         # The input is an LTX output: only the detector (for the source's scan) and,
@@ -503,16 +535,66 @@ def ltx_crop_vsr_config(config: SessionConfig) -> SessionConfig:
     raise ValueError(f"Unsupported --ltx-crop-vsr backend: {config.ltx_crop_vsr}")
 
 
+def ltx_window_restorer_config(config: SessionConfig) -> SessionConfig:
+    """The settings a temporal secondary restorer runs with on the windows of an LTX job's
+    compose pass: scale 2 and no crop-view smoothing, as under ``--ltx-crop-vsr``."""
+    if config.secondary_restoration == "swiftvr-inline":
+        return replace(config, swiftvr_scale=2, swiftvr_view_window=0)
+    if config.secondary_restoration == "swiftvr-distill":
+        return replace(config, swiftvr_distill_view_window=0)
+    if config.secondary_restoration == "relayvsr":
+        return config
+    raise ValueError(f"Unsupported LTX window restorer: {config.secondary_restoration}")
+
+
+def restores_ltx_windows(config: SessionConfig) -> bool:
+    """Whether the job's secondary restoration runs on LTX windows in the compose pass. With
+    auto split it stays with the BasicVSR++ parts, whose frame pipeline holds the restorer."""
+    return (
+        config.restoration_model_name == "ltx"
+        and config.ltx_auto_split_percent is None
+        and config.ltx_crop_vsr is None
+        and config.secondary_restoration in LTX_WINDOW_RESTORERS
+    )
+
+
+WORKER_LARGE_CANVAS_MIN_BYTES = 20 << 30
+"""GPU memory a restorer in a worker of its own (SwiftVR, RelayVSR) needs beside the decode of a
+768 px LTX window: on a 16 GB card the decode or the worker ran out of memory (conv VAE, RTX 5080;
+the SwiftVR worker holds 5.5 GB between windows, the RelayVSR worker 5.0 GB)."""
+
+
+def _check_worker_beside_large_canvas(config: SessionConfig, device: "torch.device") -> None:
+    worker_restorers = ("swiftvr-inline", "relayvsr")
+    if config.secondary_restoration not in worker_restorers or not config.ltx_large_canvas or device.type != "cuda":
+        return
+    import torch
+
+    total = torch.cuda.get_device_properties(device).total_memory
+    if total < WORKER_LARGE_CANVAS_MIN_BYTES:
+        raise ValueError(
+            f"--secondary-restoration {config.secondary_restoration} with an LTX model and --ltx-large-canvas "
+            f"needs a GPU with {WORKER_LARGE_CANVAS_MIN_BYTES >> 30} GB or more ({total / 2**30:.0f} GB here): "
+            "its worker does not fit beside the decode of a 768 px window. Drop --ltx-large-canvas or use "
+            "swiftvr-distill."
+        )
+
+
 def validate_ltx_crop_vsr(config: SessionConfig) -> None:
     """Resolve the restorer's files now, before the scan, so a wrong path (or a missing
     runtime) fails early."""
-    refined = ltx_crop_vsr_config(config)
+    _validate_window_restorer(ltx_crop_vsr_config(config))
+
+
+def _validate_window_restorer(refined: SessionConfig) -> None:
     if refined.secondary_restoration == "swiftvr-inline":
         from jasna.restorer.swiftvr_common import resolve_swiftvr_paths
 
         resolve_swiftvr_paths(
             refined.swiftvr_repo, refined.swiftvr_python, refined.swiftvr_model_dir, mode="swiftvr-inline"
         )
+    elif refined.secondary_restoration == "relayvsr":
+        _relayvsr_paths(refined)
     elif refined.secondary_restoration == "rtx-super-res":
         if not nvvfx_installed():
             raise ValueError(
@@ -558,6 +640,16 @@ def provide_restoration_models(
             deblur=config.rtx_deblur,
             strength=config.rtx_strength,
             highbitrate=config.rtx_highbitrate,
+        )
+
+
+    if "ltx" in models and restores_ltx_windows(config) and session.ltx_super_res is None:
+        from jasna.ltx.window_restorer import LtxWindowRestorer
+
+        refined, device = ltx_window_restorer_config(config), session.device
+        session.ltx_super_res = LtxWindowRestorer(
+            config.secondary_restoration,
+            lambda: _build_secondary_restorer(refined, device, size_from_frames=True),
         )
 
 

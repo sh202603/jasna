@@ -73,7 +73,7 @@ class TestCli:
         pipeline_cls = _run_main(tmp_path, ["--secondary-restoration", "rtx-super-res"])
         assert pipeline_cls.call_args.kwargs["config"].rtx_scale == 4  # LTX windows always upscale 2x
 
-    @pytest.mark.parametrize("secondary", ["unet-4x", "tvai", "swiftvr-distill", "flashvsr-inline"])
+    @pytest.mark.parametrize("secondary", ["unet-4x", "tvai", "flashvsr-inline"])  # swiftvr: test_ltx_window_restorer_modi.py
     def test_other_secondaries_stay_refused(self, tmp_path, capsys, secondary):
         with pytest.raises(SystemExit):
             _run_main(tmp_path, ["--secondary-restoration", secondary])

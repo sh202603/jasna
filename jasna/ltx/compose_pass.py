@@ -6,7 +6,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import closing
+from contextlib import closing, nullcontext
 
 import torch
 
@@ -25,6 +25,7 @@ from jasna.ltx.resume_files import LatentStore
 from jasna.ltx.spans import LtxSpan, check_cancel, segment_batches
 from jasna.ltx.super_res import LtxSuperRes, upscaled_crop
 from jasna.ltx.vram_budget import DecodeBudget
+from jasna.ltx.window_restorer import kept_frames
 from jasna.vr_projection import RegionProjector
 
 DECODE_AHEAD = 2
@@ -129,6 +130,12 @@ class _SegmentComposer:
         self._projector = projector
         # +modi: with a deblur pass every window is upscaled, not only the enlarged ones.
         self._upscaled = super_res.windows_to_upscale(windows) if super_res is not None else set()
+        # +modi: a temporal restorer (``window_restorer.py``) takes a window whole, once.
+        self._whole = self._upscaled if getattr(super_res, "whole_windows", False) else set()
+        # +modi: such a restorer and the window decoder take turns on the GPU. Decoding the next
+        # window while one is restored put both peaks on the card at once (16 GB: out of memory
+        # with SwiftVR next to the conv decoder).
+        self._gpu_turn = threading.Lock() if self._whole else nullcontext()
         self._pending = iter(windows)
         self._upcoming = next(self._pending, None)
         self._covering: list[Window] = []
@@ -156,7 +163,7 @@ class _SegmentComposer:
         """The decoded window, and on CUDA an event its decode stream records after it: the decode
         thread starts the next window while the GPU still finishes this one."""
         latent = latent.result()
-        with torch.cuda.stream(self._stream), self._bar.window(window.canvas):
+        with self._gpu_turn, torch.cuda.stream(self._stream), self._bar.window(window.canvas):
             video = _decode_window(
                 self._decoder,
                 latent,
@@ -178,7 +185,7 @@ class _SegmentComposer:
         """The worker's decode of ``window`` up to its result header (``_send_window_decode``), on
         the decode thread, so windows go out in start order."""
         latent = latent.result()
-        with self._bar.window(window.canvas):
+        with self._gpu_turn, self._bar.window(window.canvas):
             return _send_window_decode(self._decoder, latent, self._seed + window.noise, window.canvas, self._budget)
 
     def _receive_decode(
@@ -220,6 +227,22 @@ class _SegmentComposer:
         self._decode_ahead()
         return video
 
+    def _restored_window(self, window: Window, video: torch.Tensor) -> torch.Tensor:
+        """+modi: ``video`` at twice the side when a temporal restorer takes the window whole."""
+        if window.index not in self._whole:
+            return video
+        with self._gpu_turn:
+            if self._device.type == "cuda":
+                # The decodes before this turn left their blocks in the allocator's cache, which
+                # the restorer (a process of its own for SwiftVR) cannot use.
+                torch.cuda.synchronize(self._device)
+                torch.cuda.empty_cache()
+            if isinstance(self._decoder, WorkerDecoder):
+                self._decoder.release_cache()
+            return self._super_res.upscale_window(
+                video[: window.real_frames], kept_frames(self._weights[window.index])
+            )
+
     def frame(self, frame: torch.Tensor) -> torch.Tensor:
         frame_idx = self._frame_idx
         if frame_idx == 0:
@@ -233,11 +256,13 @@ class _SegmentComposer:
         candidates = []
         for window in self._covering:
             if window.index not in self._decoded:
-                self._decoded[window.index] = self._decoded_window(window)
+                self._decoded[window.index] = self._restored_window(window, self._decoded_window(window))
             local = frame_idx - window.start
             track = self._tracks[window.index]
             canvas, crop = self._decoded[window.index][local].to(self._device, non_blocking=True), window.crops[local]
-            if window.index in self._upscaled:
+            if window.index in self._whole:
+                crop = upscaled_crop(crop)
+            elif window.index in self._upscaled:
                 canvas, crop = self._super_res.upscale(canvas), upscaled_crop(crop)
             candidates.append(
                 Candidate(

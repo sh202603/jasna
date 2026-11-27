@@ -24,8 +24,12 @@ LTX_DEFAULT_OVERLAP = 17
 SecondaryRestorationName = Literal[
     "none", "unet-4x", "tvai", "rtx-super-res", "flashvsr-inline", "swiftvr-inline",
     "swiftvr-distill",
+    "relayvsr",  # +modi: LTX windows only (``LTX_WINDOW_RESTORERS``)
 ]
-LTX_SECONDARY_RESTORATIONS: tuple[SecondaryRestorationName, ...] = ("none", "rtx-super-res")
+# +modi: the temporal x2 restorers an LTX job's compose pass runs on whole windows
+# (``jasna/ltx/window_restorer.py``); without auto split only, where no frame pipeline holds them.
+LTX_WINDOW_RESTORERS: tuple[SecondaryRestorationName, ...] = ("swiftvr-inline", "swiftvr-distill", "relayvsr")
+LTX_SECONDARY_RESTORATIONS: tuple[SecondaryRestorationName, ...] = ("none", "rtx-super-res", *LTX_WINDOW_RESTORERS)
 """What LTX restoration supports without auto split; the others need BasicVSR++ parts."""
 
 DenoiseStrengthName = Literal["none", "low", "medium", "high"]
@@ -178,6 +182,14 @@ class SessionConfig:
     swiftvr_distill_view_window: int = 15
     swiftvr_distill_strength: float = 0.75
     swiftvr_distill_stabilize: int = 0
+    # RelayVSR on LTX windows (secondary_restoration "relayvsr"): an external checkout and venv.
+    relayvsr_repo: str = ""
+    relayvsr_python: str = ""
+    relayvsr_weights_dir: str = ""
+    relayvsr_window_size: int = 16
+    relayvsr_wan_weights: str = "fp8"
+    relayvsr_kv_cache: str = "auto"
+    relayvsr_kv_cache_dtype: str = "native"
     # SeedVR2 primary (restoration_model_name "seedvr2"): ``restoration_model_path``
     # carries the LoRA checkpoint instead of the BasicVSR++ checkpoint.
     seedvr2_repo: str = ""

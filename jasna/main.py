@@ -516,6 +516,7 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
             if "denoise_strength" in unsupported:
                 parser.error(f"{model_option} supports --denoise only with --ltx-auto-split")
             cli_modi.check_ltx_rtx_scale(parser, args, CLI_RESTORATION_MODELS, model_option)  # +modi
+            cli_modi.check_ltx_window_restorer(parser, args, model_option)  # +modi
         _reject_options_of_other_restoration_backend(parser, args, restoration_backend, auto_split=auto_split)
 
     return _CliPaths(input_video, output_video, lut_arg or None, input_is_image, input_is_dir)

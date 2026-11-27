@@ -26,7 +26,9 @@ from jasna.session_config import (
 RESTORATION_MODELS = {"seedvr2": ("seedvr2", LTX_DEFAULT_MODEL)}
 
 # Added to upstream's ``--secondary-restoration`` choices.
-SECONDARY_RESTORATION_CHOICES = ["flashvsr", "flashvsr-inline", "swiftvr", "swiftvr-inline", "swiftvr-distill"]
+SECONDARY_RESTORATION_CHOICES = [
+    "flashvsr", "flashvsr-inline", "swiftvr", "swiftvr-inline", "swiftvr-distill", "relayvsr",
+]
 
 SECONDARY_RESTORATION_HELP = (
     ' "flashvsr" runs an offline 3-phase pass; "flashvsr-inline" runs FlashVSR '
@@ -38,7 +40,11 @@ SECONDARY_RESTORATION_HELP = (
     'FlashVSR, FP8 by default). Both need --swiftvr-repo, see the "SwiftVR" group. '
     '"swiftvr-distill" (experimental) runs a small 2x model distilled from SwiftVR '
     'inside the jasna process; it needs swiftvr-distill.pt in model_weights/ (or '
-    '--swiftvr-distill-model).'
+    '--swiftvr-distill-model). With an LTX model and no --ltx-auto-split, "swiftvr-inline" '
+    'and "swiftvr-distill" also work: they redraw each LTX window at 2x when it is '
+    'composited (after the LTX model has left the GPU). "relayvsr" runs the RelayVSR '
+    'streaming model the same way and works with an LTX model without --ltx-auto-split '
+    'only; it needs --relayvsr-repo, see the "RelayVSR" group.'
 )
 
 FRAME_GENERATION_CHOICES = ["4x"]
@@ -226,6 +232,42 @@ def add_secondary_groups(parser: argparse.ArgumentParser) -> None:
              "--swiftvr-distill-strength; not measured on real footage.",
     )
 
+    relayvsr = parser.add_argument_group("RelayVSR (--secondary-restoration relayvsr, LTX windows)")
+    relayvsr.add_argument(
+        "--relayvsr-repo", type=str, default="",
+        help="Path to the RelayVSR checkout (fork sh202603/RelayVSR, branch windows-support). Required "
+             "for --secondary-restoration relayvsr.",
+    )
+    relayvsr.add_argument(
+        "--relayvsr-python", type=str, default="",
+        help="Python of the RelayVSR venv (default: <repo>/.venv/bin/python; on Windows "
+             "<repo>/.venv/Scripts/python.exe).",
+    )
+    relayvsr.add_argument(
+        "--relayvsr-weights-dir", type=str, default="",
+        help="Directory of the RelayVSR checkpoints (default: <repo>/weights). LTX windows run at 2x, "
+             "which needs wan_x2.safetensors and flash_x2.safetensors.",
+    )
+    relayvsr.add_argument(
+        "--relayvsr-window-size", type=int, default=16, metavar="N",
+        help="Keyframe interval + 1 (default: %(default)s): the large model restores every (N-1)th frame "
+             "and the small one the frames between. Larger is faster and drifts further from the input.",
+    )
+    relayvsr.add_argument(
+        "--relayvsr-wan-weights", type=str, default="fp8", choices=["fp8", "bf16"],
+        help="fp8 halves the Wan weights on the GPU and speeds up the keyframes; it needs an RTX 40 series "
+             "or newer GPU and falls back to bf16 (with a warning) elsewhere (default: %(default)s).",
+    )
+    relayvsr.add_argument(
+        "--relayvsr-kv-cache", type=str, default="auto", choices=["auto", "gpu", "cpu"],
+        help="Where the Wan K/V cache of a window lives: auto uses the GPU when it fits at the start of "
+             "the window, cpu keeps it in host memory (default: %(default)s).",
+    )
+    relayvsr.add_argument(
+        "--relayvsr-kv-cache-dtype", type=str, default="native", choices=["native", "int8"],
+        help="int8 halves the K/V cache and changes the output slightly (default: %(default)s).",
+    )
+
     ltx_refine = parser.add_argument_group("LTX output sharpening (modi)")
     ltx_refine.add_argument(
         "--ltx-crop-vsr",
@@ -361,6 +403,13 @@ def session_config_fields(args: argparse.Namespace, restoration_models: dict) ->
         swiftvr_distill_view_window=int(getattr(args, "swiftvr_distill_view_window", 15)),
         swiftvr_distill_strength=float(getattr(args, "swiftvr_distill_strength", 0.75)),
         swiftvr_distill_stabilize=int(getattr(args, "swiftvr_distill_stabilize", 0)),
+        relayvsr_repo=str(getattr(args, "relayvsr_repo", "") or ""),
+        relayvsr_python=str(getattr(args, "relayvsr_python", "") or ""),
+        relayvsr_weights_dir=str(getattr(args, "relayvsr_weights_dir", "") or ""),
+        relayvsr_window_size=int(getattr(args, "relayvsr_window_size", 16)),
+        relayvsr_wan_weights=str(getattr(args, "relayvsr_wan_weights", "fp8")),
+        relayvsr_kv_cache=str(getattr(args, "relayvsr_kv_cache", "auto")),
+        relayvsr_kv_cache_dtype=str(getattr(args, "relayvsr_kv_cache_dtype", "native")),
         seedvr2_repo=str(getattr(args, "seedvr2_repo", "") or ""),
         seedvr2_python=str(getattr(args, "seedvr2_python", "") or ""),
         seedvr2_model_dir=str(getattr(args, "seedvr2_model_dir", "") or ""),
@@ -398,6 +447,22 @@ def check_ltx_rtx_scale(
         and int(args.rtx_scale) != 2
     ):
         parser.error(f"{model_option} runs RTX Super Res at scale 2; --rtx-scale {args.rtx_scale} is not supported")
+
+
+def check_ltx_window_restorer(parser: argparse.ArgumentParser, args: argparse.Namespace, model_option: str) -> None:
+    """Without auto split SwiftVR and its distill student run on LTX windows, at 2x."""
+    from jasna.session_config import LTX_WINDOW_RESTORERS
+
+    secondary = str(args.secondary_restoration).lower()
+    if args.ltx_auto_split is not None or secondary not in LTX_WINDOW_RESTORERS:
+        return
+    if secondary == "swiftvr-inline" and _explicit("--swiftvr-scale") and int(args.swiftvr_scale) != 2:
+        parser.error(f"{model_option} runs SwiftVR at scale 2; --swiftvr-scale {args.swiftvr_scale} is not supported")
+    if secondary == "swiftvr-distill" and bool(args.ltx_large_canvas) and int(args.swiftvr_distill_stabilize) > 0:
+        parser.error(
+            f"{model_option} cannot combine --ltx-large-canvas and --swiftvr-distill-stabilize "
+            "(about 10 GB of VRAM at 768 px)"
+        )
 
 
 def check_ltx_crop_vsr_options(
@@ -624,7 +689,16 @@ def check_job_options(
             raise FileNotFoundError(f"--flashvsr-lora not found: {lora_arg} (also looked in {lora_file})")
         args.flashvsr_lora = str(lora_file.resolve())
 
-    if secondary_name in ("flashvsr-inline", "swiftvr-inline"):
+    if secondary_name == "relayvsr":
+        if restoration_backend != "ltx" or args.ltx_auto_split is not None:
+            raise ValueError(
+                "--secondary-restoration relayvsr works on LTX windows only: it needs an LTX model "
+                "(--restoration-model-name ltx) without --ltx-auto-split"
+            )
+        if int(args.relayvsr_window_size) < 2:
+            raise ValueError("--relayvsr-window-size must be at least 2")
+
+    if secondary_name in ("flashvsr-inline", "swiftvr-inline", "relayvsr"):
         # No clip cap (both are flat in VRAM vs clip length); frame-gen is a separate pass.
         if args.frame_generation != "none":
             raise ValueError(

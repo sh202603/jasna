@@ -60,11 +60,13 @@ def relayvsr_checkpoints(weights_dir: Path, scale: int) -> tuple[Path, Path]:
     return wan, flash
 
 
-def resolve_relayvsr_paths(repo: str, python: str, weights_dir: str) -> tuple[Path, Path, Path]:
+def resolve_relayvsr_paths(
+    repo: str, python: str, weights_dir: str, *, option: str = "--upscale relayvsr"
+) -> tuple[Path, Path, Path]:
     """Validate the ``--relayvsr-*`` inputs; return ``(repo, python, weights_dir)``. Which pair
     of checkpoints a video needs is only known from its size, so the pairs are checked per video."""
     if not str(repo or "").strip():
-        raise ValueError("--relayvsr-repo is required for --upscale relayvsr")
+        raise ValueError(f"--relayvsr-repo is required for {option}")
     repo_path = Path(str(repo)).expanduser()
     if not repo_path.is_dir():
         raise FileNotFoundError(f"--relayvsr-repo not found: {repo_path}")

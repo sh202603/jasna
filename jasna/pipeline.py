@@ -44,7 +44,9 @@ from jasna.progressbar import JobProgress, ProgressCallback, Progressbar
 from jasna.restorer.secondary_restorer import AsyncSecondaryRestorer
 from jasna.segments import SegmentRange, SegmentRestoration, job_models, job_restoration, resolve_restorations
 from jasna.session_config import RestorationModelName, SessionConfig
-from jasna.session_factory import build_frame_upscaler, ensure_frame_upscale_engines, frame_upscale_size
+from jasna.session_factory import (
+    build_frame_upscaler, ensure_frame_upscale_engines, frame_upscale_size, restores_ltx_windows,
+)
 from jasna.settings_tag import job_settings, settings_comment
 from jasna.upscale import FrameUpscaleWriter, upscaled_metadata
 from jasna.vr180 import resolve_vr_mode, stereo_detector
@@ -213,7 +215,12 @@ class Pipeline:
         self.detection_model = session.detection_model_for(config)
         self.restoration_pipeline = session.restoration_pipeline
         self.ltx_files = session.ltx_files
-        self.ltx_super_res = session.ltx_super_res if config.secondary_restoration == "rtx-super-res" else None
+        # +modi: or the temporal restorer of its windows (``jasna/ltx/window_restorer.py``).
+        self.ltx_super_res = (
+            session.ltx_super_res
+            if config.secondary_restoration == "rtx-super-res" or restores_ltx_windows(config)
+            else None
+        )
         self.ltx_crop_vsr = config.ltx_crop_vsr
         self.ltx_crop_vsr_source = config.ltx_crop_vsr_source
         self._session = session

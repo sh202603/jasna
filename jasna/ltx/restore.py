@@ -434,7 +434,9 @@ def _first_frames(frames: FrameSource, count: int) -> FrameSource:
 
 def _profile_key(render: LtxRender) -> str:
     # +modi: super resolution slows compose, so its runs keep a speed profile of their own.
-    budget_name = render.budget_name + ("+rtx" if render.super_res is not None else "")
+    budget_name = render.budget_name + (
+        getattr(render.super_res, "profile_tag", "+rtx") if render.super_res is not None else ""
+    )
     return speed.profile_key(torch.cuda.get_device_name(render.device), render.files.transformer_name, budget_name)
 
 
