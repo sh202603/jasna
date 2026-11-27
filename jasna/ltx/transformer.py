@@ -513,8 +513,9 @@ def _freq_grid(dim: int) -> torch.Tensor:
     return torch.as_tensor(grid * math.pi / 2, dtype=torch.float32)
 
 
-def latent_positions(frames: int, height: int, width: int) -> torch.Tensor:
-    """``[3, n]`` token-centre positions (seconds, pixel y, pixel x), causal first frame."""
+def latent_positions(frames: int, height: int, width: int, fps: float = POSITION_FPS) -> torch.Tensor:
+    """``[3, n]`` token-centre positions (seconds, pixel y, pixel x), causal first frame. ``fps`` is
+    the frame rate the model's temporal positions were trained at."""
     f, h, w = torch.meshgrid(torch.arange(frames), torch.arange(height), torch.arange(width), indexing="ij")
     starts = torch.stack([f, h, w]).reshape(3, -1)
     bounds = torch.stack([starts, starts + 1], dim=-1)
@@ -522,12 +523,14 @@ def latent_positions(frames: int, height: int, width: int) -> torch.Tensor:
     pixel = bounds * scale
     pixel[0] = (pixel[0] + 1 - LATENT_TEMPORAL_SCALE).clamp(min=0)
     pixel = pixel.float()
-    pixel[0] = pixel[0] / POSITION_FPS
+    pixel[0] = pixel[0] / fps
     return (pixel[..., 0] + pixel[..., 1]) / 2.0
 
 
-def build_rope(frames: int, height: int, width: int, *, dim: int, heads: int, device: torch.device) -> Rope:
-    positions = latent_positions(frames, height, width)
+def build_rope(
+    frames: int, height: int, width: int, *, dim: int, heads: int, device: torch.device, fps: float = POSITION_FPS
+) -> Rope:
+    positions = latent_positions(frames, height, width, fps)
     fractional = torch.stack([positions[i] / ROPE_MAX_POS[i] for i in range(3)], dim=-1)[None]
     indices = _freq_grid(dim)
     freqs = (indices * (fractional.unsqueeze(-1) * 2 - 1)).transpose(-1, -2).flatten(2)

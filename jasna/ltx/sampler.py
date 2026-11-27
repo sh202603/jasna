@@ -79,6 +79,12 @@ def sampler_settings(metadata: dict[str, str]) -> tuple[torch.Tensor, float]:
     return torch.tensor(json.loads(metadata["sigmas"]), dtype=torch.float32), float(json.loads(metadata["stg_scale"]))
 
 
+def position_fps(metadata: dict[str, str]) -> float:
+    """The frame rate of the model's temporal positions (modi): a converted third-party fine-tune
+    names its own in ``position_fps``; upstream's files carry none and use ``T.POSITION_FPS``."""
+    return float(json.loads(metadata["position_fps"])) if "position_fps" in metadata else T.POSITION_FPS
+
+
 def _window_state_bytes(tokens: int, *, stg: bool) -> int:
     """Hidden states one window keeps between blocks (conditional, plus perturbed with STG)."""
     return (2 if stg else 1) * 2 * tokens * 4096 * 2
@@ -114,6 +120,7 @@ class TransformerSource:
         try:
             self.handle = self._file.enter_context(open_tensors(path))
             self.sigmas, self.stg_scale = sampler_settings(self.handle.metadata())
+            self.position_fps = position_fps(self.handle.metadata())
             self.specs = self.handle.tensor_specs()
             self.top = read_host_tensors(
                 self.handle, [name for name in self.specs if not name.startswith("blocks.")], self.specs
@@ -188,6 +195,7 @@ class LtxTransformer:
                 T.require_kernels(device)
                 handle, specs = source.handle, source.specs
                 self.sigmas, self.stg_scale = source.sigmas, source.stg_scale
+                self.position_fps = source.position_fps
                 top, source.top = source.top, {}
                 self.top = _to_device(top, device)
                 self.context = self.top.pop("prompt_context")
@@ -251,7 +259,9 @@ class LtxTransformer:
         key = (frames, height, width)
         if key not in self._ropes:
             dim = self.top["patchify_proj.weight"].shape[0]
-            self._ropes[key] = T.build_rope(frames, height, width, dim=dim, heads=T.HEADS, device=self.device)
+            self._ropes[key] = T.build_rope(
+                frames, height, width, dim=dim, heads=T.HEADS, device=self.device, fps=self.position_fps
+            )
         return self._ropes[key]
 
     def _group_size(self, windows: int, tokens: int) -> int:
