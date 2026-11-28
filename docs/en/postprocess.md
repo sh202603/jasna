@@ -351,8 +351,43 @@ the desktop (about 2.3 GiB).
 - The K/V cache of `relayvsr` sat on the GPU at 1080p and in host memory at 2160p (`auto`).
 - `swiftvr` at 720p generates the same 2x frame (1280x960) as at 1080p and shrinks it, so it is not
   faster. Its longer wall clock comes from the worker's warmup in the first case (26 s).
-- Not measured: picture quality, 1080p input, Windows. On a 16 GB card under Windows, where the
-  desktop takes more, 2160p output may not fit.
+- Not measured: picture quality, 1080p input.
+
+### Measured on Windows
+
+Windows, RTX 5060 Ti 16 GB, 2026-11-28. Inputs of 720x480 with 890 frames and 1920x1080 with 899
+frames (about 30 s each), worker defaults. LTX runs kukkiri's weights, with 9 windows for either
+input. The whole-card peak is the maximum of the same 0.5 s polling and includes 1.2 to 2.2 GiB of
+other applications.
+
+| Primary | Input | `--upscale` | Output | Wall clock | Compose part | Whole-card peak |
+|---|---|---|---|---|---|---|
+| BasicVSR++ | 720×480 | none | 720×480 | 39 s | | 4.7 GiB |
+| BasicVSR++ | 720×480 | `rtx-super-res` | 1080×720 | 33 s | | 5.0 GiB |
+| BasicVSR++ | 720×480 | `relayvsr` | 1620×1080 | 117 s | | 13.4 GiB |
+| BasicVSR++ | 720×480 | `swiftvr` | 1620×1080 | 167 s | | 13.0 GiB |
+| LTX | 720×480 | none | 720×480 | 112 s | 25.2 s | 14.6 GiB |
+| LTX | 720×480 | `relayvsr` | 1080×720 | 190 s | 117.1 s | 13.3 GiB |
+| LTX | 720×480 | `relayvsr` | 1620×1080 | 173 s | 99.4 s | 13.2 GiB |
+| LTX | 720×480 | `swiftvr` | 1620×1080 | 194 s | 121.5 s | 14.1 GiB |
+| LTX | 720×480 | `swiftvr` | 3240×2160 | 394 s | 321.8 s | 15.1 GiB |
+| LTX | 720×480 | `relayvsr` | 3240×2160 | 398 s | 324.5 s | 15.1 GiB |
+| LTX | 1920×1080 | `relayvsr` | 3840×2160 | 534 s | 456.9 s | 15.3 GiB |
+| LTX, 768 px windows | 1920×1080 | `relayvsr` | 3840×2160 | 635 s | 483.3 s | 15.5 GiB |
+
+- All twelve cases finished, each with as many output frames as the input.
+- The compose part took 2.1 to 2.6 times as long as on Linux (RTX 5080) with the same clip. Against
+  the run without upscaling, `relayvsr` at 1080p took 3.9 times as long, like the 4.0 times on Linux.
+- `relayvsr` at 2160p beside LTX ran out of memory on Linux with both the 720x480 input (4x) and the
+  1920x1080 input (2x), and finished on Windows. The cause of the difference was not looked into.
+- `swiftvr` from 1920x1080 to 2160p beside LTX was stopped after 10 minutes (it finished in 277.7 s
+  on Linux). It had raised no error.
+- The K/V cache of `relayvsr` sat on the GPU beside BasicVSR++ and in host memory beside LTX.
+- With a folder input (BasicVSR++ primary, `relayvsr` at 1080p, two videos) the worker started once
+  and was reused for the second video.
+- The user looked at the outputs of the 720x480 input (BasicVSR++ and LTX primary, `relayvsr` and
+  `swiftvr`), found nothing wrong and judged them to be on the same level as the Linux outputs.
+  Picture quality was not measured in numbers.
 
 ### Beside an LTX primary
 
@@ -381,7 +416,8 @@ Same machine and clip, LTX with kukkiri's weights as the primary (22 windows at 
   get 2x, use `swiftvr`, or split the job into two passes with this command.
 - Before the two measures above only `relayvsr` at 1080p finished; the other three cases ran out of
   memory.
-- Not measured: 768 px windows (`--ltx-large-canvas`), 1080p input, picture quality.
+- Not measured on this machine: 768 px windows (`--ltx-large-canvas`), picture quality. 1080p input
+  and 768 px windows were measured on Windows, see [Measured on Windows](#measured-on-windows).
 
 ## Behavior and limits
 
