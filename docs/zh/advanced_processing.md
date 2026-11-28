@@ -77,7 +77,7 @@ jasna --input in.mp4 --output out.mkv --sharpen 0.5
 ## 放大整个视频
 
 **放大**标签页中的**放大视频**（`--upscale`）会把整个保存的视频放大并变清晰，而不只是
-修复区域。选择输出高度（`--upscale-height`：1080p、1440p 或 4K），宽度按画面比例变化。
+修复区域。选择输出高度（`--upscale-height`：720p、1080p、1440p 或 4K），宽度按画面比例变化。
 已经达到这个高度的视频不会放大。
 
 - **SPAN**（`span`）：快速的 AI 放大。支持 NVIDIA 和 AMD。在 NVIDIA 上，每种新的视频

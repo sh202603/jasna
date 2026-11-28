@@ -136,7 +136,7 @@ $env:TEMP = 'Z:\Temp'
 | オプション | デフォルト | 説明 |
 | ------ | ------- | ----- |
 | `--upscale` | `none` | `span`（高速、NVIDIA・AMD）、`realplksr`（高精細・低速、NVIDIA・AMD）、`rtx-super-res`（NVIDIA）、または `dlss5`（Windows、RTX 40 または 50。RTX 30 でも動きますがとても遅い。初回にダウンロード）。詳しくは[高度な処理](advanced_processing.md)。 |
-| `--upscale-height` | `2160` | `1080`、`1440`、`2160`。すでにこの高さ以上の動画は拡大しません。 |
+| `--upscale-height` | `2160` | `720`、`1080`、`1440`、`2160`（`720` は *+modi*）。すでにこの高さ以上の動画は拡大しません。 |
 | `--upscale-strength` | `1.0` | 0〜1。下げると普通の拡大が混ざります。 |
 | `--upscale-rtx-quality` | `high` | `low`、`medium`、`high`、`ultra`。 |
 | `--upscale-rtx-denoise` | `none` | `none`、`low`、`medium`、`high`、`ultra`。 |
@@ -144,6 +144,9 @@ $env:TEMP = 'Z:\Temp'
 | `--upscale-dlss5-preset` | `m` | `default`、`j`、`k`、`l`、`m`：DLSS の拡大モデル。 |
 | `--upscale-dlss5-style` | `default` | `default`、`natural`、`cinematic`。 |
 | `--upscale-dlss5-intensity` | `1.0` | DLSS 5 が光や質感を描き直す強さ、0〜2。 |
+| `--upscale swiftvr` / `relayvsr` | — | *(+modi)* SwiftVR または RelayVSR をフレーム全体に掛けます。`--swiftvr-repo` または `--relayvsr-repo` が必要です。`--secondary-restoration` と `--frame-generation` とは併用できません。worker のオプション（`--swiftvr-*`、`--relayvsr-*`）は二次復元と共通です。[postprocess.md](postprocess.md#本体の---upscale-で使う)。 |
+| `--upscale-swiftvr-tile` | `1.25` | *(+modi)* `--upscale swiftvr` の 1 タイルの出力画素数の上限（メガピクセル）。下げると VRAM が減り、遅くなります。 |
+| `--upscale-swiftvr-window` | `89` | *(+modi)* `--upscale swiftvr` が 1 回に復元するフレーム数（33 以上）。 |
 
 ## SD 1.5 画像復元
 

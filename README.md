@@ -62,7 +62,7 @@ and a command line, and runs on your GPU.
 - **Restore only some scenes.** Choose ranges with a preview in the Segment Editor. [Segment Editor](docs/en/segments.md#segment-editor-gui)
 - **Pause and continue.** Long LTX jobs keep their progress. [Pause and continue](docs/en/models.md#pause-and-continue)
 - **Sharpen restored areas.** UNet 4x, RTX Super Res or Topaz. [Secondary restoration](docs/en/models.md#secondary-restoration)
-- **Upscale the whole video** to 1080p, 1440p or 4K. [Upscale](docs/en/advanced_processing.md#upscale-the-whole-video)
+- **Upscale the whole video** to 720p, 1080p, 1440p or 4K. [Upscale](docs/en/advanced_processing.md#upscale-the-whole-video)
 - **Smoother motion.** Double the frame rate on RTX 40 and 50. [Frame generation](docs/en/gui.md#frame-generation)
 - **VR180 videos**, side by side or top/bottom. [VR180](docs/en/vr180.md)
 - **Still images** with SD 1.5 (supporters). [Images](docs/en/models.md#still-image-restoration-sd-15)

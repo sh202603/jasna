@@ -58,7 +58,7 @@ Jasna 修复视频和图片中的马赛克。Jasna 免费，提供简单的应�
 - **只修复部分场景。** 在区间编辑器中边预览边选择区间。[区间编辑器](docs/zh/segments.md#区间编辑器gui)
 - **暂停与继续。** 较长的 LTX 任务会保留进度。[暂停与继续](docs/zh/models.md#暂停与继续)
 - **让修复区域更清晰。** UNet 4x、RTX Super Res 或 Topaz。[二次修复](docs/zh/models.md#二次修复)
-- **放大整个视频**到 1080p、1440p 或 4K。[放大整个视频](docs/zh/advanced_processing.md#放大整个视频)
+- **放大整个视频**到 720p、1080p、1440p 或 4K。[放大整个视频](docs/zh/advanced_processing.md#放大整个视频)
 - **画面更流畅。** 在 RTX 40 和 50 上把帧率翻倍。[补帧](docs/zh/gui.md#补帧)
 - **VR180 视频**，左右并排或上下。[VR180](docs/zh/vr180.md)
 - **静态图片**用 SD 1.5 修复（支持者专享）。[图片](docs/zh/models.md#静态图片修复sd-15)

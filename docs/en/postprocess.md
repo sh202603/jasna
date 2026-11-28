@@ -5,7 +5,8 @@ finished video. It runs no mosaic detection and no restoration. There are two ki
 post-processing, and you can ask for either or both:
 
 - **Whole-frame upscaling** (`--upscale`): the `span`, `realplksr`, `rtx-super-res` and `dlss5`
-  upscalers of jasna's own `--upscale`, and `swiftvr` and `relayvsr`, which only this command has.
+  upscalers of jasna's own `--upscale`, and `swiftvr` and `relayvsr` (jasna's own `--upscale` runs
+  them too, see [In jasna's own `--upscale`](#in-jasnas-own---upscale)).
 - **Frame generation** (`--frame-generation 2x|4x`): RIFE or RTX Video Frame Generation; see
   [frame_generation.md](frame_generation.md).
 
@@ -60,7 +61,7 @@ either, it is not re-encoded: a folder batch skips it, a single file ends with a
 | Option | Default | Meaning |
 |---|---|---|
 | `--upscale` | `none` | `span`, `realplksr`, `rtx-super-res`, `dlss5`, `swiftvr`, `relayvsr`. |
-| `--upscale-height` | `2160` | `1080`, `1440`, `2160`. The width keeps the aspect ratio. |
+| `--upscale-height` | `2160` | `720`, `1080`, `1440`, `2160`. The width keeps the aspect ratio. |
 | `--upscale-strength` | `1.0` | 0 to 1. Lower values mix in a bicubic resize. |
 | `--upscale-rtx-*`, `--upscale-dlss5-*` | as in the main CLI | See [cli.md](cli.md). |
 | `--frame-generation` | `none` | `2x`, `4x`. |
@@ -301,6 +302,86 @@ desktop held about 1.75 GiB this time.
 
 The user reviewed the outputs of this comparison by eye and judged SwiftVR's and RelayVSR's
 results to be on the same level.
+
+## In jasna's own `--upscale`
+
+`jasna --upscale swiftvr` and `jasna --upscale relayvsr` put the same worker and writer at the output
+of the restoration pipeline. Restoration and upscaling take one run, with no intermediate video and
+no second encode.
+
+```bash
+jasna --input in.mp4 --output out.mp4 \
+    --upscale relayvsr --upscale-height 1080 --relayvsr-repo ~/RelayVSR
+jasna --input in.mp4 --output out.mp4 \
+    --upscale swiftvr --upscale-height 1080 --swiftvr-repo ~/SwiftVR
+```
+
+- **Options.** `--swiftvr-repo`, `--swiftvr-python`, `--swiftvr-model-dir`, `--swiftvr-accel` and
+  `--relayvsr-*` are the arguments of the secondary restoration. `--upscale-swiftvr-tile` and
+  `--upscale-swiftvr-window` mean what they mean in this command.
+- **Not combinable.** `--secondary-restoration` (anything but `none`) and `--frame-generation`: the
+  worker shares the GPU with the restoration, so nothing else is put beside it. The limits of
+  `--upscale` in general (`--segments`, `--ltx-auto-split`, `--stream`, `seedvr2`, `--ltx-crop-vsr`)
+  apply as well.
+- **Worker lifetime.** It starts for the first video that is upscaled and is reused for the later
+  videos of a folder input.
+- **GUI.** Not offered; CLI only.
+
+### Measured beside the restoration
+
+Linux, RTX 5080 16 GB, 2026-11-28. BasicVSR++ primary without a secondary restoration, a 640x480
+input of 1,950 frames (65 s), worker defaults. Wall clock is process start to exit, engine and model
+loading included. The whole-card peak is the maximum of `nvidia-smi` polled every 0.5 s and includes
+the desktop (about 2.3 GiB).
+
+| `--upscale` | Output | Wall clock | Whole-card peak |
+|---|---|---|---|
+| none | 640×480 | 11.5 s | 5.2 GiB |
+| `rtx-super-res` | 1440×1080 | 12.4 s | 5.6 GiB |
+| `swiftvr` | 960×720 | 92.7 s | 14.4 GiB |
+| `swiftvr` | 1440×1080 | 71.6 s | 14.5 GiB |
+| `relayvsr` | 1440×1080 | 64.7 s | 13.0 GiB |
+| `swiftvr` | 2880×2160 | 303.7 s | 15.0 GiB |
+| `relayvsr` | 2880×2160 | 219.7 s | 14.0 GiB |
+
+- All seven cases finished, each with 1,950 output frames.
+- `swiftvr` at 2160p reached the limit of the 16 GB card: jasna moved frames to host memory 21 times
+  (697 MiB in total). No other case did. Where there is no headroom, lower `--upscale-swiftvr-tile`
+  or split the job into two passes with this command.
+- The K/V cache of `relayvsr` sat on the GPU at 1080p and in host memory at 2160p (`auto`).
+- `swiftvr` at 720p generates the same 2x frame (1280x960) as at 1080p and shrinks it, so it is not
+  faster. Its longer wall clock comes from the worker's warmup in the first case (26 s).
+- Not measured: picture quality, 1080p input, Windows. On a 16 GB card under Windows, where the
+  desktop takes more, 2160p output may not fit.
+
+### Beside an LTX primary
+
+With LTX the worker shares the GPU with the VAE decode of the LTX windows in the compose pass. A
+16 GB card cannot hold both peaks at once, so:
+
+- **They take turns.** No window decodes while the worker works, and a decode hands its VRAM back
+  when it ends (`share_gpu_turn` in `jasna/ltx/compose_pass.py`).
+- **RelayVSR's K/V cache.** On a card with less than 20 GB, `--relayvsr-kv-cache auto` keeps it in
+  host memory: the worker decides at the start of the video, where it cannot see the VRAM the later
+  decodes take. An explicit `gpu` puts it on the GPU.
+
+Same machine and clip, LTX with kukkiri's weights as the primary (22 windows at 512 px), 2026-11-28.
+
+| `--upscale` | Output | Wall clock | Compose part | Whole-card peak |
+|---|---|---|---|---|
+| none | 640×480 | 84.3 s | 23.2 s | 13.4 GiB |
+| `relayvsr` | 1440×1080 | 137.1 s | 80.6 s | 14.0 GiB |
+| `swiftvr` | 1440×1080 | 158.3 s | 93.8 s | 14.1 GiB |
+| `swiftvr` | 2880×2160 | 367.3 s | 308.6 s | 15.3 GiB |
+| `relayvsr` | 2880×2160 | failed | | 15.4 GiB |
+
+- The peak without upscaling is the denoise: LTX fills free VRAM with resident transformer blocks.
+- `relayvsr` at 2160p (4x, generating 2560x1920) ran out of memory in jasna at frame 481, with
+  6.1 GiB in jasna and 6.9 GiB in the worker. Such a job warns when it starts. Lower the height to
+  get 2x, use `swiftvr`, or split the job into two passes with this command.
+- Before the two measures above only `relayvsr` at 1080p finished; the other three cases ran out of
+  memory.
+- Not measured: 768 px windows (`--ltx-large-canvas`), 1080p input, picture quality.
 
 ## Behavior and limits
 

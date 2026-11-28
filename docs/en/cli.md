@@ -136,7 +136,7 @@ The `--ltx-*` options need `--restoration-model-name ltx-basic`, `ltx`, `ltx-4st
 | Option | Default | Notes |
 | ------ | ------- | ----- |
 | `--upscale` | `none` | `span` (fast, NVIDIA or AMD), `realplksr` (more detail, slower, NVIDIA or AMD), `rtx-super-res` (NVIDIA) or `dlss5` (Windows, RTX 40 or 50; RTX 30 works but is very slow; downloaded on first use). See [Advanced processing](advanced_processing.md#upscale-the-whole-video). |
-| `--upscale-height` | `2160` | `1080`, `1440` or `2160`. Videos already this tall are not upscaled. |
+| `--upscale-height` | `2160` | `720`, `1080`, `1440` or `2160` (`720` is *+modi*). Videos already this tall are not upscaled. |
 | `--upscale-strength` | `1.0` | 0–1. Lower mixes in a plain resize. |
 | `--upscale-rtx-quality` | `high` | `low`, `medium`, `high`, `ultra`. |
 | `--upscale-rtx-denoise` | `none` | `none`, `low`, `medium`, `high`, `ultra`. |
@@ -144,6 +144,9 @@ The `--ltx-*` options need `--restoration-model-name ltx-basic`, `ltx`, `ltx-4st
 | `--upscale-dlss5-preset` | `m` | `default`, `j`, `k`, `l`, `m`: the DLSS upscaling model. |
 | `--upscale-dlss5-style` | `default` | `default`, `natural`, `cinematic`. |
 | `--upscale-dlss5-intensity` | `1.0` | How strongly DLSS 5 reworks lighting and surfaces, 0–2. |
+| `--upscale swiftvr` / `relayvsr` | — | *(+modi)* Runs SwiftVR or RelayVSR on whole frames. Needs `--swiftvr-repo` or `--relayvsr-repo`. Cannot be combined with `--secondary-restoration` or `--frame-generation`. The worker options (`--swiftvr-*`, `--relayvsr-*`) are the ones of the secondary restoration. See [postprocess.md](postprocess.md#in-jasnas-own---upscale). |
+| `--upscale-swiftvr-tile` | `1.25` | *(+modi)* `--upscale swiftvr`: largest tile in megapixels after upscaling. Lower needs less VRAM and is slower. |
+| `--upscale-swiftvr-window` | `89` | *(+modi)* `--upscale swiftvr`: frames restored per call (33 or more). |
 
 ## SD 1.5 image restoration
 

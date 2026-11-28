@@ -4,7 +4,7 @@
 モザイク検出も復元も走らせない。
 後処理は次の 2 種類で、片方だけでも両方でも指定できる。
 
-- **全画面アップスケール**（`--upscale`）：jasna 本体の `--upscale` と同じ `span`、`realplksr`、`rtx-super-res`、`dlss5` と、このコマンドだけが持つ `swiftvr`、`relayvsr`
+- **全画面アップスケール**（`--upscale`）：jasna 本体の `--upscale` と同じ `span`、`realplksr`、`rtx-super-res`、`dlss5` と、`swiftvr`、`relayvsr`（本体の `--upscale` でも使える。「[本体の `--upscale` で使う](#本体の---upscale-で使う)」）
 - **フレーム生成**（`--frame-generation 2x|4x`）：RIFE または RTX Video Frame Generation。詳細は [frame_generation.md](frame_generation.md)
 
 `0.12.3+modi` までの `jasna-framegen` を改名して拡張したもので、旧名は残っていない。
@@ -56,7 +56,7 @@ jasna-postprocess --input restored.mkv --output out.mkv \
 | オプション | 既定 | 意味 |
 |---|---|---|
 | `--upscale` | `none` | `span`、`realplksr`、`rtx-super-res`、`dlss5`、`swiftvr`、`relayvsr`。 |
-| `--upscale-height` | `2160` | `1080`、`1440`、`2160`。幅は縦横比を保つ。 |
+| `--upscale-height` | `2160` | `720`、`1080`、`1440`、`2160`。幅は縦横比を保つ。 |
 | `--upscale-strength` | `1.0` | 0〜1。下げると bicubic の拡大が混ざる。 |
 | `--upscale-rtx-*`、`--upscale-dlss5-*` | 本体と同じ | [cli.md](cli.md) を参照。 |
 | `--frame-generation` | `none` | `2x`、`4x`。 |
@@ -236,6 +236,69 @@ GPU 全体のピークは `nvidia-smi` の 0.5 秒ポーリングの最大値で
 - **`bf16` は 16 GB では遅い**：VRAM が上限近くまで埋まり、速度が半分以下になった。指標は `fp8` とほぼ同じである。
 
 利用者がこの比較の出力を目視し、SwiftVR と RelayVSR の仕上がりは同等と判断した。
+
+## 本体の `--upscale` で使う
+
+`jasna --upscale swiftvr` と `jasna --upscale relayvsr` は、同じ worker と writer を復元パイプラインの出力段に入れる。
+復元と拡大が 1 回の実行で済み、中間の動画とその再エンコードが要らない。
+
+```bash
+jasna --input in.mp4 --output out.mp4 \
+    --upscale relayvsr --upscale-height 1080 --relayvsr-repo ~/RelayVSR
+jasna --input in.mp4 --output out.mp4 \
+    --upscale swiftvr --upscale-height 1080 --swiftvr-repo ~/SwiftVR
+```
+
+- **オプション**：`--swiftvr-repo`、`--swiftvr-python`、`--swiftvr-model-dir`、`--swiftvr-accel` と `--relayvsr-*` は二次復元と同じ引数を使う。`--upscale-swiftvr-tile` と `--upscale-swiftvr-window` はこのコマンドと同じ意味である。
+- **併用できないもの**：`--secondary-restoration`（`none` 以外すべて）と `--frame-generation`。worker が復元と同じ GPU に同居するので、VRAM を分け合う相手を置かない。`--upscale` 全般の制約（`--segments`、`--ltx-auto-split`、`--stream`、`seedvr2`、`--ltx-crop-vsr`）もそのまま掛かる。
+- **worker の寿命**：最初に拡大する動画で起動し、フォルダ入力では後続の動画で使い回す。
+- **GUI**：選べない。CLI だけである。
+
+### 同居の実測
+
+Linux、RTX 5080 16 GB、2026-11-28。
+一次復元は BasicVSR++（二次復元なし）、入力は 640×480 の 1,950 フレーム（65 秒）、worker の設定は既定値である。
+壁時計はプロセスの起動から終了までで、エンジンとモデルの読込を含む。
+GPU 全体のピークは `nvidia-smi` の 0.5 秒ポーリングの最大値で、デスクトップの常駐（約 2.3 GiB）を含む。
+
+| `--upscale` | 出力 | 壁時計 | GPU 全体のピーク |
+|---|---|---|---|
+| なし | 640×480 | 11.5 秒 | 5.2 GiB |
+| `rtx-super-res` | 1440×1080 | 12.4 秒 | 5.6 GiB |
+| `swiftvr` | 960×720 | 92.7 秒 | 14.4 GiB |
+| `swiftvr` | 1440×1080 | 71.6 秒 | 14.5 GiB |
+| `relayvsr` | 1440×1080 | 64.7 秒 | 13.0 GiB |
+| `swiftvr` | 2880×2160 | 303.7 秒 | 15.0 GiB |
+| `relayvsr` | 2880×2160 | 219.7 秒 | 14.0 GiB |
+
+- 7 ケースとも完走し、出力は全件 1,950 フレームだった。
+- `swiftvr` の 2160p は 16 GB の上限に達し、jasna 側の VRAM 退避が 21 回（計 697 MiB）働いた。それ以外のケースでは退避は起きていない。余裕が無い環境では `--upscale-swiftvr-tile` を下げるか、このコマンドで 2 パスに分ける。
+- `relayvsr` の K/V キャッシュは、1080p では GPU、2160p ではホストメモリに置かれた（`auto`）。
+- `swiftvr` の 720p は 1080p と同じ 2 倍（1280×960）を生成して縮めるので、速くならない。720p の壁時計が長いのは、最初のケースで worker の warmup が長かった（26 秒）ためである。
+- 画質、1080p 入力、Windows は測っていない。常駐の大きい Windows の 16 GB では、2160p 出力が収まらない可能性がある。
+
+### LTX 一次との同居
+
+LTX では、worker は compose パスで LTX window の VAE デコードと同じ GPU を使う。
+両方のピークが重なると 16 GB では足りないので、次の 2 つを行う。
+
+- **交互に使う**：window のデコードと worker の処理は同時に走らない。デコードは終わるたびに確保した VRAM を返す（`jasna/ltx/compose_pass.py` の `share_gpu_turn`）。
+- **RelayVSR の K/V キャッシュ**：`--relayvsr-kv-cache auto` は、VRAM が 20 GB 未満のカードではホストメモリに置く。worker は動画の先頭で置き場所を決めるが、その時点では後のデコードが使う VRAM が見えないためである。`gpu` を明示すれば GPU に置く。
+
+同じ機材と素材、一次は kukkiri の重みの LTX（512 px の window が 22 個）、2026-11-28。
+
+| `--upscale` | 出力 | 壁時計 | うち compose | GPU 全体のピーク |
+|---|---|---|---|---|
+| なし | 640×480 | 84.3 秒 | 23.2 秒 | 13.4 GiB |
+| `relayvsr` | 1440×1080 | 137.1 秒 | 80.6 秒 | 14.0 GiB |
+| `swiftvr` | 1440×1080 | 158.3 秒 | 93.8 秒 | 14.1 GiB |
+| `swiftvr` | 2880×2160 | 367.3 秒 | 308.6 秒 | 15.3 GiB |
+| `relayvsr` | 2880×2160 | 失敗 | | 15.4 GiB |
+
+- 「なし」のピークは denoise のもので、LTX は空いている VRAM を transformer のブロックの常駐に使う。
+- `relayvsr` の 2160p（4 倍、2560×1920 を生成）は、481 フレーム目で jasna 側が OOM になった。その時点で jasna が 6.1 GiB、worker が 6.9 GiB を使っていた。この組み合わせは開始時に警告を出す。高さを下げて 2 倍にするか、`swiftvr` を使うか、このコマンドで 2 パスに分ける。
+- 上の 2 つの対策を入れる前は、`relayvsr` の 1080p だけが完走し、他の 3 ケースは OOM で失敗した。
+- 768 px の window（`--ltx-large-canvas`）、1080p 入力、画質は測っていない。
 
 ## 挙動と制約
 

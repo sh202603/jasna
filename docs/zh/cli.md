@@ -101,7 +101,7 @@ $env:TEMP = 'Z:\Temp'
 | 选项 | 默认值 | 说明 |
 | ------ | ------- | ----- |
 | `--upscale` | `none` | `span`（快速，NVIDIA 或 AMD）、`realplksr`（细节更多、较慢，NVIDIA 或 AMD）、`rtx-super-res`（NVIDIA）或 `dlss5`（Windows，RTX 40 或 50；RTX 30 也能用但非常慢；首次使用时下载）。见[高级处理](advanced_processing.md)。 |
-| `--upscale-height` | `2160` | `1080`、`1440` 或 `2160`。已经达到这个高度的视频不会放大。 |
+| `--upscale-height` | `2160` | `720`、`1080`、`1440` 或 `2160`（`720` 为 *+modi*）。已经达到这个高度的视频不会放大。 |
 | `--upscale-strength` | `1.0` | 0–1。调低后会混入普通缩放。 |
 | `--upscale-rtx-quality` | `high` | `low`、`medium`、`high`、`ultra`。 |
 | `--upscale-rtx-denoise` | `none` | `none`、`low`、`medium`、`high`、`ultra`。 |
@@ -109,6 +109,9 @@ $env:TEMP = 'Z:\Temp'
 | `--upscale-dlss5-preset` | `m` | `default`、`j`、`k`、`l`、`m`：DLSS 放大模型。 |
 | `--upscale-dlss5-style` | `default` | `default`、`natural`、`cinematic`。 |
 | `--upscale-dlss5-intensity` | `1.0` | DLSS 5 重绘光照和材质的强度，0–2。 |
+| `--upscale swiftvr` / `relayvsr` | — | *(+modi)* 对整帧运行 SwiftVR 或 RelayVSR。需要 `--swiftvr-repo` 或 `--relayvsr-repo`。不能与 `--secondary-restoration` 或 `--frame-generation` 一起使用。见 [postprocess.md](../en/postprocess.md#in-jasnas-own---upscale)（英文）。 |
+| `--upscale-swiftvr-tile` | `1.25` | *(+modi)* `--upscale swiftvr`：单个分块放大后的最大像素数（百万像素）。调低可减少显存占用，但更慢。 |
+| `--upscale-swiftvr-window` | `89` | *(+modi)* `--upscale swiftvr`：每次修复的帧数（至少 33）。 |
 
 ## SD 1.5 图片修复
 

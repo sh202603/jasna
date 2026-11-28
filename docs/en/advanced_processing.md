@@ -95,7 +95,7 @@ instead of copied, so sharpening covers the whole video.
 
 **Upscale Video** in the **Upscale** tab (`--upscale`) makes the whole saved
 video bigger and sharper, not only the restored areas. Pick the output height
-(`--upscale-height`: 1080p, 1440p or 4K); the width keeps the picture's shape.
+(`--upscale-height`: 720p, 1080p, 1440p or 4K); the width keeps the picture's shape.
 Videos that are already this tall are not upscaled.
 
 - **SPAN** (`span`): a fast AI upscaler. NVIDIA and AMD. On NVIDIA it is
