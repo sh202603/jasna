@@ -22,6 +22,7 @@ from jasna.session_config import (
     SecondaryRestorationName,
     SessionConfig,
     UpscaleModelName,
+    WORKER_UPSCALE_MODELS,
     ltx_unsupported_options,
 )
 
@@ -56,6 +57,8 @@ class RestorationSession:
     log_callback: Callable[[str], None] | None
     ltx_files: "LtxModelFiles | None" = None
     ltx_super_res: "LtxSuperRes | None" = None
+    # +modi: the worker of ``--upscale swiftvr`` / ``relayvsr``, kept for the videos of the job.
+    upscale_worker: object | None = None
     _detection_key: tuple | None = None
     _detection_model: "DetectionModel | None" = None
 
@@ -93,8 +96,14 @@ class RestorationSession:
             self._detection_model = None
         self._detection_key = None
 
+    def close_upscale_worker(self) -> None:
+        if self.upscale_worker is not None:
+            self.upscale_worker.close()
+            self.upscale_worker = None
+
     def close(self) -> None:
         self.release_detection_model()
+        self.close_upscale_worker()
         if self.ltx_super_res is not None:
             self.ltx_super_res.close()
             self.ltx_super_res = None
@@ -391,6 +400,94 @@ def build_frame_upscaler(
     raise ValueError(f"Unsupported upscale model: {config.upscale_model}")
 
 
+def worker_upscale_writer(
+    config: SessionConfig, session: RestorationSession, writer, source_size: "Size", output_size: "Size"
+):
+    """+modi: ``writer`` behind ``--upscale swiftvr`` (overlapping windows, crossfaded) or
+    ``relayvsr`` (a stream with a delay). The worker starts for the job's first upscaled video and
+    stays in ``session`` for the ones after it; one a failed video left unusable is replaced."""
+    from jasna.session_config import UPSCALE_SWIFTVR_WINDOW_OVERLAP
+
+    device, strength = session.device, config.upscale_strength
+    if session.upscale_worker is not None and not session.upscale_worker.alive:
+        session.close_upscale_worker()
+    verbose = str(config.swiftvr_log_level).lower() == "debug"
+    if config.upscale_model == "swiftvr":
+        from jasna.restorer.swiftvr_common import resolve_swiftvr_paths
+        from jasna.upscale.clip_writer import ClipUpscaleWriter
+        from jasna.upscale.swiftvr import SwiftvrClipUpscaler, SwiftvrWorker, swiftvr_scale
+
+        if session.upscale_worker is None:
+            repo, sv_python, model_dir = resolve_swiftvr_paths(
+                config.swiftvr_repo, config.swiftvr_python, config.swiftvr_model_dir, option="--upscale swiftvr"
+            )
+            session.upscale_worker = SwiftvrWorker(
+                repo=repo, sv_python=sv_python, model_dir=model_dir, device=str(device),
+                warmup_size=source_size, warmup_scale=swiftvr_scale(source_size[1], output_size[1]),
+                accel=bool(config.swiftvr_accel), tile_megapixels=float(config.upscale_swiftvr_tile),
+                verbose=verbose,
+            )
+        upscaler = SwiftvrClipUpscaler(
+            session.upscale_worker, device, source_size=source_size, output_size=output_size, strength=strength
+        )
+        return ClipUpscaleWriter(
+            writer, upscaler, window=int(config.upscale_swiftvr_window), overlap=UPSCALE_SWIFTVR_WINDOW_OVERLAP
+        )
+    from jasna.restorer.relayvsr_common import resolve_relayvsr_paths
+    from jasna.upscale.relayvsr import HEAVY_MODEL_HEIGHT, RelayvsrStreamUpscaler, RelayvsrWorker, relayvsr_scale
+    from jasna.upscale.stream_writer import StreamUpscaleWriter
+
+    scale = relayvsr_scale(source_size[1], output_size[1])
+    if source_size[1] * scale > HEAVY_MODEL_HEIGHT:
+        logger.warning(
+            "RelayVSR generates %dx%d (%dx) and the result is resized to %dx%d: far more memory and time "
+            "than %dp output", source_size[0] * scale, source_size[1] * scale, scale, *output_size, HEAVY_MODEL_HEIGHT,
+        )
+    kv_cache = str(config.relayvsr_kv_cache)
+    if kv_cache == "auto" and config.restoration_model_name == "ltx" and device.type == "cuda":
+        import torch
+
+        if torch.cuda.get_device_properties(device).total_memory < WORKER_LARGE_CANVAS_MIN_BYTES:
+            # The worker decides when the video begins, where it cannot see the VRAM the LTX window
+            # decodes take later: a cache placed on the GPU then ran the card out of memory (16 GB).
+            kv_cache = "cpu"
+            logger.info("RelayVSR K/V cache in host memory beside LTX (--relayvsr-kv-cache gpu forces the GPU)")
+    if session.upscale_worker is None:
+        _, rv_python, weights_dir = resolve_relayvsr_paths(
+            config.relayvsr_repo, config.relayvsr_python, config.relayvsr_weights_dir
+        )
+        session.upscale_worker = RelayvsrWorker(
+            rv_python=rv_python, weights_dir=weights_dir, device=str(device), scale=scale,
+            window_size=int(config.relayvsr_window_size), wan_weights=str(config.relayvsr_wan_weights),
+            kv_cache=kv_cache, kv_cache_dtype=str(config.relayvsr_kv_cache_dtype),
+            verbose=verbose,
+        )
+    upscaler = RelayvsrStreamUpscaler(
+        session.upscale_worker, device, source_size=source_size, output_size=output_size, strength=strength
+    )
+    return StreamUpscaleWriter(writer, upscaler)
+
+
+def worker_upscale_ltx_warning(config: SessionConfig, device: "torch.device", source_size: "Size", output_size: "Size") -> str | None:
+    """+modi: what to tell the user before an LTX job whose RelayVSR upscale is known not to fit:
+    on a 16 GB card the 4x pair (2560x1920 from 480p) ran out of memory in the compose pass,
+    after the whole denoise."""
+    if config.upscale_model != "relayvsr" or config.restoration_model_name != "ltx" or device.type != "cuda":
+        return None
+    import torch
+
+    from jasna.upscale.relayvsr import relayvsr_scale
+
+    scale = relayvsr_scale(source_size[1], output_size[1])
+    if scale < 4 or torch.cuda.get_device_properties(device).total_memory >= WORKER_LARGE_CANVAS_MIN_BYTES:
+        return None
+    return (
+        f"--upscale relayvsr generates {source_size[0] * scale}x{source_size[1] * scale} (4x) beside LTX: on a "
+        "16 GB card this ran out of memory in the compose pass. A lower --upscale-height (2x), --upscale swiftvr "
+        "or a second pass with jasna-postprocess fits."
+    )
+
+
 def secondary_restorations_for(vendor: "AcceleratorVendor") -> tuple[SecondaryRestorationName, ...]:
     """The secondary restorers a GPU of ``vendor`` can run."""
     from jasna.accelerator import AcceleratorVendor
@@ -471,6 +568,11 @@ def build_restoration_session(
         reason = dlss5_unavailable_reason(device, dlss5_runtime_dir())
         if reason:
             raise ValueError(reason)
+    elif config.upscale_model in WORKER_UPSCALE_MODELS:  # +modi
+        from jasna.accelerator import AcceleratorVendor
+
+        if vendor is not AcceleratorVendor.NVIDIA:
+            raise ValueError(f"--upscale {config.upscale_model} needs an NVIDIA GPU")
     elif config.upscale_model not in upscale_models_for(vendor, sys.platform):
         raise ValueError(UPSCALE_RTX_NEEDS_NVIDIA)
     if config.restoration_model_name == "ltx" and ltx_unsupported_options(

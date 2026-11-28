@@ -174,7 +174,7 @@ LTX_NEEDED = "needs --restoration-model-name ltx-basic, ltx, ltx-4step, ltx-8ste
         (["--segments", "10-20", "--upscale", "rtx-super-res"], (), "--upscale cannot be combined with --segments"),
         (["--restoration-model-name", "ltx", "--ltx-auto-split", "12", "--upscale", "span"], (),
          "--upscale cannot be combined with --ltx-auto-split"),
-        (["--upscale", "span", "--upscale-height", "720"], (), "argument --upscale-height: invalid choice"),
+        (["--upscale", "span", "--upscale-height", "480"], (), "argument --upscale-height: invalid choice"),
         (["--upscale", "span", "--upscale-strength", "1.5"], (), "Upscale strength must be in"),
         (["--codec", "vp9"], (), "argument --codec: invalid choice: 'vp9'"),
         (["--codec", "av1", "--encoder-settings", "profile=main"], (), "for codec av1.*profile"),

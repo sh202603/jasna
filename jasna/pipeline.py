@@ -43,9 +43,10 @@ from jasna.pipeline_threads import run_restoration_pass
 from jasna.progressbar import JobProgress, ProgressCallback, Progressbar
 from jasna.restorer.secondary_restorer import AsyncSecondaryRestorer
 from jasna.segments import SegmentRange, SegmentRestoration, job_models, job_restoration, resolve_restorations
-from jasna.session_config import RestorationModelName, SessionConfig
+from jasna.session_config import WORKER_UPSCALE_MODELS, RestorationModelName, SessionConfig
 from jasna.session_factory import (
     build_frame_upscaler, ensure_frame_upscale_engines, frame_upscale_size, restores_ltx_windows,
+    worker_upscale_ltx_warning, worker_upscale_writer,
 )
 from jasna.settings_tag import job_settings, settings_comment
 from jasna.upscale import FrameUpscaleWriter, upscaled_metadata
@@ -296,7 +297,11 @@ class Pipeline:
                 output_frame_count=output_frame_count,
                 output_fps=float(frame_rate.output_fps),
                 progress=progress,
-                encode_heartbeat=encode_heartbeat,
+                # +modi: a worker upscaler holds the frames of a window (SwiftVR: tens of seconds)
+                # before the encoder sees the first of them, which is not a stall.
+                encode_heartbeat=(
+                    None if self.config.upscale_model in WORKER_UPSCALE_MODELS else encode_heartbeat
+                ),
             )
             if error is None and not self._cancel_event.is_set():
                 frame_writer.finish()
@@ -330,7 +335,10 @@ class Pipeline:
             )
             log.info("Frame generation %s with the %s backend", config.frame_generation, config.frame_generation_backend)
             writer = FrameGenerationWriter(writer, generate, multiplier_of(config.frame_generation))
-        if upscale_size is not None:
+        if upscale_size is not None and config.upscale_model in WORKER_UPSCALE_MODELS:
+            # +modi: SwiftVR / RelayVSR in a worker, on runs of frames instead of single ones.
+            writer = worker_upscale_writer(config, self._session, writer, source_size, upscale_size)
+        elif upscale_size is not None:
             upscaler = build_frame_upscaler(config, self.device, source_size, upscale_size)
             writer = FrameUpscaleWriter(writer, upscaler)
         return writer
@@ -349,6 +357,8 @@ class Pipeline:
             "Upscaling %dx%d to %dx%d with %s",
             *source_size, *upscale_size, self.config.upscale_model,
         )
+        if warning := worker_upscale_ltx_warning(self.config, self.device, source_size, upscale_size):  # +modi
+            log.warning(warning)
         ensure_frame_upscale_engines(self.config, source_size, upscale_size, log_callback=log.info)
 
     def _log_memory_at_end(self) -> None:

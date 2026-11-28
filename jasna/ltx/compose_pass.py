@@ -136,6 +136,8 @@ class _SegmentComposer:
         # window while one is restored put both peaks on the card at once (16 GB: out of memory
         # with SwiftVR next to the conv decoder).
         self._gpu_turn = threading.Lock() if self._whole else nullcontext()
+        # +modi: set by ``share_gpu_turn``: the decoder also hands its cached blocks back.
+        self._frees_after_decode = False
         self._pending = iter(windows)
         self._upcoming = next(self._pending, None)
         self._covering: list[Window] = []
@@ -157,6 +159,15 @@ class _SegmentComposer:
         self._decoding: dict[int, Future[tuple[torch.Tensor, torch.cuda.Event | None]]] = {}
         self._ahead = DECODE_AHEAD
 
+    def share_gpu_turn(self, turn) -> None:
+        """+modi: take turns on the GPU with a writer that upscales whole frames in a worker of
+        its own (``--upscale swiftvr`` / ``relayvsr``): no window decodes while the worker is at
+        its peak, and a decode leaves nothing in the allocator's cache, which the worker could
+        not use. Without this both peaks met on a 16 GB card and one of the two ran out of
+        memory."""
+        self._gpu_turn = turn
+        self._frees_after_decode = self._device.type == "cuda"
+
     def _decode(
         self, window: Window, latent: Future[torch.Tensor]
     ) -> tuple[torch.Tensor, torch.cuda.Event | None]:
@@ -172,6 +183,11 @@ class _SegmentComposer:
                 self._budget,
                 self._device,
             )
+            if self._frees_after_decode:
+                if video.is_cuda:
+                    video = video.cpu()
+                torch.cuda.synchronize(self._device)
+                torch.cuda.empty_cache()
         return video, self._decoded_mark()
 
     def _decoded_mark(self) -> torch.cuda.Event | None:
@@ -319,6 +335,10 @@ def compose_span(
         ]
         with torch.cuda.stream(torch.cuda.Stream(device, priority=-1) if cuda else None):
             writer = span.open_writer()
+            gpu_turn = getattr(writer, "gpu_turn", None)  # +modi: a worker upscaler's
+            if gpu_turn is not None:
+                for composer in composers:
+                    composer.share_gpu_turn(gpu_turn)
             try:
                 with closing(BatchPrefetcher(span.frames(), device)) as frames:
                     for owner, batch, pts in segment_batches(iter(frames), span.segments, batch_size):

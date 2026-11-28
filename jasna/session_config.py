@@ -50,7 +50,14 @@ slower, more detailed RealPLKSR network, or DLSS 5 (a user-supplied runtime, Win
 Dlss5PresetName = Literal["default", "j", "k", "l", "m"]
 """The DLSS Super Resolution model; L and M rebuild more fine texture than the others."""
 Dlss5StyleName = Literal["default", "natural", "cinematic"]
-UPSCALE_HEIGHTS = (1080, 1440, 2160)
+UPSCALE_HEIGHTS = (720, 1080, 1440, 2160)  # +modi: 720
+# +modi: the whole-frame upscalers that run in a worker of their own venv (``jasna/upscale/swiftvr.py``,
+# ``jasna/upscale/relayvsr.py``). ``SessionConfig.upscale_model`` takes them next to
+# ``UpscaleModelName``; the CLI offers them, the GUI does not.
+WORKER_UPSCALE_MODELS = ("swiftvr", "relayvsr")
+UPSCALE_SWIFTVR_DEFAULT_TILE_MEGAPIXELS = 1.25
+UPSCALE_SWIFTVR_DEFAULT_WINDOW = 89
+UPSCALE_SWIFTVR_WINDOW_OVERLAP = 16
 
 # Option defaults shared by the CLI (``jasna.cli_parser.build_parser``) and the GUI (``AppSettings``).
 DEFAULT_DETECTION_MODEL_NAME = "rfdetr-v6"
@@ -190,6 +197,10 @@ class SessionConfig:
     relayvsr_wan_weights: str = "fp8"
     relayvsr_kv_cache: str = "auto"
     relayvsr_kv_cache_dtype: str = "native"
+    # +modi: ``upscale_model`` "swiftvr" (the worker options are the ``swiftvr_*`` and
+    # ``relayvsr_*`` fields above, which no secondary restoration uses in such a job).
+    upscale_swiftvr_tile: float = UPSCALE_SWIFTVR_DEFAULT_TILE_MEGAPIXELS
+    upscale_swiftvr_window: int = UPSCALE_SWIFTVR_DEFAULT_WINDOW
     # SeedVR2 primary (restoration_model_name "seedvr2"): ``restoration_model_path``
     # carries the LoRA checkpoint instead of the BasicVSR++ checkpoint.
     seedvr2_repo: str = ""
@@ -238,6 +249,14 @@ class SessionConfig:
             raise ValueError(f"Upscale height must be one of {', '.join(map(str, UPSCALE_HEIGHTS))}")
         if not 0.0 <= self.upscale_strength <= 1.0:
             raise ValueError("Upscale strength must be in [0, 1]")
+        if self.upscale_model in WORKER_UPSCALE_MODELS:  # +modi
+            if self.secondary_restoration != "none":
+                raise ValueError(
+                    f"--upscale {self.upscale_model} cannot be combined with --secondary-restoration "
+                    f"{self.secondary_restoration}"
+                )
+            if self.frame_generation != "none":
+                raise ValueError(f"--upscale {self.upscale_model} cannot be combined with --frame-generation")
         if not 0.0 <= self.upscale_dlss5_intensity <= 2.0:
             raise ValueError("DLSS 5 intensity must be in [0, 2]")
         if self.ltx_crop_vsr is not None:

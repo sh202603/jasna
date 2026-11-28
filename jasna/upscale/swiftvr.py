@@ -167,6 +167,11 @@ class SwiftvrWorker:
             yield frame
         self._broken = False
 
+    @property
+    def alive(self) -> bool:
+        """Whether the worker can take another window (a window left half read cannot be resumed)."""
+        return not (self._closed or self._broken or self._proc.poll() is not None)
+
     def _kill(self) -> None:
         try:
             self._proc.kill()

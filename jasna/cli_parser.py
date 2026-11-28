@@ -297,9 +297,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--upscale",
         type=str,
         default="none",
-        choices=list(get_args(UpscaleModelName)),
-        help=CLI_HELP["upscale"],
+        choices=[*get_args(UpscaleModelName), *cli_modi.UPSCALE_CHOICES],  # +modi
+        help=CLI_HELP["upscale"] + cli_modi.UPSCALE_HELP,
     )
+    cli_modi.add_upscale_arguments(upscale)  # +modi
     upscale.add_argument(
         "--upscale-height",
         type=int,

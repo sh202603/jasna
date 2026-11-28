@@ -49,6 +49,17 @@ SECONDARY_RESTORATION_HELP = (
 
 FRAME_GENERATION_CHOICES = ["4x"]
 
+# Added to upstream's ``--upscale`` choices (``session_config.WORKER_UPSCALE_MODELS``).
+UPSCALE_CHOICES = ["swiftvr", "relayvsr"]
+
+UPSCALE_HELP = (
+    ' "swiftvr" runs the SwiftVR diffusion restorer on whole frames, in tiles and overlapping windows; '
+    'it needs --swiftvr-repo. "relayvsr" runs the RelayVSR streaming super-resolution model on whole '
+    'frames; it needs --relayvsr-repo. Both are far slower than the others, run in a worker beside the '
+    'restoration (about 10 GB of VRAM on top of it), and cannot be combined with --secondary-restoration '
+    'or --frame-generation. jasna-postprocess runs the same two on a finished video.'
+)
+
 DETECTION_MODEL_PATH_HELP = (
     " model_weights/ is searched in: $JASNA_MODEL_WEIGHTS_DIR, next to the executable (frozen build), "
     "CWD, then next to the jasna package."
@@ -297,6 +308,27 @@ def add_secondary_groups(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_upscale_arguments(upscale) -> None:
+    from jasna.session_config import (
+        UPSCALE_SWIFTVR_DEFAULT_TILE_MEGAPIXELS,
+        UPSCALE_SWIFTVR_DEFAULT_WINDOW,
+        UPSCALE_SWIFTVR_WINDOW_OVERLAP,
+    )
+
+    upscale.add_argument(
+        "--upscale-swiftvr-tile", type=float, default=UPSCALE_SWIFTVR_DEFAULT_TILE_MEGAPIXELS, metavar="MP",
+        help="--upscale swiftvr: largest tile SwiftVR restores in one call, in megapixels after upscaling "
+             "(default: %(default)s). The frame is divided evenly into the fewest tiles that fit. Larger "
+             "tiles need more VRAM (FP8: about 7.5 GiB at 1.05, 9.0 GiB at 1.64).",
+    )
+    upscale.add_argument(
+        "--upscale-swiftvr-window", type=int, default=UPSCALE_SWIFTVR_DEFAULT_WINDOW, metavar="N",
+        help="--upscale swiftvr: frames SwiftVR restores per call (default: %(default)s). Neighbouring "
+             f"windows share {UPSCALE_SWIFTVR_WINDOW_OVERLAP} frames and are crossfaded there. 4k+1 values "
+             "avoid padding.",
+    )
+
+
 def add_video_backend_arguments(encoding) -> None:
     encoding.add_argument(
         "--video-backend",
@@ -410,6 +442,8 @@ def session_config_fields(args: argparse.Namespace, restoration_models: dict) ->
         relayvsr_wan_weights=str(getattr(args, "relayvsr_wan_weights", "fp8")),
         relayvsr_kv_cache=str(getattr(args, "relayvsr_kv_cache", "auto")),
         relayvsr_kv_cache_dtype=str(getattr(args, "relayvsr_kv_cache_dtype", "native")),
+        upscale_swiftvr_tile=float(args.upscale_swiftvr_tile),
+        upscale_swiftvr_window=int(args.upscale_swiftvr_window),
         seedvr2_repo=str(getattr(args, "seedvr2_repo", "") or ""),
         seedvr2_python=str(getattr(args, "seedvr2_python", "") or ""),
         seedvr2_model_dir=str(getattr(args, "seedvr2_model_dir", "") or ""),
@@ -669,6 +703,39 @@ def _check_seedvr2(args: argparse.Namespace, *, is_streaming: bool, videos: list
                 )
 
 
+def _check_worker_upscale(args: argparse.Namespace, secondary_name: str) -> None:
+    """``--upscale swiftvr`` / ``relayvsr``: the worker shares the GPU with the restoration, so no
+    secondary restoration and no frame generation run beside it; its checkout is checked here,
+    before the engines compile."""
+    from jasna.session_config import UPSCALE_SWIFTVR_WINDOW_OVERLAP
+
+    upscale = str(args.upscale).lower()
+    if upscale not in UPSCALE_CHOICES:
+        return
+    option = f"--upscale {upscale}"
+    if secondary_name != "none":
+        raise ValueError(
+            f"{option} cannot be combined with --secondary-restoration {secondary_name} "
+            "(the whole-frame worker takes the VRAM a secondary restoration would use)"
+        )
+    if args.frame_generation != "none":
+        raise ValueError(f"{option} cannot be combined with --frame-generation (run frame generation as a separate pass)")
+    if upscale == "swiftvr":
+        if int(args.upscale_swiftvr_window) < 2 * UPSCALE_SWIFTVR_WINDOW_OVERLAP + 1:
+            raise ValueError(f"--upscale-swiftvr-window must be at least {2 * UPSCALE_SWIFTVR_WINDOW_OVERLAP + 1}")
+        if float(args.upscale_swiftvr_tile) <= 0.0:
+            raise ValueError("--upscale-swiftvr-tile must be positive")
+        from jasna.restorer.swiftvr_common import resolve_swiftvr_paths
+
+        resolve_swiftvr_paths(args.swiftvr_repo, args.swiftvr_python, args.swiftvr_model_dir, option=option)
+    else:
+        if int(args.relayvsr_window_size) < 2:
+            raise ValueError("--relayvsr-window-size must be at least 2")
+        from jasna.restorer.relayvsr_common import resolve_relayvsr_paths
+
+        resolve_relayvsr_paths(args.relayvsr_repo, args.relayvsr_python, args.relayvsr_weights_dir, option=option)
+
+
 def check_job_options(
     args: argparse.Namespace, *, restoration_backend: str, is_streaming: bool, videos: list[Path]
 ) -> None:
@@ -688,6 +755,8 @@ def check_job_options(
         if not lora_file.is_file():
             raise FileNotFoundError(f"--flashvsr-lora not found: {lora_arg} (also looked in {lora_file})")
         args.flashvsr_lora = str(lora_file.resolve())
+
+    _check_worker_upscale(args, secondary_name)
 
     if secondary_name == "relayvsr":
         if restoration_backend != "ltx" or args.ltx_auto_split is not None:

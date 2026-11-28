@@ -538,6 +538,7 @@ ZH = {
         "upscale_rtx": "RTX Super Res（NVIDIA）",
         "upscale_dlss5": "DLSS 5（NVIDIA，非官方）",
         "upscale_height": "输出高度",
+        "upscale_height_720": "720p",
         "upscale_height_1080": "1080p",
         "upscale_height_1440": "1440p",
         "upscale_height_2160": "4K（2160p）",

@@ -8,6 +8,7 @@ results there."""
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Protocol
 
@@ -64,6 +65,9 @@ class ClipUpscaleWriter:
         # The previous window's output for the first ``overlap`` buffered frames.
         self._tail: list[torch.Tensor] = []
         self._device: torch.device | None = None
+        self.gpu_turn = threading.Lock()
+        """Held while the upscaler works on a window. A caller whose own GPU work must not
+        overlap the upscaler's peak (the LTX window decode) takes it for that work."""
 
     def write(self, frame: torch.Tensor, pts: int) -> None:
         self._frames.append(frame.cpu())
@@ -72,6 +76,10 @@ class ClipUpscaleWriter:
             self._run(last=False)
 
     def _run(self, *, last: bool) -> None:
+        with self.gpu_turn:
+            self._run_window(last=last)
+
+    def _run_window(self, *, last: bool) -> None:
         count = len(self._frames)
         keep = 0 if last else self._overlap
         tail, self._tail = self._tail, []

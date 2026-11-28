@@ -52,6 +52,15 @@ def _upscale_settings(config: SessionConfig) -> dict[str, object] | None:
         settings.update(
             quality=config.upscale_rtx_quality, denoise=config.upscale_rtx_denoise, deblur=config.upscale_rtx_deblur
         )
+    if config.upscale_model == "swiftvr":  # +modi
+        settings.update(
+            accel=config.swiftvr_accel, tile=config.upscale_swiftvr_tile, window=config.upscale_swiftvr_window
+        )
+    if config.upscale_model == "relayvsr":  # +modi
+        settings.update(
+            window_size=config.relayvsr_window_size, wan_weights=config.relayvsr_wan_weights,
+            kv_cache=config.relayvsr_kv_cache, kv_cache_dtype=config.relayvsr_kv_cache_dtype,
+        )
     if config.upscale_model == "dlss5":
         settings.update(
             preset=config.upscale_dlss5_preset, style=config.upscale_dlss5_style,

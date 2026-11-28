@@ -229,6 +229,11 @@ class RelayvsrWorker:
         if self._streaming:
             self._broken = True
 
+    @property
+    def alive(self) -> bool:
+        """Whether the worker can begin another video (an abandoned one cannot be resumed)."""
+        return not (self._closed or self._broken or self._streaming or self._proc.poll() is not None)
+
     def _kill(self) -> None:
         try:
             self._proc.kill()

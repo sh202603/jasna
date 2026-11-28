@@ -68,7 +68,7 @@ def check_restore_clip_api(repo: Path) -> None:
 
 
 def resolve_swiftvr_paths(
-    repo: str, python: str, model_dir: str, *, mode: str = "swiftvr-inline"
+    repo: str, python: str, model_dir: str, *, mode: str = "swiftvr-inline", option: str | None = None
 ) -> tuple[Path, Path, Path]:
     """Validate the ``--swiftvr-*`` inputs; return ``(repo, python, model_dir)``.
 
@@ -76,7 +76,7 @@ def resolve_swiftvr_paths(
     checks and their messages live in one place; ``mode`` names the
     ``--secondary-restoration`` value in them.
     """
-    flag = f"--secondary-restoration {mode}"
+    flag = option or f"--secondary-restoration {mode}"  # ``option``: another caller (--upscale swiftvr)
     if not str(repo or "").strip():
         raise ValueError(f"--swiftvr-repo is required for {flag}")
     repo_path = Path(str(repo)).expanduser()

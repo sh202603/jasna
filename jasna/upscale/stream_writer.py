@@ -10,6 +10,7 @@ frames that have not come out yet."""
 
 from __future__ import annotations
 
+import threading
 from collections import deque
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Protocol
@@ -41,11 +42,14 @@ class StreamUpscaleWriter:
         self._writer = writer
         self._upscaler = upscaler
         self._pts: deque[int] = deque()
+        self.gpu_turn = threading.Lock()
+        """Held while the upscaler takes a frame (``ClipUpscaleWriter.gpu_turn``)."""
 
     def write(self, frame: torch.Tensor, pts: int) -> None:
         self._pts.append(int(pts))
-        for upscaled in self._upscaler.push(frame):
-            self._writer.write(upscaled, self._pts.popleft())
+        with self.gpu_turn:
+            for upscaled in self._upscaler.push(frame):
+                self._writer.write(upscaled, self._pts.popleft())
 
     def after_write(self, frames_written: int, stop_event) -> None:
         after_write = getattr(self._writer, "after_write", None)
@@ -53,8 +57,9 @@ class StreamUpscaleWriter:
             after_write(frames_written, stop_event)
 
     def finish(self) -> None:
-        for upscaled in self._upscaler.finish():
-            self._writer.write(upscaled, self._pts.popleft())
+        with self.gpu_turn:
+            for upscaled in self._upscaler.finish():
+                self._writer.write(upscaled, self._pts.popleft())
         if self._pts:
             raise RuntimeError(f"the upscaler kept {len(self._pts)} frame(s) at the end of the video")
         self._writer.finish()
