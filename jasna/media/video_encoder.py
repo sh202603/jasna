@@ -259,6 +259,7 @@ class VideoEncoder:
             "rate": self.output_fps,
             "options": dict(self.encoder_options),
         }
+        self._software = self.encoder_name.startswith(("libx264", "libx265", "libsvtav1"))
         if self.vendor is AcceleratorVendor.AMD:
             stream_kwargs["hwaccel"] = HWAccel(
                 "amf",
@@ -266,6 +267,8 @@ class VideoEncoder:
                 allow_software_fallback=False,
                 is_hw_owned=False,
             )
+            pix_fmt = self.spec.frame_format
+        elif getattr(self, "_software", False):
             pix_fmt = self.spec.frame_format
         else:
             pix_fmt = "cuda"
@@ -332,7 +335,7 @@ class VideoEncoder:
         if self._cas is not None:
             with stream_context(self.stream):
                 self._cas_luma = torch.empty((height, width), dtype=self._converter.sample_dtype, device=self.device)
-        if self.vendor is AcceleratorVendor.NVIDIA:
+        if self.vendor is AcceleratorVendor.NVIDIA and not self._software:
             from av.video.frame import CudaContext
 
             self._cuda_ctx = CudaContext(
@@ -503,7 +506,7 @@ class VideoEncoder:
             if self._lut_applier is not None:
                 frame = self._lut_applier.apply(frame)
             packed = self._to_yuv(frame, height)
-            if self.vendor is AcceleratorVendor.NVIDIA:
+            if self.vendor is AcceleratorVendor.NVIDIA and not self._software:
                 if self.spec.frame_format == "p010le":
                     planes = [
                         packed[:height].view(torch.uint16),

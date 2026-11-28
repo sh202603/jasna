@@ -115,7 +115,9 @@ class FfprobeStatus:
 
     @property
     def ok(self) -> bool:
-        return self.major == FFPROBE_MAJOR_VERSION
+        # Accept any ffmpeg >= 8: WoA distributions (e.g. Gyan ARM64 builds) may
+        # lag one major behind and work fine; only older majors are a problem.
+        return self.major is not None and self.major >= FFPROBE_MAJOR_VERSION
 
 
 def ffprobe_status() -> FfprobeStatus:
@@ -159,7 +161,7 @@ def check_required_executables(disable_ffmpeg_check: bool = False) -> None:
         sys.exit(1)
     if not status.ok:
         detected = "could not detect major version" if status.major is None else f"detected major={status.major}"
-        print(f"Error: ffprobe major version must be exactly 8 (or detectable as 8): ffprobe ({detected})")
+        print(f"Error: ffprobe major version must be {FFPROBE_MAJOR_VERSION} or newer: ffprobe ({detected})")
         print(FFMPEG_DOWNLOAD_LINKS)
         sys.exit(1)
 
